@@ -5,6 +5,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/tcp.h>
+#include <sys/resource.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cerrno>
@@ -118,6 +119,16 @@ Server::~Server() {
 std::error_code Server::start() {
     if (running_) {
         return {};
+    }
+
+    // Increase file descriptor limit to handle extreme concurrency
+    // Default limit is often too low (1024) for high-connection scenarios
+    struct rlimit fd_limit;
+    fd_limit.rlim_cur = 65536;  // Soft limit
+    fd_limit.rlim_max = 65536;  // Hard limit
+    if (setrlimit(RLIMIT_NOFILE, &fd_limit) < 0) {
+        // Log warning but continue - not critical
+        // In production, this should be set via systemd LimitNOFILE or ulimit
     }
 
     listen_fd_ = create_listening_socket(

@@ -21,6 +21,14 @@ namespace titan::core {
 
 extern std::atomic<bool> g_server_running;
 
+// Worker thread function - runs event loop for one worker
+// Each worker has its own Server instance and epoll/kqueue instance
+#ifdef __linux__
+static void run_worker_thread(const control::Config& config, int worker_id);
+#elif defined(__APPLE__) || defined(__FreeBSD__)
+static void run_worker_thread(const control::Config& config, int worker_id);
+#endif
+
 #ifdef __linux__
 // Linux epoll-based event loop (O(1) scalability)
 std::error_code run_simple_server(const control::Config& config) {
@@ -53,7 +61,9 @@ std::error_code run_simple_server(const control::Config& config) {
     g_server_running = true;
     std::unordered_set<int> active_fds;
 
-    constexpr int MAX_EVENTS = 128;
+    // Increased from 128 to 4096 for better scalability under extreme load
+    // With 5000 concurrent connections, we can now process more events per epoll_wait call
+    constexpr int MAX_EVENTS = 4096;
     epoll_event events[MAX_EVENTS];
 
     while (g_server_running) {
@@ -163,7 +173,8 @@ std::error_code run_simple_server(const control::Config& config) {
     g_server_running = true;
     std::unordered_set<int> active_fds;
 
-    constexpr int MAX_EVENTS = 128;
+    // Increased from 128 to 4096 for better scalability under extreme load
+    constexpr int MAX_EVENTS = 4096;
     struct kevent events[MAX_EVENTS];
     struct timespec timeout{1, 0};  // 1 second timeout
 

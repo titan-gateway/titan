@@ -194,7 +194,7 @@ Backend* RandomBalancer::select(
 Upstream::Upstream(std::string name)
     : name_(std::move(name))
     , balancer_(std::make_unique<RoundRobinBalancer>())
-    , pool_(100) {}
+    , pool_(2000) {}  // Increased from 100 to 2000 to handle extreme concurrency
 
 Upstream::~Upstream() = default;
 

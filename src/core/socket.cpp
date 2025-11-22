@@ -19,12 +19,22 @@ int create_listening_socket(std::string_view address, uint16_t port, int backlog
         return -1;
     }
 
-    // SO_REUSEADDR
+    // SO_REUSEADDR - allows binding to same address immediately after restart
     int opt = 1;
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
         close(fd);
         return -1;
     }
+
+#ifdef SO_REUSEPORT
+    // SO_REUSEPORT - allows multiple processes/threads to bind to same port
+    // Kernel will load-balance incoming connections across all listening sockets
+    // This enables true multi-worker architecture for horizontal CPU scaling
+    if (setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt)) < 0) {
+        close(fd);
+        return -1;
+    }
+#endif
 
     // Bind
     sockaddr_in addr{};
