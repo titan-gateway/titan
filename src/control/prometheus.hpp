@@ -1,0 +1,242 @@
+// Titan Prometheus Exporter - Header
+// Formats metrics in Prometheus text exposition format
+
+#pragma once
+
+#include "metrics.hpp"
+
+#include <sstream>
+#include <string>
+#include <string_view>
+
+namespace titan::control {
+
+/// Prometheus metric types
+enum class PrometheusType {
+    Counter,   // Monotonically increasing counter
+    Gauge,     // Value that can go up or down
+    Histogram, // Observations in buckets
+    Summary    // Quantile summaries
+};
+
+/// Prometheus exporter
+class PrometheusExporter {
+public:
+    PrometheusExporter() = default;
+    ~PrometheusExporter() = default;
+
+    // Non-copyable, non-movable
+    PrometheusExporter(const PrometheusExporter&) = delete;
+    PrometheusExporter& operator=(const PrometheusExporter&) = delete;
+
+    /// Export metrics in Prometheus text format
+    [[nodiscard]] static std::string export_metrics(const MetricsSnapshot& metrics,
+                                                     std::string_view namespace_prefix = "titan") {
+        std::ostringstream out;
+
+        // Request metrics (counters)
+        write_metric(out, namespace_prefix, "requests_total",
+            "Total number of HTTP requests",
+            PrometheusType::Counter,
+            metrics.total_requests);
+
+        write_metric(out, namespace_prefix, "errors_total",
+            "Total number of errors",
+            PrometheusType::Counter,
+            metrics.total_errors);
+
+        write_metric(out, namespace_prefix, "timeouts_total",
+            "Total number of timeouts",
+            PrometheusType::Counter,
+            metrics.total_timeouts);
+
+        // Connection metrics
+        write_metric(out, namespace_prefix, "connections_active",
+            "Current number of active connections",
+            PrometheusType::Gauge,
+            metrics.active_connections);
+
+        write_metric(out, namespace_prefix, "connections_total",
+            "Total number of connections",
+            PrometheusType::Counter,
+            metrics.total_connections);
+
+        write_metric(out, namespace_prefix, "connections_rejected_total",
+            "Total number of rejected connections",
+            PrometheusType::Counter,
+            metrics.rejected_connections);
+
+        // Latency metrics (microseconds)
+        write_metric(out, namespace_prefix, "latency_microseconds_total",
+            "Total latency in microseconds",
+            PrometheusType::Counter,
+            metrics.total_latency_us);
+
+        write_metric(out, namespace_prefix, "latency_microseconds_min",
+            "Minimum latency in microseconds",
+            PrometheusType::Gauge,
+            metrics.min_latency_us);
+
+        write_metric(out, namespace_prefix, "latency_microseconds_max",
+            "Maximum latency in microseconds",
+            PrometheusType::Gauge,
+            metrics.max_latency_us);
+
+        // Average latency (derived)
+        write_metric(out, namespace_prefix, "latency_microseconds_avg",
+            "Average latency in microseconds",
+            PrometheusType::Gauge,
+            metrics.avg_latency_us());
+
+        // Bandwidth metrics
+        write_metric(out, namespace_prefix, "bytes_received_total",
+            "Total bytes received",
+            PrometheusType::Counter,
+            metrics.bytes_received);
+
+        write_metric(out, namespace_prefix, "bytes_sent_total",
+            "Total bytes sent",
+            PrometheusType::Counter,
+            metrics.bytes_sent);
+
+        // HTTP status code metrics
+        write_metric(out, namespace_prefix, "http_responses_total",
+            "Total HTTP responses by status class",
+            PrometheusType::Counter,
+            metrics.status_2xx,
+            {{"code", "2xx"}});
+
+        write_metric(out, namespace_prefix, "http_responses_total",
+            "Total HTTP responses by status class",
+            PrometheusType::Counter,
+            metrics.status_3xx,
+            {{"code", "3xx"}});
+
+        write_metric(out, namespace_prefix, "http_responses_total",
+            "Total HTTP responses by status class",
+            PrometheusType::Counter,
+            metrics.status_4xx,
+            {{"code", "4xx"}});
+
+        write_metric(out, namespace_prefix, "http_responses_total",
+            "Total HTTP responses by status class",
+            PrometheusType::Counter,
+            metrics.status_5xx,
+            {{"code", "5xx"}});
+
+        // Error rate (derived)
+        write_metric(out, namespace_prefix, "error_rate",
+            "Error rate (errors/requests)",
+            PrometheusType::Gauge,
+            metrics.error_rate());
+
+        return out.str();
+    }
+
+private:
+    /// Label for Prometheus metrics
+    struct Label {
+        std::string name;
+        std::string value;
+    };
+
+    /// Write HELP and TYPE lines
+    static void write_header(std::ostringstream& out,
+                            std::string_view namespace_prefix,
+                            std::string_view metric_name,
+                            std::string_view help,
+                            PrometheusType type) {
+        // HELP line
+        out << "# HELP " << namespace_prefix << "_" << metric_name << " " << help << "\n";
+
+        // TYPE line
+        out << "# TYPE " << namespace_prefix << "_" << metric_name << " ";
+        switch (type) {
+            case PrometheusType::Counter:
+                out << "counter";
+                break;
+            case PrometheusType::Gauge:
+                out << "gauge";
+                break;
+            case PrometheusType::Histogram:
+                out << "histogram";
+                break;
+            case PrometheusType::Summary:
+                out << "summary";
+                break;
+        }
+        out << "\n";
+    }
+
+    /// Write metric with uint64_t value
+    static void write_metric(std::ostringstream& out,
+                           std::string_view namespace_prefix,
+                           std::string_view metric_name,
+                           std::string_view help,
+                           PrometheusType type,
+                           uint64_t value,
+                           const std::vector<Label>& labels = {}) {
+        static std::string last_metric;
+        std::string full_name = std::string(namespace_prefix) + "_" + std::string(metric_name);
+
+        // Only write header if this is a new metric
+        if (full_name != last_metric) {
+            write_header(out, namespace_prefix, metric_name, help, type);
+            last_metric = full_name;
+        }
+
+        // Metric line
+        out << full_name;
+
+        // Labels
+        if (!labels.empty()) {
+            out << "{";
+            for (size_t i = 0; i < labels.size(); ++i) {
+                out << labels[i].name << "=\"" << labels[i].value << "\"";
+                if (i < labels.size() - 1) {
+                    out << ",";
+                }
+            }
+            out << "}";
+        }
+
+        out << " " << value << "\n";
+    }
+
+    /// Write metric with double value
+    static void write_metric(std::ostringstream& out,
+                           std::string_view namespace_prefix,
+                           std::string_view metric_name,
+                           std::string_view help,
+                           PrometheusType type,
+                           double value,
+                           const std::vector<Label>& labels = {}) {
+        static std::string last_metric;
+        std::string full_name = std::string(namespace_prefix) + "_" + std::string(metric_name);
+
+        // Only write header if this is a new metric
+        if (full_name != last_metric) {
+            write_header(out, namespace_prefix, metric_name, help, type);
+            last_metric = full_name;
+        }
+
+        // Metric line
+        out << full_name;
+
+        // Labels
+        if (!labels.empty()) {
+            out << "{";
+            for (size_t i = 0; i < labels.size(); ++i) {
+                out << labels[i].name << "=\"" << labels[i].value << "\"";
+                if (i < labels.size() - 1) {
+                    out << ",";
+                }
+            }
+            out << "}";
+        }
+
+        out << " " << value << "\n";
+    }
+};
+
+} // namespace titan::control

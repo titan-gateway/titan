@@ -1,0 +1,27 @@
+# Unit test executable
+add_executable(titan_tests
+  test_main.cpp
+  test_memory.cpp
+  test_core.cpp
+  test_http.cpp
+  test_h2.cpp
+  test_tls.cpp
+  test_gateway.cpp
+  test_keepalive.cpp
+  test_config.cpp
+  test_health.cpp
+  test_metrics.cpp
+  test_prometheus.cpp
+  test_rate_limit.cpp
+  test_proxy.cpp
+)
+
+target_link_libraries(titan_tests
+  PRIVATE
+    titan_lib
+    Catch2::Catch2WithMain
+)
+
+# Register with CTest
+include(Catch)
+catch_discover_tests(titan_tests)

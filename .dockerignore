@@ -1,0 +1,23 @@
+# Build artifacts
+build/
+cmake-build-*/
+
+# vcpkg
+vcpkg_installed/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+*.md
+!CLAUDE.md
+
+# Tests output
+Testing/
