@@ -1,3 +1,20 @@
+/*
+ * Copyright 2025 Titan Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
 // Titan Server - Implementation
 
 #include "server.hpp"
@@ -10,6 +27,13 @@
 #include <unistd.h>
 #include <cerrno>
 #include <cstring>
+#include <iostream>
+
+#ifdef __linux__
+#include <sys/epoll.h>
+#elif defined(__APPLE__) || defined(__FreeBSD__)
+#include <sys/event.h>
+#endif
 
 namespace titan::core {
 
@@ -75,7 +99,13 @@ Server::Server(const control::Config& config)
 
     // Build upstreams from config
     for (const auto& upstream_config : config_.upstreams) {
-        auto upstream = std::make_unique<gateway::Upstream>(upstream_config.name);
+        // Calculate pool size as max of all backend max_connections
+        size_t pool_size = 64; // Default
+        for (const auto& backend_config : upstream_config.backends) {
+            pool_size = std::max(pool_size, static_cast<size_t>(backend_config.max_connections));
+        }
+
+        auto upstream = std::make_unique<gateway::Upstream>(upstream_config.name, pool_size);
 
         for (const auto& backend_config : upstream_config.backends) {
             gateway::Backend backend;
@@ -86,11 +116,33 @@ Server::Server(const control::Config& config)
             upstream->add_backend(std::move(backend));
         }
 
+        // Set load balancing strategy from config
+        if (upstream_config.load_balancing == "least_connections") {
+            upstream->set_load_balancer(std::make_unique<gateway::LeastConnectionsBalancer>());
+        } else if (upstream_config.load_balancing == "random") {
+            upstream->set_load_balancer(std::make_unique<gateway::RandomBalancer>());
+        } else if (upstream_config.load_balancing == "weighted_round_robin") {
+            upstream->set_load_balancer(std::make_unique<gateway::WeightedRoundRobinBalancer>());
+        }
+        // else: defaults to RoundRobinBalancer (set in Upstream constructor)
+
         upstream_manager_->register_upstream(std::move(upstream));
     }
 
-    // Build middleware pipeline
-    // TODO: Add middleware based on config
+    // Build middleware pipeline (Two-Phase: Request → Response)
+    // Order matters: middleware runs in order added
+    pipeline_->use(std::make_unique<gateway::LoggingMiddleware>());
+    pipeline_->use(std::make_unique<gateway::CorsMiddleware>());
+
+    // Rate limiting (only if enabled in config)
+    if (config_.rate_limit.enabled && config_.rate_limit.requests_per_second > 0) {
+        gateway::RateLimitMiddleware::Config rl_config;
+        rl_config.requests_per_second = config_.rate_limit.requests_per_second;
+        rl_config.burst_size = config_.rate_limit.burst_size;
+        pipeline_->use(std::make_unique<gateway::RateLimitMiddleware>(rl_config));
+    }
+
+    pipeline_->use(std::make_unique<gateway::ProxyMiddleware>(upstream_manager_.get()));
 
     // Initialize TLS if enabled
     if (config_.server.tls_enabled) {
@@ -110,10 +162,29 @@ Server::Server(const control::Config& config)
             throw std::runtime_error("Failed to initialize TLS context: " + error.message());
         }
     }
+
+    // Phase 2: Create backend epoll/kqueue instance for non-blocking backend I/O
+#ifdef __linux__
+    backend_epoll_fd_ = epoll_create1(0);
+    if (backend_epoll_fd_ < 0) {
+        throw std::runtime_error("Failed to create backend epoll instance");
+    }
+#elif defined(__APPLE__) || defined(__FreeBSD__)
+    backend_epoll_fd_ = kqueue();
+    if (backend_epoll_fd_ < 0) {
+        throw std::runtime_error("Failed to create backend kqueue instance");
+    }
+#endif
 }
 
 Server::~Server() {
     stop();
+
+    // Close backend epoll/kqueue instance
+    if (backend_epoll_fd_ >= 0) {
+        close(backend_epoll_fd_);
+        backend_epoll_fd_ = -1;
+    }
 }
 
 std::error_code Server::start() {
@@ -399,40 +470,56 @@ void Server::process_http2_stream(Connection& conn, http::H2Stream& stream) {
     if (match.handler_id.empty()) {
         // No route matched - 404
         stream.response.status = http::StatusCode::NotFound;
+        stream.response_complete = true;
+        auto ec = conn.h2_session->submit_response(stream.stream_id, stream.response);
+        (void)ec;
     } else if (!match.upstream_name.empty()) {
-        // Proxy to backend
-        ctx.set_metadata("upstream", std::string(match.upstream_name));
+        // Proxy to backend - ASYNC for HTTP/2
 
-        // Create temporary connection for proxy logic
-        // We need conn.request and conn.response_body to be populated
-        // The proxy_to_backend will populate conn.response and conn.response_body
-        Connection temp_conn;
-        temp_conn.request = stream.request;
-        temp_conn.remote_ip = conn.remote_ip;
-        temp_conn.remote_port = conn.remote_port;
+        // Execute request middleware pipeline first
+        auto result = pipeline_->execute_request(ctx);
 
-        bool success = proxy_to_backend(temp_conn, ctx);
+        if (result != gateway::MiddlewareResult::Continue) {
+            // Middleware stopped request (e.g., rate limit, auth failure)
+            // Response was set by middleware
+            stream.response_complete = true;
+            auto ec = conn.h2_session->submit_response(stream.stream_id, stream.response);
+            (void)ec;
+            return;
+        }
 
-        if (success) {
-            // Move response from temp connection to stream
-            stream.response = std::move(temp_conn.response);
-            stream.response_body = std::move(temp_conn.response_body);
-            // Fix span to point to new location (span is invalidated by move)
-            stream.response.body = stream.response_body;
+        // Initiate async proxy - response will be sent later when backend responds
+        // Copy stream.request to conn.request for proxy_to_backend (HTTP/1.1 compatibility)
+        conn.request = stream.request;
+
+        bool proxy_initiated = proxy_to_backend(conn, ctx);
+
+        if (proxy_initiated && conn.backend_conn) {
+            // HTTP/2 FIX: Move backend connection to per-stream map
+            // This prevents stream state from being overwritten by concurrent requests
+            int backend_fd = conn.backend_conn->backend_fd;
+            auto stream_backend = std::move(conn.backend_conn);
+            stream_backend->stream_id = stream.stream_id;
+            conn.h2_stream_backends[stream.stream_id] = std::move(stream_backend);
+
+            // CRITICAL: Update backend_connections_ map with (client_fd, stream_id)
+            backend_connections_[backend_fd] = {conn.fd, stream.stream_id};
+
+            // Don't submit response yet - will be done in handle_backend_event()
+            return;
         } else {
-            // Proxying failed - return 502
+            // Proxy initiation failed - return 502 immediately
             stream.response.status = http::StatusCode::BadGateway;
+            stream.response_complete = true;
+            auto ec = conn.h2_session->submit_response(stream.stream_id, stream.response);
+            (void)ec;
         }
     } else {
         // Direct response
         stream.response.status = http::StatusCode::OK;
-    }
-
-    // Submit response to HTTP/2 session
-    stream.response_complete = true;
-    auto ec = conn.h2_session->submit_response(stream.stream_id, stream.response);
-    if (ec) {
-        // Failed to submit response - log error (TODO: proper error handling)
+        stream.response_complete = true;
+        auto ec = conn.h2_session->submit_response(stream.stream_id, stream.response);
+        (void)ec;
     }
 }
 
@@ -442,6 +529,69 @@ void Server::handle_close(int client_fd) {
         return;
     }
 
+    Connection& conn = *it->second;
+
+    // Log connection close with protocol and HTTP/2 status
+    if (conn.protocol == Protocol::HTTP_2) {
+        const char* reason = "UNKNOWN";
+        if (conn.h2_session && conn.h2_session->should_close()) {
+            reason = "HTTP2_GOAWAY";
+        } else if (!conn.tls_handshake_complete) {
+            reason = "TLS_INCOMPLETE";
+        } else {
+            reason = "NORMAL_CLOSE";
+        }
+    }
+
+    // Phase 2: Clean up backend connection if exists (HTTP/1.1)
+    if (conn.backend_conn) {
+        int backend_fd = conn.backend_conn->backend_fd;
+
+        // Remove from backend_connections map
+        backend_connections_.erase(backend_fd);
+
+        // Remove from backend epoll (if added)
+#ifdef __linux__
+        epoll_ctl(backend_epoll_fd_, EPOLL_CTL_DEL, backend_fd, nullptr);
+#elif defined(__APPLE__) || defined(__FreeBSD__)
+        struct kevent kev;
+        EV_SET(&kev, backend_fd, EVFILT_READ, EV_DELETE, 0, 0, nullptr);
+        kevent(backend_epoll_fd_, &kev, 1, nullptr, 0, nullptr);
+        EV_SET(&kev, backend_fd, EVFILT_WRITE, EV_DELETE, 0, 0, nullptr);
+        kevent(backend_epoll_fd_, &kev, 1, nullptr, 0, nullptr);
+#endif
+
+        // Close backend socket
+        close(backend_fd);
+
+        // Reset will be automatic when Connection is destroyed
+    }
+
+    // HTTP/2 FIX: Clean up all HTTP/2 stream backend connections
+    for (auto& [stream_id, stream_backend] : conn.h2_stream_backends) {
+        if (stream_backend) {
+            int backend_fd = stream_backend->backend_fd;
+
+            // Remove from backend_connections map
+            backend_connections_.erase(backend_fd);
+
+            // Remove from backend epoll (if added)
+#ifdef __linux__
+            epoll_ctl(backend_epoll_fd_, EPOLL_CTL_DEL, backend_fd, nullptr);
+#elif defined(__APPLE__) || defined(__FreeBSD__)
+            struct kevent kev;
+            EV_SET(&kev, backend_fd, EVFILT_READ, EV_DELETE, 0, 0, nullptr);
+            kevent(backend_epoll_fd_, &kev, 1, nullptr, 0, nullptr);
+            EV_SET(&kev, backend_fd, EVFILT_WRITE, EV_DELETE, 0, 0, nullptr);
+            kevent(backend_epoll_fd_, &kev, 1, nullptr, 0, nullptr);
+#endif
+
+            // Close backend socket
+            close(backend_fd);
+        }
+    }
+    // Map will be cleared when Connection is destroyed
+
     // Clean up SSL connection if exists
     ssl_connections_.erase(client_fd);
 
@@ -450,7 +600,27 @@ void Server::handle_close(int client_fd) {
 }
 
 bool Server::process_request(Connection& conn) {
-    // Match route
+    // Internal health endpoint (for K8s liveness/readiness probes)
+    // Uses scalar comparison (8 bytes < 16 byte SIMD threshold)
+    if (conn.request.path == "/_health" && conn.request.method == http::Method::GET) {
+        conn.response.status = http::StatusCode::OK;
+        conn.response.version = http::Version::HTTP_1_1;
+        conn.response.headers.clear();
+        conn.response.headers.push_back({"Content-Type", "application/json"});
+
+        // Simple health response
+        std::string body = R"({"status":"healthy","version":"0.1.0"})";
+        conn.response.body = std::vector<uint8_t>(body.begin(), body.end());
+
+        char content_length[32];
+        snprintf(content_length, sizeof(content_length), "%zu", conn.response.body.size());
+        conn.response.headers.push_back({"Content-Length", content_length});
+
+        send_response(conn, true); // Always keep-alive for health checks
+        return true;
+    }
+
+    // Match route (uses SIMD-accelerated router for longer paths)
     auto match = router_->match(conn.request.method, conn.request.path);
 
     // Build request context
@@ -484,28 +654,49 @@ bool Server::process_request(Connection& conn) {
         }
     }
 
-    if (match.handler_id.empty()) {
-        // No route matched - 404
+    // Execute request middleware (Phase 1: Before proxy)
+    auto middleware_result = pipeline_->execute_request(ctx);
+
+    if (middleware_result == gateway::MiddlewareResult::Stop) {
+        // Middleware handled the request (e.g., auth failure, rate limit)
+        // Response status/body already set by middleware
         send_response(conn, client_wants_keepalive);
         return client_wants_keepalive;
     }
 
-    // Proxy to backend if upstream is configured
-    if (!match.upstream_name.empty()) {
-        ctx.set_metadata("upstream", std::string(match.upstream_name));
+    if (middleware_result == gateway::MiddlewareResult::Error) {
+        // Middleware error
+        conn.response.status = http::StatusCode::InternalServerError;
+        send_response(conn, client_wants_keepalive);
+        return client_wants_keepalive;
+    }
 
+    // Check if middleware set upstream (ProxyMiddleware sets ctx.upstream)
+    if (ctx.upstream != nullptr) {
+        // Save keep-alive decision for async response (will be used by handle_backend_event)
+        conn.keep_alive = client_wants_keepalive;
+
+        // Proxy to backend (async operation)
         bool success = proxy_to_backend(conn, ctx);
         if (!success) {
-            // Proxying failed, return 502 Bad Gateway
+            // Proxying failed synchronously, return 502 Bad Gateway
             conn.response.status = http::StatusCode::BadGateway;
+            send_response(conn, client_wants_keepalive);
+            return client_wants_keepalive;
         }
 
-        send_response(conn, client_wants_keepalive);
-        return client_wants_keepalive;
+        // Async proxy initiated successfully
+        // Response will be sent later by handle_backend_event()
+        // Return true to keep connection alive for async response
+        return true;
     }
 
-    // No upstream configured - return stub response
-    conn.response.status = http::StatusCode::OK;
+    // No upstream configured - return direct response or 404
+    if (match.handler_id.empty()) {
+        conn.response.status = http::StatusCode::NotFound;
+    } else {
+        conn.response.status = http::StatusCode::OK;
+    }
     send_response(conn, client_wants_keepalive);
     return client_wants_keepalive;
 }
@@ -578,105 +769,80 @@ void Server::send_response(Connection& conn, bool keep_alive) {
 }
 
 bool Server::proxy_to_backend(Connection& conn, gateway::RequestContext& ctx) {
-    // Get upstream name from context
-    auto upstream_name = ctx.get_metadata("upstream");
-    if (upstream_name.empty()) {
-        return false;
-    }
+    // Phase 2: Async proxy - return immediately, handle in backend_epoll
 
-    // Get upstream from manager
-    auto* upstream = upstream_manager_->get_upstream(upstream_name);
+    // Get upstream from context (set by ProxyMiddleware)
+    auto* upstream = ctx.upstream;
     if (!upstream) {
         return false;
     }
 
-    // Get connection from pool (might be cached!)
-    auto* backend_conn = upstream->get_connection(conn.remote_ip);
-    if (!backend_conn || !backend_conn->backend) {
+    // Get backend from upstream (for now, just use first backend)
+    // TODO: Implement proper load balancing
+    const auto& backends = upstream->backends();
+    if (backends.empty()) {
         return false;
     }
+    const auto& backend = backends[0];
 
-    // Check if connection is valid and reusable
-    if (!backend_conn->is_valid()) {
-        // Need to establish new connection
-        backend_conn->sockfd = connect_to_backend(
-            backend_conn->backend->host,
-            backend_conn->backend->port);
+    // Create async backend connection
+    conn.backend_conn = std::make_unique<BackendConnection>();
+    conn.backend_conn->client_fd = conn.fd;
+    conn.backend_conn->upstream_name = std::string(upstream->name());
+    conn.backend_conn->backend_host = backend.host;
+    conn.backend_conn->backend_port = backend.port;
 
-        if (backend_conn->sockfd < 0) {
-            upstream->release_connection(backend_conn);
+    // Store timing and metadata for response middleware
+    conn.backend_conn->start_time = ctx.start_time;
+    conn.backend_conn->metadata = ctx.metadata;
+
+    // Phase 3.0: Try to acquire from pool first
+    conn.backend_conn->backend_fd = upstream->backend_pool().acquire(backend.host, backend.port);
+
+    if (conn.backend_conn->backend_fd < 0) {
+        // Pool empty - initiate non-blocking connect
+        conn.backend_conn->backend_fd = connect_to_backend_async(backend.host, backend.port);
+        if (conn.backend_conn->backend_fd < 0) {
+            conn.backend_conn.reset();
             return false;
         }
-
-        backend_conn->created_at = std::chrono::steady_clock::now();
+        // Mark as needing to connect
+        conn.backend_conn->connect_pending = true;
     } else {
-        // Connection exists - only validate if it's been idle for a while
-        // Frequent reuse doesn't need validation (reduces syscall overhead)
-        auto now = std::chrono::steady_clock::now();
-        auto idle_duration = now - backend_conn->last_used;
+        // Acquired from pool - connection is established but removed from epoll
+        conn.backend_conn->connect_pending = false;
 
-        if (idle_duration > kConnectionStaleThreshold) {
-            // Connection might be stale - use MSG_PEEK to check if still alive
-            char peek_buf[1];
-            ssize_t peek_result = recv(backend_conn->sockfd, peek_buf, 1, MSG_PEEK | MSG_DONTWAIT);
-
-            // If peek returns 0, connection was closed by peer
-            // If peek returns -1 with EAGAIN/EWOULDBLOCK, connection is alive but no data
-            // If peek returns -1 with other errors, connection is broken
-            if (peek_result == 0 || (peek_result < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
-                // Connection is dead, close it and reconnect
-                close_fd(backend_conn->sockfd);
-                backend_conn->sockfd = connect_to_backend(
-                    backend_conn->backend->host,
-                    backend_conn->backend->port);
-
-                if (backend_conn->sockfd < 0) {
-                    upstream->release_connection(backend_conn);
-                    return false;
-                }
-
-                backend_conn->created_at = std::chrono::steady_clock::now();
-            }
-        }
-        // If connection was recently used, trust it's still valid
-        // send() will fail if it's not, and we'll reconnect then
+        // Reset state from previous request
+        conn.backend_conn->send_cursor = 0;
+        conn.backend_conn->send_buffer.clear();
+        conn.backend_conn->recv_buffer.clear();
+        conn.backend_conn->send_pending = false;
+        conn.backend_conn->recv_pending = false;
     }
 
-    // Build HTTP request to send to backend
+    // Build request and store in send buffer
     std::string request_str = build_backend_request(conn.request);
+    conn.backend_conn->send_buffer.assign(
+        reinterpret_cast<const uint8_t*>(request_str.data()),
+        reinterpret_cast<const uint8_t*>(request_str.data() + request_str.size()));
 
-    // Send request to backend
-    ssize_t sent = send(backend_conn->sockfd, request_str.data(), request_str.size(), 0);
-    if (sent < 0 || static_cast<size_t>(sent) != request_str.size()) {
-        // Send failed - close connection and release
-        close_fd(backend_conn->sockfd);
-        backend_conn->sockfd = -1;
-        upstream->release_connection(backend_conn);
+    // Mark as pending send (connect_pending was set above based on pool acquisition)
+    conn.backend_conn->send_pending = true;
+
+    // Add to backend epoll (both new and pooled connections need this)
+    // - New connections: Never been in epoll, need EPOLL_CTL_ADD
+    // - Pooled connections: Were removed from epoll when pooled, need EPOLL_CTL_ADD again
+    if (!add_backend_to_epoll(conn.backend_conn->backend_fd, EPOLLOUT | EPOLLIN)) {
+        close(conn.backend_conn->backend_fd);
+        conn.backend_conn.reset();
         return false;
     }
 
-    // Receive and parse response from backend
-    bool success = receive_backend_response(backend_conn->sockfd, conn.response, conn.response_body);
+    // Register in backend_connections map (client_fd, stream_id=-1 for HTTP/1.1)
+    backend_connections_[conn.backend_conn->backend_fd] = {conn.fd, -1};
 
-    // Update connection state
-    backend_conn->last_used = std::chrono::steady_clock::now();
-    backend_conn->requests_served++;
-
-    if (!success) {
-        // Response parsing failed - close connection
-        close_fd(backend_conn->sockfd);
-        backend_conn->sockfd = -1;
-        upstream->release_connection(backend_conn);
-        return false;
-    }
-
-    // Note: response.body already points into conn.response_body (zero-copy)
-    // The parser sets this correctly to point to just the body portion
-    // We must NOT overwrite it here!
-
-    // Release connection back to pool for reuse
-    upstream->release_connection(backend_conn);
-
+    // Return true - request will be handled asynchronously
+    // handle_backend_event() will be called when backend socket is ready
     return true;
 }
 
@@ -730,6 +896,68 @@ int Server::connect_to_backend(const std::string& host, uint16_t port) {
     // This is critical for API gateway workloads with small messages
     int flag = 1;
     setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(int));
+
+    return sockfd;
+}
+
+int Server::connect_to_backend_async(const std::string& host, uint16_t port) {
+    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0) {
+        return -1;
+    }
+
+    // Make socket non-blocking BEFORE connect
+    if (auto ec = set_nonblocking(sockfd); ec) {
+        close(sockfd);
+        return -1;
+    }
+
+    // Enable TCP_NODELAY immediately
+    int flag = 1;
+    setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(int));
+
+    // Resolve address (same as blocking version)
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+
+    // Try direct IP first
+    if (inet_pton(AF_INET, host.c_str(), &addr.sin_addr) != 1) {
+        // Check DNS cache
+        auto cache_it = dns_cache_.find(host);
+        if (cache_it != dns_cache_.end()) {
+            addr = cache_it->second;
+            addr.sin_port = htons(port);
+        } else {
+            // DNS resolution (still blocking for now - TODO: async DNS)
+            struct addrinfo hints{}, *result = nullptr;
+            hints.ai_family = AF_INET;
+            hints.ai_socktype = SOCK_STREAM;
+
+            if (getaddrinfo(host.c_str(), nullptr, &hints, &result) != 0 || !result) {
+                close(sockfd);
+                return -1;
+            }
+
+            addr = *reinterpret_cast<struct sockaddr_in*>(result->ai_addr);
+            addr.sin_port = htons(port);
+            freeaddrinfo(result);
+
+            dns_cache_[host] = addr;
+        }
+    }
+
+    // Non-blocking connect - will return EINPROGRESS
+    int result = connect(sockfd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr));
+
+    if (result < 0) {
+        // EINPROGRESS is expected for non-blocking connect
+        if (errno != EINPROGRESS) {
+            close(sockfd);
+            return -1;
+        }
+        // Connection in progress - epoll will notify when ready
+    }
 
     return sockfd;
 }
@@ -887,6 +1115,391 @@ bool Server::receive_backend_response(int backend_fd, http::Response& response, 
     }
 
     return result == http::ParseResult::Complete;
+}
+
+// Phase 2: Backend event handling for dual epoll pattern
+void Server::handle_backend_event(int backend_fd, bool readable, bool writable, bool error) {
+    auto it = backend_connections_.find(backend_fd);
+    if (it == backend_connections_.end()) {
+        return;
+    }
+
+    // Get client_fd and stream_id from map (no longer storing raw pointers)
+    int client_fd = it->second.first;
+    int32_t stream_id = it->second.second;
+
+    auto conn_it = connections_.find(client_fd);
+    if (conn_it == connections_.end()) {
+        // Client connection closed, cleanup backend
+        backend_connections_.erase(it);
+        close(backend_fd);
+        return;
+    }
+
+    Connection& client_conn = *conn_it->second;
+
+    // Get the actual BackendConnection pointer from the appropriate container
+    BackendConnection* backend_conn = nullptr;
+    if (stream_id == -1) {
+        // HTTP/1.1: Get from single backend connection
+        backend_conn = client_conn.backend_conn.get();
+    } else {
+        // HTTP/2: Get from per-stream backends
+        auto stream_it = client_conn.h2_stream_backends.find(stream_id);
+        if (stream_it != client_conn.h2_stream_backends.end()) {
+            backend_conn = stream_it->second.get();
+        }
+    }
+
+    if (!backend_conn) {
+        // Backend connection was already cleaned up, remove from map
+        backend_connections_.erase(it);
+        close(backend_fd);
+        return;
+    }
+
+    // Handle error
+    if (error) {
+        // Backend connection failed or closed
+        backend_connections_.erase(it);
+        close(backend_fd);
+
+        // HTTP/2 FIX: Remove from correct location based on protocol
+        int32_t stream_id = backend_conn->stream_id;
+        if (stream_id >= 0) {
+            // HTTP/2: Remove from per-stream backends
+            client_conn.h2_stream_backends.erase(stream_id);
+        } else {
+            // HTTP/1.1: Remove from single backend connection
+            client_conn.backend_conn.reset();
+        }
+
+        // Send error response to client
+        client_conn.response.status = http::StatusCode::BadGateway;
+        client_conn.response.reason_phrase = "Bad Gateway";
+        client_conn.response.headers.clear();
+        client_conn.response_body.clear();
+        send_response(client_conn, false);
+        return;
+    }
+
+    // Handle connect completion (EPOLLOUT fires when connect finishes)
+    if (writable && backend_conn->connect_pending) {
+        // Check if connect succeeded or failed
+        int connect_error = 0;
+        socklen_t len = sizeof(connect_error);
+        if (getsockopt(backend_fd, SOL_SOCKET, SO_ERROR, &connect_error, &len) < 0) {
+            // getsockopt failed
+            backend_connections_.erase(it);
+            close(backend_fd);
+
+            // HTTP/2 FIX: Remove from correct location
+            int32_t stream_id = backend_conn->stream_id;
+            if (stream_id >= 0) {
+                client_conn.h2_stream_backends.erase(stream_id);
+            } else {
+                client_conn.backend_conn.reset();
+            }
+
+            client_conn.response.status = http::StatusCode::BadGateway;
+            client_conn.response.reason_phrase = "Bad Gateway";
+                client_conn.response.headers.clear();  // Clear any residual headers from middleware                client_conn.response_body.clear();
+            send_response(client_conn, false);
+            return;
+        }
+
+        if (connect_error != 0) {
+            // Connect failed
+            backend_connections_.erase(it);
+            close(backend_fd);
+
+            // HTTP/2 FIX: Remove from correct location
+            int32_t stream_id = backend_conn->stream_id;
+            if (stream_id >= 0) {
+                client_conn.h2_stream_backends.erase(stream_id);
+            } else {
+                client_conn.backend_conn.reset();
+            }
+
+            client_conn.response.status = http::StatusCode::BadGateway;
+            client_conn.response.reason_phrase = "Bad Gateway";
+                client_conn.response.headers.clear();  // Clear any residual headers from middleware                client_conn.response_body.clear();
+            send_response(client_conn, false);
+            return;
+        }
+
+        // Connect succeeded!
+        backend_conn->connect_pending = false;
+        // send_pending is still true, will be handled below
+    }
+
+    // Handle writable (can send request to backend)
+    if (writable && !backend_conn->connect_pending && backend_conn->send_pending) {
+        ssize_t sent = send(backend_fd,
+            backend_conn->send_buffer.data() + backend_conn->send_cursor,
+            backend_conn->send_buffer.size() - backend_conn->send_cursor,
+            MSG_NOSIGNAL);
+
+        if (sent > 0) {
+            backend_conn->send_cursor += sent;
+            if (backend_conn->send_cursor >= backend_conn->send_buffer.size()) {
+                // All data sent, now wait for response
+                backend_conn->send_pending = false;
+                backend_conn->recv_pending = true;
+            }
+        } else if (sent < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+            // Send failed
+            backend_connections_.erase(it);
+            close(backend_fd);
+
+            // HTTP/2 FIX: Remove from correct location
+            int32_t stream_id = backend_conn->stream_id;
+            if (stream_id >= 0) {
+                client_conn.h2_stream_backends.erase(stream_id);
+            } else {
+                client_conn.backend_conn.reset();
+            }
+
+            client_conn.response.status = http::StatusCode::BadGateway;
+            client_conn.response.reason_phrase = "Bad Gateway";
+                client_conn.response.headers.clear();  // Clear any residual headers from middleware                client_conn.response_body.clear();
+            send_response(client_conn, false);
+        }
+    }
+
+    // Handle readable (backend response available)
+    if (readable && backend_conn->recv_pending) {
+        uint8_t chunk[8192];
+        ssize_t n = recv(backend_fd, chunk, sizeof(chunk), MSG_DONTWAIT);
+
+        if (n > 0) {
+            backend_conn->recv_buffer.insert(backend_conn->recv_buffer.end(), chunk, chunk + n);
+
+            // Try parsing response
+            http::Parser parser;
+            http::Response response;
+            auto [result, consumed] = parser.parse_response(
+                std::span<const uint8_t>(backend_conn->recv_buffer), response);
+
+            if (result == http::ParseResult::Complete) {
+                // Response complete - copy response to client connection
+
+                // Copy status and reason
+                client_conn.response.status = response.status;
+                client_conn.response.reason_phrase = response.reason_phrase;
+
+                // CRITICAL: Convert headers from string_views (pointing into backend recv_buffer)
+                // to owned strings stored in Connection, BEFORE we reset backend_conn
+                client_conn.response_header_storage.clear();
+                client_conn.response_header_storage.reserve(response.headers.size());
+                for (const auto& h : response.headers) {
+                    client_conn.response_header_storage.emplace_back(std::string(h.name), std::string(h.value));
+                }
+
+                // Now create Headers with string_views pointing to our owned storage
+                client_conn.response.headers.clear();
+                client_conn.response.headers.reserve(client_conn.response_header_storage.size());
+                for (const auto& [name, value] : client_conn.response_header_storage) {
+                    client_conn.response.headers.push_back({name, value});
+                }
+
+                // Copy body to owned buffer
+                client_conn.response_body.assign(response.body.begin(), response.body.end());
+                client_conn.response.body = client_conn.response_body;
+
+                // Execute response middleware (Phase 2: After backend responds)
+                gateway::ResponseContext resp_ctx;
+                resp_ctx.request = &client_conn.request;
+                resp_ctx.response = &client_conn.response;
+                resp_ctx.client_ip = client_conn.remote_ip;
+                resp_ctx.client_port = client_conn.remote_port;
+                resp_ctx.start_time = backend_conn->start_time;
+                resp_ctx.metadata = backend_conn->metadata;
+
+                (void)pipeline_->execute_response(resp_ctx);
+
+                // Phase 3.0: Return backend connection to pool
+                // CRITICAL: Remove from epoll BEFORE returning to pool!
+                auto* upstream = upstream_manager_->get_upstream(backend_conn->upstream_name);
+                if (upstream) {
+                    // Remove from epoll so pooled connections don't generate spurious events
+                    (void)remove_backend_from_epoll(backend_fd);
+
+                    // Now safe to return to pool
+                    upstream->backend_pool().release(backend_fd,
+                                                     backend_conn->backend_host,
+                                                     backend_conn->backend_port);
+                } else {
+                    // Upstream not found - just close
+                    close(backend_fd);
+                }
+
+                // Cleanup backend connection
+                backend_connections_.erase(it);
+                int32_t stream_id = backend_conn->stream_id;  // Save before reset
+
+                // HTTP/2 FIX: Remove from correct location based on protocol
+                if (stream_id >= 0) {
+                    // HTTP/2: Remove from per-stream backends
+                    client_conn.h2_stream_backends.erase(stream_id);
+                } else {
+                    // HTTP/1.1: Remove from single backend connection
+                    client_conn.backend_conn.reset();
+                }
+
+                // Send response to client
+                if (client_conn.protocol == Protocol::HTTP_2) {
+                    // HTTP/2 - submit response to H2 session
+                    if (client_conn.h2_session && stream_id >= 0) {
+                        auto* stream = client_conn.h2_session->get_stream(stream_id);
+                        if (stream) {
+                            // Copy response (headers contain string_views that must be converted to owned strings)
+                            stream->response.status = client_conn.response.status;
+                            stream->response.reason_phrase = client_conn.response.reason_phrase;
+
+                            // Store headers in persistent storage, then create views to them
+                            stream->response_header_storage.clear();
+                            stream->response_header_storage.reserve(client_conn.response.headers.size());  // Prevent reallocation
+                            stream->response.headers.clear();
+                            stream->response.headers.reserve(client_conn.response.headers.size());
+                            for (const auto& h : client_conn.response.headers) {
+                                stream->response_header_storage.emplace_back(std::string(h.name), std::string(h.value));
+                                const auto& stored = stream->response_header_storage.back();
+                                stream->response.headers.push_back({stored.first, stored.second});
+                            }
+
+                            // Copy body
+                            stream->response_body = std::move(client_conn.response_body);
+                            stream->response.body = stream->response_body;
+                            stream->response_complete = true;
+
+                            // Filter out HTTP/1.1-specific headers forbidden in HTTP/2
+                            // Per RFC 7540 Section 8.1.2: connection-specific headers must not be included
+                            // Also filter out empty headers
+                            auto& headers = stream->response.headers;
+                            headers.erase(
+                                std::remove_if(headers.begin(), headers.end(),
+                                    [](const http::Header& h) {
+                                        // Remove empty headers
+                                        if (h.name.empty() || h.value.empty()) {
+                                            return true;
+                                        }
+                                        std::string name_lower(h.name);
+                                        std::transform(name_lower.begin(), name_lower.end(), name_lower.begin(), ::tolower);
+                                        return name_lower == "connection" ||
+                                               name_lower == "keep-alive" ||
+                                               name_lower == "proxy-connection" ||
+                                               name_lower == "transfer-encoding" ||
+                                               name_lower == "upgrade";
+                                    }),
+                                headers.end());
+
+                            // Submit response to HTTP/2 session
+                            auto ec = client_conn.h2_session->submit_response(stream_id, stream->response);
+                            (void)ec;  // Suppress unused variable warning
+
+                            // Serialize and send HTTP/2 frames
+                            auto data = client_conn.h2_session->send_data();
+                            if (!data.empty() && client_conn.tls_enabled) {
+                                ssize_t sent = ssl_write_nonblocking(client_conn.ssl, data);
+                                (void)sent;  // Suppress unused variable warning
+                                client_conn.h2_session->consume_send_buffer(data.size());
+                            }
+                        }
+                    }
+                } else {
+                    // HTTP/1.1 - use existing send_response
+                    send_response(client_conn, client_conn.keep_alive);
+                }
+            }
+            else if (result == http::ParseResult::Error) {
+                // Parse error
+                backend_connections_.erase(it);
+                close(backend_fd);
+                client_conn.backend_conn.reset();
+
+                client_conn.response.status = http::StatusCode::BadGateway;
+                client_conn.response.reason_phrase = "Bad Gateway";
+                client_conn.response.headers.clear();  // Clear any residual headers from middleware
+                client_conn.response_body.clear();
+                send_response(client_conn, false);
+            }
+            // else: Incomplete - keep waiting for more data
+        }
+        else if (n == 0) {
+            // Backend closed connection
+            backend_connections_.erase(it);
+            close(backend_fd);
+            client_conn.backend_conn.reset();
+
+            client_conn.response.status = http::StatusCode::BadGateway;
+            client_conn.response.reason_phrase = "Bad Gateway";
+                client_conn.response.headers.clear();  // Clear any residual headers from middleware                client_conn.response_body.clear();
+            send_response(client_conn, false);
+        }
+        else if (errno != EAGAIN && errno != EWOULDBLOCK) {
+            // Recv failed
+            backend_connections_.erase(it);
+            close(backend_fd);
+            client_conn.backend_conn.reset();
+
+            client_conn.response.status = http::StatusCode::BadGateway;
+            client_conn.response.reason_phrase = "Bad Gateway";
+                client_conn.response.headers.clear();  // Clear any residual headers from middleware                client_conn.response_body.clear();
+            send_response(client_conn, false);
+        }
+    }
+}
+
+void Server::process_backend_operations() {
+    // This method is called periodically to process any pending backend operations
+    // For now, it's a placeholder - most processing happens in handle_backend_event()
+    // In the future, this could handle timeouts, retries, etc.
+}
+
+bool Server::add_backend_to_epoll(int backend_fd, uint32_t events) {
+#ifdef __linux__
+    epoll_event ev{};
+    ev.events = events | EPOLLET;  // Edge-triggered
+    ev.data.fd = backend_fd;
+    return epoll_ctl(backend_epoll_fd_, EPOLL_CTL_ADD, backend_fd, &ev) == 0;
+#elif defined(__APPLE__) || defined(__FreeBSD__)
+    // For kqueue, we need to add separate kevents for read and write
+    struct kevent kevs[2];
+    int nchanges = 0;
+
+    if (events & EPOLLIN) {
+        EV_SET(&kevs[nchanges++], backend_fd, EVFILT_READ, EV_ADD | EV_ENABLE | EV_CLEAR, 0, 0, nullptr);
+    }
+    if (events & EPOLLOUT) {
+        EV_SET(&kevs[nchanges++], backend_fd, EVFILT_WRITE, EV_ADD | EV_ENABLE | EV_CLEAR, 0, 0, nullptr);
+    }
+
+    if (nchanges > 0) {
+        return kevent(backend_epoll_fd_, kevs, nchanges, nullptr, 0, nullptr) == 0;
+    }
+    return false;
+#else
+    return false;
+#endif
+}
+
+bool Server::remove_backend_from_epoll(int backend_fd) {
+#ifdef __linux__
+    // On Linux, EPOLL_CTL_DEL doesn't need an event structure (can be nullptr)
+    return epoll_ctl(backend_epoll_fd_, EPOLL_CTL_DEL, backend_fd, nullptr) == 0;
+#elif defined(__APPLE__) || defined(__FreeBSD__)
+    // For kqueue, we need to delete both READ and WRITE filters
+    struct kevent kevs[2];
+    EV_SET(&kevs[0], backend_fd, EVFILT_READ, EV_DELETE, 0, 0, nullptr);
+    EV_SET(&kevs[1], backend_fd, EVFILT_WRITE, EV_DELETE, 0, 0, nullptr);
+
+    // It's OK if some filters don't exist (returns error but we ignore it)
+    kevent(backend_epoll_fd_, kevs, 2, nullptr, 0, nullptr);
+    return true;  // Always return true since partial success is OK
+#else
+    return false;
+#endif
 }
 
 } // namespace titan::core

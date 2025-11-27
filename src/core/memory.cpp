@@ -1,3 +1,20 @@
+/*
+ * Copyright 2025 Titan Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
 // Titan Memory Management - Implementation
 // Monotonic arena allocator implementation
 
@@ -10,11 +27,14 @@
 namespace titan::core {
 
 Arena::Arena(size_t initial_size) : initial_size_(initial_size) {
-    buffer_ = static_cast<std::byte*>(std::malloc(initial_size));
+    // Use aligned_alloc to ensure buffer can satisfy high alignment requirements
+    // Align size up to cache line boundary (64 bytes) for better performance
+    size_t aligned_size = (initial_size + 63) & ~63;
+    buffer_ = static_cast<std::byte*>(std::aligned_alloc(64, aligned_size));
     if (!buffer_) {
         throw std::bad_alloc();
     }
-    capacity_ = initial_size;
+    capacity_ = aligned_size;
     offset_ = 0;
 }
 
@@ -88,10 +108,20 @@ void Arena::grow(size_t min_size) {
         new_capacity = capacity_ + min_size;
     }
 
-    std::byte* new_buffer = static_cast<std::byte*>(std::realloc(buffer_, new_capacity));
+    // Align new capacity to 64-byte boundary
+    new_capacity = (new_capacity + 63) & ~63;
+
+    // Can't use realloc with aligned_alloc, must allocate + copy + free
+    std::byte* new_buffer = static_cast<std::byte*>(std::aligned_alloc(64, new_capacity));
     if (!new_buffer) {
         throw std::bad_alloc();
     }
+
+    // Copy existing data
+    std::memcpy(new_buffer, buffer_, offset_);
+
+    // Free old buffer
+    std::free(buffer_);
 
     buffer_ = new_buffer;
     capacity_ = new_capacity;
