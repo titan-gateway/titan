@@ -22,6 +22,8 @@ add_library(titan_lib
   gateway/router.cpp
   gateway/upstream.hpp
   gateway/upstream.cpp
+  gateway/connection_pool.hpp
+  gateway/connection_pool.cpp
   gateway/rate_limit.hpp
   gateway/rate_limit.cpp
   gateway/pipeline.hpp

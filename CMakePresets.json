@@ -50,6 +50,169 @@
         "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=fuzzer,address",
         "VCPKG_TARGET_TRIPLET": "arm64-linux"
       }
+    },
+    {
+      "name": "tsan",
+      "displayName": "ThreadSanitizer Build",
+      "description": "Debug build with ThreadSanitizer for detecting race conditions",
+      "binaryDir": "${sourceDir}/build/tsan",
+      "generator": "Ninja",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_COMPILER": "clang++-18",
+        "CMAKE_C_COMPILER": "clang-18",
+        "CMAKE_CXX_FLAGS": "-fsanitize=thread -g -O1 -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=thread",
+        "VCPKG_TARGET_TRIPLET": "arm64-linux"
+      }
+    },
+    {
+      "name": "static",
+      "displayName": "Static Binary Build",
+      "description": "Fully static release build for containerless deployment",
+      "binaryDir": "${sourceDir}/build/static",
+      "generator": "Ninja",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_COMPILER": "clang++-18",
+        "CMAKE_C_COMPILER": "clang-18",
+        "VCPKG_TARGET_TRIPLET": "arm64-linux",
+        "BUILD_STATIC": "ON"
+      }
+    },
+    {
+      "name": "release-generic",
+      "displayName": "Generic Release Build (x86-64)",
+      "description": "Optimized generic build for x86-64 distribution (Intel 2009+, AMD 2011+)",
+      "binaryDir": "${sourceDir}/build/release-generic",
+      "generator": "Ninja",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_COMPILER": "clang++-18",
+        "CMAKE_C_COMPILER": "clang-18",
+        "CMAKE_CXX_FLAGS": "-O3 -march=x86-64-v2 -mtune=generic -flto=full -fstack-protector-strong",
+        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=lld -flto=full",
+        "BUILD_STATIC": "ON"
+      }
+    },
+    {
+      "name": "release-generic-arm",
+      "displayName": "Generic Release Build (ARM64)",
+      "description": "Optimized generic build for ARM64 distribution (ARMv8+, Apple Silicon, AWS Graviton)",
+      "binaryDir": "${sourceDir}/build/release-generic-arm",
+      "generator": "Ninja",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_COMPILER": "clang++-18",
+        "CMAKE_C_COMPILER": "clang-18",
+        "CMAKE_CXX_FLAGS": "-O3 -march=armv8-a -mtune=generic -flto=full -fstack-protector-strong",
+        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=lld -flto=full",
+        "VCPKG_TARGET_TRIPLET": "arm64-linux",
+        "BUILD_STATIC": "ON"
+      }
+    },
+    {
+      "name": "release-haswell",
+      "displayName": "Haswell Optimized Build (x86-64)",
+      "description": "Optimized for Intel Haswell (2013+) and AMD Excavator (2017+) - AWS EC2, GCP",
+      "binaryDir": "${sourceDir}/build/release-haswell",
+      "generator": "Ninja",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_COMPILER": "clang++-18",
+        "CMAKE_C_COMPILER": "clang-18",
+        "CMAKE_CXX_FLAGS": "-O3 -march=haswell -mtune=haswell -flto=full -fstack-protector-strong",
+        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=lld -flto=full",
+        "BUILD_STATIC": "ON"
+      }
+    },
+    {
+      "name": "release-skylake",
+      "displayName": "Skylake Optimized Build (x86-64)",
+      "description": "Optimized for Intel Skylake (2015+) and AMD Zen 2 (2019+) - Modern servers",
+      "binaryDir": "${sourceDir}/build/release-skylake",
+      "generator": "Ninja",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_COMPILER": "clang++-18",
+        "CMAKE_C_COMPILER": "clang-18",
+        "CMAKE_CXX_FLAGS": "-O3 -march=skylake -mtune=skylake -flto=full -fstack-protector-strong",
+        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=lld -flto=full",
+        "BUILD_STATIC": "ON"
+      }
+    },
+    {
+      "name": "release-zen3",
+      "displayName": "AMD Zen 3 Optimized Build (x86-64)",
+      "description": "Optimized for AMD Zen 3 (EPYC Milan, Ryzen 5000) - AMD servers",
+      "binaryDir": "${sourceDir}/build/release-zen3",
+      "generator": "Ninja",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_COMPILER": "clang++-18",
+        "CMAKE_C_COMPILER": "clang-18",
+        "CMAKE_CXX_FLAGS": "-O3 -march=znver3 -mtune=znver3 -flto=full -fstack-protector-strong",
+        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=lld -flto=full",
+        "BUILD_STATIC": "ON"
+      }
+    },
+    {
+      "name": "release-neoverse-n1",
+      "displayName": "AWS Graviton 2 Optimized Build (ARM64)",
+      "description": "Optimized for ARM Neoverse N1 (AWS Graviton 2, Azure Cobalt)",
+      "binaryDir": "${sourceDir}/build/release-neoverse-n1",
+      "generator": "Ninja",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_COMPILER": "clang++-18",
+        "CMAKE_C_COMPILER": "clang-18",
+        "CMAKE_CXX_FLAGS": "-O3 -march=armv8.2-a+crypto+fp16+dotprod -mtune=neoverse-n1 -flto=full -fstack-protector-strong",
+        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=lld -flto=full",
+        "VCPKG_TARGET_TRIPLET": "arm64-linux",
+        "BUILD_STATIC": "ON"
+      }
+    },
+    {
+      "name": "release-neoverse-v1",
+      "displayName": "AWS Graviton 3/4 Optimized Build (ARM64)",
+      "description": "Optimized for ARM Neoverse V1 (AWS Graviton 3/4) - SVE support",
+      "binaryDir": "${sourceDir}/build/release-neoverse-v1",
+      "generator": "Ninja",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_COMPILER": "clang++-18",
+        "CMAKE_C_COMPILER": "clang-18",
+        "CMAKE_CXX_FLAGS": "-O3 -march=armv8.4-a+crypto+fp16+dotprod+sve -mtune=neoverse-v1 -flto=full -fstack-protector-strong",
+        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=lld -flto=full",
+        "VCPKG_TARGET_TRIPLET": "arm64-linux",
+        "BUILD_STATIC": "ON"
+      }
+    },
+    {
+      "name": "release-apple-m1",
+      "displayName": "Apple Silicon Optimized Build (ARM64)",
+      "description": "Optimized for Apple M1/M2/M3 Silicon - macOS and Asahi Linux",
+      "binaryDir": "${sourceDir}/build/release-apple-m1",
+      "generator": "Ninja",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_COMPILER": "clang++-18",
+        "CMAKE_C_COMPILER": "clang-18",
+        "CMAKE_CXX_FLAGS": "-O3 -march=armv8.5-a+crypto+fp16+dotprod -mtune=apple-m1 -flto=full -fstack-protector-strong",
+        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=lld -flto=full",
+        "VCPKG_TARGET_TRIPLET": "arm64-linux",
+        "BUILD_STATIC": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -63,6 +226,66 @@
       "name": "release",
       "configurePreset": "release",
       "displayName": "Build Release",
+      "jobs": 4
+    },
+    {
+      "name": "tsan",
+      "configurePreset": "tsan",
+      "displayName": "Build with ThreadSanitizer",
+      "jobs": 4
+    },
+    {
+      "name": "static",
+      "configurePreset": "static",
+      "displayName": "Build Static Binary",
+      "jobs": 4
+    },
+    {
+      "name": "release-generic",
+      "configurePreset": "release-generic",
+      "displayName": "Build Generic x86-64 Binary",
+      "jobs": 4
+    },
+    {
+      "name": "release-generic-arm",
+      "configurePreset": "release-generic-arm",
+      "displayName": "Build Generic ARM64 Binary",
+      "jobs": 4
+    },
+    {
+      "name": "release-haswell",
+      "configurePreset": "release-haswell",
+      "displayName": "Build Haswell x86-64 Binary",
+      "jobs": 4
+    },
+    {
+      "name": "release-skylake",
+      "configurePreset": "release-skylake",
+      "displayName": "Build Skylake x86-64 Binary",
+      "jobs": 4
+    },
+    {
+      "name": "release-zen3",
+      "configurePreset": "release-zen3",
+      "displayName": "Build AMD Zen 3 Binary",
+      "jobs": 4
+    },
+    {
+      "name": "release-neoverse-n1",
+      "configurePreset": "release-neoverse-n1",
+      "displayName": "Build Graviton 2 ARM64 Binary",
+      "jobs": 4
+    },
+    {
+      "name": "release-neoverse-v1",
+      "configurePreset": "release-neoverse-v1",
+      "displayName": "Build Graviton 3/4 ARM64 Binary",
+      "jobs": 4
+    },
+    {
+      "name": "release-apple-m1",
+      "configurePreset": "release-apple-m1",
+      "displayName": "Build Apple Silicon ARM64 Binary",
       "jobs": 4
     }
   ],

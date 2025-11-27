@@ -3,7 +3,7 @@
   "name": "titan",
   "version-string": "0.1.0",
   "description": "High-performance C++23 API Gateway with io_uring and stdexec",
-  "homepage": "https://github.com/titan/titan",
+  "homepage": "https://github.com/JonathanBerhe/titan",
   "license": "Apache-2.0",
   "dependencies": [
     {

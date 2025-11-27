@@ -67,9 +67,30 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   endif()
 endif()
 
+# Static binary build option
+option(BUILD_STATIC "Build fully static binary" OFF)
+
+if(BUILD_STATIC)
+  message(STATUS "Building static binary - linking libstdc++ and OpenSSL statically")
+
+  # Static C++ standard library
+  add_link_options(-static-libstdc++ -static-libgcc)
+
+  # Try to link OpenSSL statically (prefer static libs)
+  set(OPENSSL_USE_STATIC_LIBS TRUE)
+
+  # Static linking for pthread
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -pthread -static-libstdc++")
+
+  message(STATUS "Static linking enabled: libstdc++, libgcc, pthread")
+endif()
+
 # Main library
 add_subdirectory(src)
 
 # Tests
 enable_testing()
 add_subdirectory(tests)
+
+# Benchmarks
+add_subdirectory(benchmarks)
