@@ -1,0 +1,225 @@
+name: Version - Auto Tag & Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  auto-version:
+    name: Calculate Version & Create Tag
+    runs-on: ubuntu-latest
+    # Skip if commit message contains [skip ci] or [no version]
+    if: |
+      !contains(github.event.head_commit.message, '[skip ci]') &&
+      !contains(github.event.head_commit.message, '[no version]')
+
+    outputs:
+      new_tag: ${{ steps.create_tag.outputs.new_tag }}
+      should_release: ${{ steps.determine_bump.outputs.should_release }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for version calculation
+
+      - name: Get latest tag
+        id: get_latest_tag
+        run: |
+          # Get the latest semantic version tag
+          LATEST_TAG=$(git tag -l 'v*.*.*' | sort -V | tail -n1)
+
+          if [ -z "$LATEST_TAG" ]; then
+            # No tags exist yet, start with v0.0.0
+            LATEST_TAG="v0.0.0"
+            echo "No tags found, starting from v0.0.0"
+          fi
+
+          echo "latest_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+          echo "📌 Latest tag: $LATEST_TAG"
+
+      - name: Determine version bump from branch
+        id: determine_bump
+        run: |
+          # Get the merged branch name from commit message
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          echo "Commit message: $COMMIT_MSG"
+
+          # Extract branch name from merge commit message
+          # Format: "Merge pull request #123 from user/epic/feature-name"
+          BRANCH=$(echo "$COMMIT_MSG" | grep -oP 'from \S+/\K(epic|feat|fix|chore)/[^\s]+' | head -1)
+
+          if [ -z "$BRANCH" ]; then
+            # Fallback: try to detect from commit title or use direct push info
+            # Check first line of commit message for branch prefix pattern
+            BRANCH=$(echo "$COMMIT_MSG" | head -1 | grep -oP '^(epic|feat|fix|chore)/' || echo "")
+          fi
+
+          if [ -z "$BRANCH" ]; then
+            echo "⚠️  Could not determine branch prefix. Skipping version bump."
+            echo "   This might be a direct commit to main or a manual merge."
+            echo "should_release=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Extract prefix
+          PREFIX=$(echo "$BRANCH" | cut -d'/' -f1)
+          echo "🔍 Detected branch: $BRANCH"
+          echo "🏷️  Branch prefix: $PREFIX"
+
+          # Determine bump type
+          case "$PREFIX" in
+            epic)
+              BUMP_TYPE="major"
+              echo "🚀 MAJOR version bump (breaking changes)"
+              ;;
+            feat)
+              BUMP_TYPE="minor"
+              echo "✨ MINOR version bump (new feature)"
+              ;;
+            fix)
+              BUMP_TYPE="patch"
+              echo "🐛 PATCH version bump (bug fix)"
+              ;;
+            chore)
+              echo "🔧 CHORE - No version bump"
+              echo "should_release=false" >> $GITHUB_OUTPUT
+              exit 0
+              ;;
+            *)
+              echo "❌ Unknown prefix: $PREFIX"
+              echo "should_release=false" >> $GITHUB_OUTPUT
+              exit 0
+              ;;
+          esac
+
+          echo "bump_type=$BUMP_TYPE" >> $GITHUB_OUTPUT
+          echo "should_release=true" >> $GITHUB_OUTPUT
+          echo "branch_name=$BRANCH" >> $GITHUB_OUTPUT
+
+      - name: Calculate new version
+        id: calculate_version
+        if: steps.determine_bump.outputs.should_release == 'true'
+        run: |
+          LATEST_TAG="${{ steps.get_latest_tag.outputs.latest_tag }}"
+          BUMP_TYPE="${{ steps.determine_bump.outputs.bump_type }}"
+
+          # Remove 'v' prefix and split version
+          VERSION="${LATEST_TAG#v}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+
+          # Bump version based on type
+          case "$BUMP_TYPE" in
+            major)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              ;;
+            minor)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              ;;
+            patch)
+              PATCH=$((PATCH + 1))
+              ;;
+          esac
+
+          NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+          NEW_TAG="v$NEW_VERSION"
+
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
+          echo "📦 New version: $NEW_TAG (was $LATEST_TAG)"
+
+      - name: Create and push tag
+        id: create_tag
+        if: steps.determine_bump.outputs.should_release == 'true'
+        run: |
+          NEW_TAG="${{ steps.calculate_version.outputs.new_tag }}"
+          BRANCH_NAME="${{ steps.determine_bump.outputs.branch_name }}"
+
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Create annotated tag
+          git tag -a "$NEW_TAG" -m "Release $NEW_TAG
+
+          Merged: $BRANCH_NAME
+          Commit: ${{ github.sha }}
+          Type: ${{ steps.determine_bump.outputs.bump_type }} version bump"
+
+          # Push tag
+          git push origin "$NEW_TAG"
+
+          echo "✅ Created and pushed tag: $NEW_TAG"
+          echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
+
+      - name: Generate changelog
+        id: changelog
+        if: steps.determine_bump.outputs.should_release == 'true'
+        run: |
+          NEW_TAG="${{ steps.calculate_version.outputs.new_tag }}"
+          PREV_TAG="${{ steps.get_latest_tag.outputs.latest_tag }}"
+
+          echo "## What's Changed" > changelog.md
+          echo "" >> changelog.md
+
+          # Get commits since last tag
+          git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges >> changelog.md
+
+          echo "" >> changelog.md
+          echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${NEW_TAG}" >> changelog.md
+
+          cat changelog.md
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          cat changelog.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        if: steps.determine_bump.outputs.should_release == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const changelog = `${{ steps.changelog.outputs.changelog }}`;
+            const newTag = '${{ steps.calculate_version.outputs.new_tag }}';
+            const bumpType = '${{ steps.determine_bump.outputs.bump_type }}';
+            const branchName = '${{ steps.determine_bump.outputs.branch_name }}';
+
+            // Create release
+            await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: newTag,
+              name: `Titan ${newTag}`,
+              body: `## 🎉 ${bumpType.toUpperCase()} Release\n\n` +
+                    `**Branch:** \`${branchName}\`\n\n` +
+                    `${changelog}\n\n` +
+                    `---\n\n` +
+                    `### Artifacts\n\n` +
+                    `- 📦 **Binary releases** will be attached shortly\n` +
+                    `- 🐋 **Docker image:** \`ghcr.io/${{ github.repository }}:${newTag}\`\n` +
+                    `- ⎈ **Helm chart:** \`oci://ghcr.io/${{ github.repository_owner }}/charts/titan:${newTag.substring(1)}\`\n\n` +
+                    `See installation instructions below once artifacts are published.`,
+              draft: false,
+              prerelease: bumpType === 'major' && newTag === 'v1.0.0' ? true : false
+            });
+
+      - name: Summary
+        if: steps.determine_bump.outputs.should_release == 'true'
+        run: |
+          NEW_TAG="${{ steps.calculate_version.outputs.new_tag }}"
+          echo "### 🎉 New Release Created!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag:** \`$NEW_TAG\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Type:** ${{ steps.determine_bump.outputs.bump_type }} version bump" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ steps.determine_bump.outputs.branch_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Tag pushed to repository" >> $GITHUB_STEP_SUMMARY
+          echo "✅ GitHub Release created" >> $GITHUB_STEP_SUMMARY
+          echo "⏳ Binary, Docker, and Helm releases will be published shortly" >> $GITHUB_STEP_SUMMARY

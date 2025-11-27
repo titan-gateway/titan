@@ -1,0 +1,233 @@
+name: Release - Build Binaries
+
+# This workflow is triggered by version tags created by version.yml
+# It builds optimized binaries for multiple CPU architectures and attaches them to GitHub Releases
+#
+# Workflow relationship:
+#   1. PR merged to main → version.yml calculates semver and creates tag
+#   2. Tag created → THIS workflow builds binaries
+#   3. Tag created → docker.yml builds container images
+#   4. Tag created → helm.yml packages and publishes Helm chart
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 0.1.0)'
+        required: true
+        default: '0.1.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.variant }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # x86-64 builds
+          - variant: generic
+            preset: release-generic
+            arch: x86_64
+            os: ubuntu-22.04
+          - variant: haswell
+            preset: release-haswell
+            arch: x86_64
+            os: ubuntu-22.04
+          - variant: skylake
+            preset: release-skylake
+            arch: x86_64
+            os: ubuntu-22.04
+          - variant: zen3
+            preset: release-zen3
+            arch: x86_64
+            os: ubuntu-22.04
+
+          # ARM64 builds
+          - variant: generic-arm
+            preset: release-generic-arm
+            arch: arm64
+            os: buildjet-4vcpu-ubuntu-2204-arm
+          - variant: neoverse-n1
+            preset: release-neoverse-n1
+            arch: arm64
+            os: buildjet-4vcpu-ubuntu-2204-arm
+          - variant: neoverse-v1
+            preset: release-neoverse-v1
+            arch: arm64
+            os: buildjet-4vcpu-ubuntu-2204-arm
+          - variant: apple-m1
+            preset: release-apple-m1
+            arch: arm64
+            os: buildjet-4vcpu-ubuntu-2204-arm
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            git \
+            curl \
+            zip \
+            unzip \
+            tar \
+            pkg-config \
+            clang-18 \
+            lld-18 \
+            libc++-18-dev \
+            libc++abi-18-dev
+
+      - name: Setup vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git /opt/vcpkg
+          /opt/vcpkg/bootstrap-vcpkg.sh
+          echo "VCPKG_ROOT=/opt/vcpkg" >> $GITHUB_ENV
+
+      - name: Configure build
+        run: |
+          cmake --preset=${{ matrix.preset }}
+
+      - name: Build
+        run: |
+          cmake --build --preset=${{ matrix.preset }} --parallel $(nproc)
+
+      - name: Strip binary
+        run: |
+          strip build/${{ matrix.preset }}/src/titan
+
+      - name: Get binary info
+        run: |
+          ls -lh build/${{ matrix.preset }}/src/titan
+          ldd build/${{ matrix.preset }}/src/titan || true
+          file build/${{ matrix.preset }}/src/titan
+
+      - name: Create tarball
+        run: |
+          mkdir -p dist
+          tar -czf dist/titan-${{ matrix.variant }}-linux-${{ matrix.arch }}.tar.gz \
+            -C build/${{ matrix.preset }}/src titan
+
+      - name: Create checksum
+        run: |
+          cd dist
+          sha256sum titan-${{ matrix.variant }}-linux-${{ matrix.arch }}.tar.gz > \
+            titan-${{ matrix.variant }}-linux-${{ matrix.arch }}.tar.gz.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: titan-${{ matrix.variant }}-linux-${{ matrix.arch }}
+          path: |
+            dist/titan-${{ matrix.variant }}-linux-${{ matrix.arch }}.tar.gz
+            dist/titan-${{ matrix.variant }}-linux-${{ matrix.arch }}.tar.gz.sha256
+          retention-days: 7
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Consolidate artifacts
+        run: |
+          mkdir -p release
+          find artifacts -type f -name '*.tar.gz*' -exec cp {} release/ \;
+          ls -lh release/
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          cat > release_notes.md <<'EOF'
+          ## Titan API Gateway Release
+
+          ### Build Variants
+
+          Choose the binary optimized for your CPU:
+
+          **x86-64 (Intel/AMD)**
+          - `generic` - Compatible with all x86-64 CPUs (Intel 2009+, AMD 2011+) - **Start here if unsure**
+          - `haswell` - Optimized for Intel Haswell (2013+), AMD Excavator (2017+) - **AWS EC2, GCP**
+          - `skylake` - Optimized for Intel Skylake (2015+), AMD Zen 2 (2019+) - **Modern servers**
+          - `zen3` - Optimized for AMD Zen 3 (EPYC Milan, Ryzen 5000) - **AMD EPYC servers**
+
+          **ARM64**
+          - `generic-arm` - Compatible with all ARM64 CPUs (ARMv8+) - **Start here if unsure**
+          - `neoverse-n1` - Optimized for AWS Graviton 2, Azure Cobalt
+          - `neoverse-v1` - Optimized for AWS Graviton 3/4 (SVE support)
+          - `apple-m1` - Optimized for Apple Silicon (M1/M2/M3)
+
+          ### Auto-Detection Installer
+
+          **Recommended:** Use the auto-detect installer to get the best binary for your CPU:
+
+          ```bash
+          # Auto-detect and install
+          curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/install-optimized.sh | bash
+
+          # Show what would be installed
+          curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/install-optimized.sh | bash -s -- --show-cpu
+
+          # Force specific variant
+          curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/install-optimized.sh | bash -s -- --variant neoverse-v1
+          ```
+
+          ### Manual Installation
+
+          ```bash
+          # Download (replace VARIANT and ARCH)
+          wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/titan-VARIANT-linux-ARCH.tar.gz
+
+          # Verify checksum
+          wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/titan-VARIANT-linux-ARCH.tar.gz.sha256
+          sha256sum -c titan-VARIANT-linux-ARCH.tar.gz.sha256
+
+          # Extract and install
+          tar -xzf titan-VARIANT-linux-ARCH.tar.gz
+          sudo install -m 755 titan /usr/local/bin/titan
+
+          # Verify
+          titan --version
+          ```
+
+          ### What's New
+
+          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+          EOF
+
+          echo "release_notes<<EOF" >> $GITHUB_OUTPUT
+          cat release_notes.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Titan ${{ github.ref_name }}
+          body: ${{ steps.release_notes.outputs.release_notes }}
+          draft: false
+          prerelease: false
+          files: |
+            release/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,366 @@
+name: Performance Benchmarks
+
+# This workflow runs comprehensive performance benchmarks
+# Manually triggered for:
+#   - Testing performance before merging large PRs
+#   - Validating release candidates
+#   - Comparing performance across versions
+#   - Regression testing after infrastructure changes
+
+on:
+  workflow_dispatch:
+    inputs:
+      benchmark_type:
+        description: 'Benchmark type to run'
+        required: true
+        default: 'quick'
+        type: choice
+        options:
+          - quick       # Fast smoke test (~5 min)
+          - http1       # HTTP/1.1 full suite (~10 min)
+          - http2       # HTTP/2 full suite (~10 min)
+          - full        # Complete suite (~30 min)
+          - compare     # Compare with Nginx (~45 min)
+      duration:
+        description: 'Test duration per scenario (seconds)'
+        required: false
+        default: '30'
+      connections:
+        description: 'Number of concurrent connections'
+        required: false
+        default: '100'
+      threads:
+        description: 'Number of threads'
+        required: false
+        default: '4'
+      compare_baseline:
+        description: 'Compare with previous release tag'
+        required: false
+        default: ''
+        type: string
+
+  # Optional: Run benchmarks on release tags
+  push:
+    tags:
+      - 'v*'
+    # Only if tag push is from a release workflow
+    # Comment out if you don't want automatic benchmarks on release
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  benchmark:
+    name: Run Performance Benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for comparisons
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            clang-18 \
+            lld-18 \
+            libc++-18-dev \
+            libc++abi-18-dev \
+            wrk \
+            nginx \
+            apache2-utils \
+            jq
+
+      - name: Setup vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git /opt/vcpkg
+          /opt/vcpkg/bootstrap-vcpkg.sh
+          echo "VCPKG_ROOT=/opt/vcpkg" >> $GITHUB_ENV
+
+      - name: Build Titan (Release)
+        run: |
+          cmake --preset=release-generic
+          cmake --build --preset=release-generic --parallel $(nproc)
+
+      - name: Setup benchmark environment
+        run: |
+          # Create results directory
+          mkdir -p benchmarks/results
+
+          # Start mock backend (simple Nginx on port 3001)
+          cat > /tmp/nginx-backend.conf <<'EOF'
+          worker_processes 4;
+          events { worker_connections 1024; }
+          http {
+            access_log off;
+            error_log /dev/null crit;
+            server {
+              listen 3001;
+              location / {
+                return 200 '{"status":"ok","data":"test"}';
+                add_header Content-Type application/json;
+              }
+              location /api/users {
+                return 200 '{"users":[],"count":0}';
+                add_header Content-Type application/json;
+              }
+            }
+          }
+          EOF
+
+          sudo nginx -c /tmp/nginx-backend.conf
+          sleep 2
+
+          # Verify backend is running
+          curl -f http://localhost:3001/ || exit 1
+
+      - name: Start Titan
+        run: |
+          # Use benchmark config
+          ./build/release-generic/src/titan \
+            --config config/benchmark.json &
+          TITAN_PID=$!
+          echo "TITAN_PID=$TITAN_PID" >> $GITHUB_ENV
+
+          # Wait for startup
+          sleep 3
+
+          # Health check
+          for i in {1..10}; do
+            if curl -f http://localhost:8080/_health; then
+              echo "Titan started successfully"
+              break
+            fi
+            if [ $i -eq 10 ]; then
+              echo "Failed to start Titan"
+              exit 1
+            fi
+            sleep 1
+          done
+
+      - name: Run Quick Benchmark
+        if: inputs.benchmark_type == 'quick' || inputs.benchmark_type == ''
+        run: |
+          echo "Running quick smoke test..."
+
+          # Simple wrk test
+          wrk -t4 -c100 -d30s http://localhost:8080/ \
+            --latency > benchmarks/results/quick.txt
+
+          cat benchmarks/results/quick.txt
+
+      - name: Run HTTP/1.1 Benchmarks
+        if: inputs.benchmark_type == 'http1' || inputs.benchmark_type == 'full'
+        run: |
+          cd benchmarks
+          ./scripts/run-http1.sh all
+
+      - name: Run HTTP/2 Benchmarks
+        if: inputs.benchmark_type == 'http2' || inputs.benchmark_type == 'full'
+        run: |
+          cd benchmarks
+          ./scripts/run-http2.sh all
+
+      - name: Run Comparison with Nginx
+        if: inputs.benchmark_type == 'compare'
+        run: |
+          # Stop Titan
+          kill $TITAN_PID || true
+          sleep 2
+
+          # Configure and start Nginx proxy
+          cat > /tmp/nginx-proxy.conf <<'EOF'
+          worker_processes 4;
+          events { worker_connections 1024; }
+          http {
+            access_log off;
+            error_log /dev/null crit;
+            upstream backend {
+              server localhost:3001;
+            }
+            server {
+              listen 8080;
+              location / {
+                proxy_pass http://backend;
+              }
+            }
+          }
+          EOF
+
+          sudo nginx -c /tmp/nginx-proxy.conf
+
+          # Run Nginx benchmark
+          wrk -t4 -c100 -d30s http://localhost:8080/ \
+            --latency > benchmarks/results/nginx-baseline.txt
+
+          # Stop Nginx, restart Titan
+          sudo nginx -s stop
+          ./build/release-generic/src/titan --config config/benchmark.json &
+          sleep 3
+
+          # Run Titan benchmark
+          wrk -t4 -c100 -d30s http://localhost:8080/ \
+            --latency > benchmarks/results/titan-compare.txt
+
+          echo "=== Nginx Baseline ==="
+          cat benchmarks/results/nginx-baseline.txt
+          echo ""
+          echo "=== Titan Results ==="
+          cat benchmarks/results/titan-compare.txt
+
+      - name: Compare with Previous Release
+        if: inputs.compare_baseline != ''
+        run: |
+          BASELINE_TAG="${{ inputs.compare_baseline }}"
+
+          # Checkout baseline version
+          git checkout $BASELINE_TAG
+          cmake --preset=release-generic
+          cmake --build --preset=release-generic --parallel $(nproc)
+
+          # Stop current Titan
+          kill $TITAN_PID || true
+          sleep 2
+
+          # Start baseline Titan
+          ./build/release-generic/src/titan --config config/benchmark.json &
+          BASELINE_PID=$!
+          sleep 3
+
+          # Run baseline benchmark
+          wrk -t4 -c100 -d30s http://localhost:8080/ \
+            --latency > benchmarks/results/baseline-$BASELINE_TAG.txt
+
+          # Stop baseline, checkout current
+          kill $BASELINE_PID
+          git checkout -
+
+          # Rebuild current
+          cmake --build --preset=release-generic --parallel $(nproc)
+          ./build/release-generic/src/titan --config config/benchmark.json &
+          sleep 3
+
+          # Run current benchmark
+          wrk -t4 -c100 -d30s http://localhost:8080/ \
+            --latency > benchmarks/results/current.txt
+
+          echo "=== Baseline ($BASELINE_TAG) ==="
+          cat benchmarks/results/baseline-$BASELINE_TAG.txt
+          echo ""
+          echo "=== Current ==="
+          cat benchmarks/results/current.txt
+
+      - name: Generate Performance Report
+        if: always()
+        run: |
+          cat > benchmarks/results/REPORT.md <<'EOF'
+          # Performance Benchmark Report
+
+          **Benchmark Type:** ${{ inputs.benchmark_type || 'quick' }}
+          **Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          **Git SHA:** ${{ github.sha }}
+          **Git Ref:** ${{ github.ref_name }}
+
+          ## Configuration
+
+          - **Duration:** ${{ inputs.duration || '30' }}s per scenario
+          - **Connections:** ${{ inputs.connections || '100' }}
+          - **Threads:** ${{ inputs.threads || '4' }}
+          - **Backend:** Nginx (4 workers, port 3001)
+          - **Platform:** GitHub Actions (ubuntu-latest)
+
+          ## Results
+
+          EOF
+
+          # Append all result files
+          for file in benchmarks/results/*.txt; do
+            if [ -f "$file" ]; then
+              echo "### $(basename $file .txt)" >> benchmarks/results/REPORT.md
+              echo '```' >> benchmarks/results/REPORT.md
+              cat "$file" >> benchmarks/results/REPORT.md
+              echo '```' >> benchmarks/results/REPORT.md
+              echo "" >> benchmarks/results/REPORT.md
+            fi
+          done
+
+          cat benchmarks/results/REPORT.md
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-results-${{ github.run_number }}
+          path: |
+            benchmarks/results/
+          retention-days: 90
+
+      - name: Comment on PR (if from PR)
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('benchmarks/results/REPORT.md', 'utf8');
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: report
+            });
+
+      - name: Create benchmark summary
+        if: always()
+        run: |
+          echo "## 📊 Performance Benchmark Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          cat benchmarks/results/REPORT.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Cleanup
+        if: always()
+        run: |
+          # Stop all services
+          kill $TITAN_PID || true
+          sudo nginx -s stop || true
+          pkill -9 nginx || true
+
+  # Optional: Compare with latest release tag automatically
+  auto-compare:
+    name: Auto-Compare with Latest Release
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: benchmark
+
+    steps:
+      - name: Find previous release
+        id: prev_release
+        run: |
+          CURRENT_TAG="${GITHUB_REF_NAME}"
+          PREV_TAG=$(git tag -l 'v*.*.*' | grep -v "$CURRENT_TAG" | sort -V | tail -n1)
+          echo "previous_tag=$PREV_TAG" >> $GITHUB_OUTPUT
+          echo "Found previous release: $PREV_TAG"
+
+      - name: Trigger comparison benchmark
+        if: steps.prev_release.outputs.previous_tag != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'benchmark.yml',
+              ref: context.ref,
+              inputs: {
+                benchmark_type: 'full',
+                compare_baseline: '${{ steps.prev_release.outputs.previous_tag }}'
+              }
+            });

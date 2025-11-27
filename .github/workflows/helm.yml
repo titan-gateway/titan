@@ -1,0 +1,178 @@
+name: Helm - Package & Publish Chart
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v0.2.0)'
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  CHART_NAME: titan
+
+jobs:
+  release-helm-chart:
+    name: Package & Push Helm Chart
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: '3.14.0'
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          # Remove 'v' prefix from tag (v0.2.0 → 0.2.0)
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "📦 Chart version: $VERSION"
+
+      - name: Update Chart.yaml versions
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Update chart version and appVersion in Chart.yaml
+          sed -i "s/^version:.*/version: $VERSION/" deploy/helm/titan/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"$VERSION\"/" deploy/helm/titan/Chart.yaml
+
+          echo "✅ Updated Chart.yaml:"
+          grep -E "^(version|appVersion):" deploy/helm/titan/Chart.yaml
+
+      - name: Update values.yaml image tag
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Update default image tag in values.yaml
+          sed -i "s/tag:.*/tag: v$VERSION/" deploy/helm/titan/values.yaml
+
+          echo "✅ Updated values.yaml image tag:"
+          grep -A 2 "image:" deploy/helm/titan/values.yaml
+
+      - name: Lint Helm chart
+        run: |
+          helm lint deploy/helm/titan/
+
+      - name: Package Helm chart
+        run: |
+          helm package deploy/helm/titan/ --destination .
+
+      - name: Login to GitHub Container Registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            helm registry login ${{ env.REGISTRY }} \
+              --username ${{ github.actor }} \
+              --password-stdin
+
+      - name: Push Helm chart to GHCR
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          CHART_PACKAGE="${{ env.CHART_NAME }}-${VERSION}.tgz"
+
+          # Push to OCI registry
+          helm push "$CHART_PACKAGE" \
+            oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts
+
+          echo "✅ Pushed chart: oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/${{ env.CHART_NAME }}:$VERSION"
+
+      - name: Generate installation instructions
+        id: install_docs
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          REPO_OWNER="${{ github.repository_owner }}"
+
+          cat > helm-install.md <<EOF
+          ## 📦 Helm Chart Published
+
+          **Chart:** \`${{ env.CHART_NAME }}\`
+          **Version:** \`$VERSION\`
+          **Registry:** \`${{ env.REGISTRY }}/$REPO_OWNER/charts\`
+
+          ### Installation
+
+          \`\`\`bash
+          # Add Helm OCI registry (one-time setup)
+          helm registry login ${{ env.REGISTRY }} -u YOUR_GITHUB_USERNAME
+
+          # Install chart
+          helm install titan oci://${{ env.REGISTRY }}/$REPO_OWNER/charts/${{ env.CHART_NAME }} \\
+            --version $VERSION \\
+            --namespace titan \\
+            --create-namespace
+
+          # Or upgrade existing release
+          helm upgrade --install titan oci://${{ env.REGISTRY }}/$REPO_OWNER/charts/${{ env.CHART_NAME }} \\
+            --version $VERSION \\
+            --namespace titan
+          \`\`\`
+
+          ### Custom Values
+
+          \`\`\`bash
+          # Download default values
+          helm show values oci://${{ env.REGISTRY }}/$REPO_OWNER/charts/${{ env.CHART_NAME }} \\
+            --version $VERSION > values.yaml
+
+          # Edit values.yaml and install
+          helm install titan oci://${{ env.REGISTRY }}/$REPO_OWNER/charts/${{ env.CHART_NAME }} \\
+            --version $VERSION \\
+            --namespace titan \\
+            --values values.yaml
+          \`\`\`
+
+          ### Available Versions
+
+          \`\`\`bash
+          # List all versions (requires GitHub Container Registry authentication)
+          helm search repo titan --versions
+          \`\`\`
+          EOF
+
+          cat helm-install.md
+          echo "docs<<EOF" >> $GITHUB_OUTPUT
+          cat helm-install.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Upload chart package as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-chart-${{ steps.version.outputs.version }}
+          path: |
+            ${{ env.CHART_NAME }}-${{ steps.version.outputs.version }}.tgz
+          retention-days: 90
+
+      - name: Create GitHub Release comment
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const docs = fs.readFileSync('helm-install.md', 'utf8');
+
+            // Find the release for this tag
+            const release = await github.rest.repos.getReleaseByTag({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag: context.ref.replace('refs/tags/', '')
+            }).catch(() => null);
+
+            if (release) {
+              // Append Helm docs to existing release notes
+              await github.rest.repos.updateRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: release.data.id,
+                body: release.data.body + '\n\n---\n\n' + docs
+              });
+            }
