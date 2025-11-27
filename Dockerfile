@@ -35,7 +35,6 @@ RUN apt-get update && apt-get install -y \
     linux-tools-common \
     strace \
     # Profiling and analysis
-    perf \
     graphviz \
     # Python testing infrastructure
     python3 \
@@ -45,6 +44,15 @@ RUN apt-get update && apt-get install -y \
     wrk \
     apache2-utils \
     nghttp2-client \
+    # Proxy servers for benchmarking
+    nginx \
+    haproxy \
+    # Additional dependencies for Envoy
+    wget \
+    ca-certificates \
+    # Benchmark utilities
+    bc \
+    lsof \
     # Cleanup
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
@@ -57,6 +65,12 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     -r /tmp/backend-requirements.txt \
     && rm /tmp/integration-requirements.txt /tmp/backend-requirements.txt
 
+# Install Python packages for benchmark comparison
+RUN pip3 install --no-cache-dir --break-system-packages \
+    tabulate \
+    matplotlib \
+    psutil
+
 # Install FlameGraph for CPU profiling visualization
 RUN git clone --depth=1 https://github.com/brendangregg/FlameGraph.git /opt/FlameGraph \
     && ln -s /opt/FlameGraph/flamegraph.pl /usr/local/bin/flamegraph.pl \
@@ -67,6 +81,18 @@ ENV VCPKG_ROOT=/opt/vcpkg
 RUN git clone https://github.com/microsoft/vcpkg.git ${VCPKG_ROOT} \
     && ${VCPKG_ROOT}/bootstrap-vcpkg.sh -disableMetrics \
     && ln -s ${VCPKG_ROOT}/vcpkg /usr/local/bin/vcpkg
+
+# Install Envoy proxy (download binary from GitHub)
+ENV ENVOY_VERSION=1.28.0
+RUN ARCH="$(uname -m)" \
+    && if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
+        ENVOY_ARCH="aarch_64"; \
+    else \
+        ENVOY_ARCH="x86_64"; \
+    fi \
+    && wget -q "https://github.com/envoyproxy/envoy/releases/download/v${ENVOY_VERSION}/envoy-${ENVOY_VERSION}-linux-${ENVOY_ARCH}" \
+        -O /usr/local/bin/envoy \
+    && chmod +x /usr/local/bin/envoy
 
 # Create working directory
 WORKDIR /workspace
