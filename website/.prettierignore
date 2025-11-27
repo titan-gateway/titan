@@ -1,0 +1,12 @@
+# Build artifacts
+build/
+.docusaurus/
+node_modules/
+
+# Generated files
+.cache/
+
+# Lock files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
