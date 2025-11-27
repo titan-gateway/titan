@@ -1,3 +1,20 @@
+/*
+ * Copyright 2025 Titan Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
 // Titan HTTP/2 - Header
 // HTTP/2 session management and multiplexing
 
@@ -45,6 +62,19 @@ struct H2Stream {
 
     std::vector<uint8_t> request_body;   // Accumulated request body data
     std::vector<uint8_t> response_body;  // Accumulated response body data
+
+    // Storage for HTTP/2 pseudo-headers (request.path/uri are views into these)
+    std::string path_storage;            // Owned storage for :path pseudo-header
+    std::string uri_storage;             // Owned storage for full URI
+
+    // Storage for request header strings (request.headers views point into these)
+    std::vector<std::pair<std::string, std::string>> request_header_storage;
+
+    // Storage for response header strings (response.headers views point into these)
+    std::vector<std::pair<std::string, std::string>> response_header_storage;
+
+    // Data provider for response body (must persist during nghttp2_session_send)
+    nghttp2_data_provider data_provider;
 
     bool request_complete = false;
     bool response_complete = false;

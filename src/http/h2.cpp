@@ -1,9 +1,27 @@
+/*
+ * Copyright 2025 Titan Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
 // Titan HTTP/2 - Implementation
 // HTTP/2 session management using nghttp2
 
 #include "h2.hpp"
 
 #include <cstring>
+#include <iostream>
 #include <system_error>
 
 namespace titan::http {
@@ -46,7 +64,7 @@ H2Session::H2Session(bool is_server) : is_server_(is_server) {
 
     // Submit settings frame
     nghttp2_settings_entry settings[] = {
-        {NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, 100},
+        {NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, 1000},  // Increased from 100 to support heavy load
         {NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE, 65535},
     };
     nghttp2_submit_settings(session_, NGHTTP2_FLAG_NONE, settings, 2);
@@ -102,7 +120,7 @@ std::error_code H2Session::submit_request(const Request& request, int32_t& strea
     // Pseudo-headers (required for HTTP/2)
     std::string method_str = std::string(to_string(request.method));
     std::string path = std::string(request.path);
-    std::string scheme = "http";  // TODO: Support https
+    std::string scheme = "https";  // Use HTTPS for TLS connections (all HTTP/2 in production)
 
     headers.push_back({
         const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(":method")),
@@ -146,6 +164,31 @@ std::error_code H2Session::submit_request(const Request& request, int32_t& strea
     return {};
 }
 
+// Static data read callback for nghttp2 (with body data)
+static ssize_t data_read_callback(nghttp2_session* /*session*/, int32_t /*stream_id*/,
+                                   uint8_t* buf, size_t length, uint32_t* data_flags,
+                                   nghttp2_data_source* source, void* /*user_data*/) {
+    auto* stream = static_cast<http::H2Stream*>(source->ptr);
+
+    if (!stream || stream->response_body.empty()) {
+        *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+        return 0;
+    }
+
+    size_t to_copy = std::min(length, stream->response_body.size());
+    std::memcpy(buf, stream->response_body.data(), to_copy);
+    *data_flags |= NGHTTP2_DATA_FLAG_EOF;  // Send all data in one frame
+    return static_cast<ssize_t>(to_copy);
+}
+
+// Static data read callback for empty body (END_STREAM only)
+static ssize_t empty_data_callback(nghttp2_session* /*session*/, int32_t /*stream_id*/,
+                                    uint8_t* /*buf*/, size_t /*length*/, uint32_t* data_flags,
+                                    nghttp2_data_source* /*source*/, void* /*user_data*/) {
+    *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+    return 0;
+}
+
 std::error_code H2Session::submit_response(int32_t stream_id, const Response& response) {
     if (!is_server_) {
         return std::make_error_code(std::errc::operation_not_supported);
@@ -165,6 +208,9 @@ std::error_code H2Session::submit_response(int32_t stream_id, const Response& re
 
     // Regular headers
     for (const auto& header : response.headers) {
+        if (header.name.empty() || header.value.empty()) {
+            continue;  // Skip empty headers
+        }
         headers.push_back({
             const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(header.name.data())),
             const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(header.value.data())),
@@ -173,17 +219,35 @@ std::error_code H2Session::submit_response(int32_t stream_id, const Response& re
         });
     }
 
-    // Submit response headers
-    int rv = nghttp2_submit_response(session_, stream_id, headers.data(),
-                                      headers.size(), nullptr);
-    if (rv != 0) {
-        return std::make_error_code(std::errc::protocol_error);
+    // Prepare data provider if body exists
+    auto* stream = get_stream(stream_id);
+    if (!stream) {
+        return std::make_error_code(std::errc::invalid_argument);
     }
 
-    // Submit data frame if there's a body
-    if (!response.body.empty()) {
-        nghttp2_data_provider data_prd;
-        // TODO: Implement data provider for response body
+    // Only copy body data if stream doesn't already have it
+    // (handle_backend_event may have already moved it to stream->response_body)
+    if (!response.body.empty() && stream->response_body.empty()) {
+        // Store body in stream first (nghttp2 will read from it during send)
+        stream->response_body.assign(response.body.begin(), response.body.end());
+    }
+
+    // Set up data provider based on whether we have body data
+    if (!stream->response_body.empty()) {
+        // Create data provider in stream (persists for lifetime of stream)
+        stream->data_provider.source.ptr = stream;
+        stream->data_provider.read_callback = data_read_callback;
+    } else {
+        // No body - use empty data callback
+        stream->data_provider.source.ptr = nullptr;
+        stream->data_provider.read_callback = empty_data_callback;
+    }
+
+    // Submit response with headers and persistent data provider
+    int rv = nghttp2_submit_response(session_, stream_id, headers.data(),
+                                      headers.size(), &stream->data_provider);
+    if (rv != 0) {
+        return std::make_error_code(std::errc::protocol_error);
     }
 
     return {};
@@ -224,6 +288,11 @@ H2Stream& H2Session::get_or_create_stream(int32_t stream_id) {
     auto stream = std::make_unique<H2Stream>();
     stream->stream_id = stream_id;
     stream->state = H2StreamState::Open;
+
+    // Reserve capacity to prevent reallocation (which would invalidate string_views)
+    // Using 64 as a reasonable upper bound for typical requests (power of 2, ~4KB overhead)
+    stream->request_header_storage.reserve(64);
+    stream->response_header_storage.reserve(64);
 
     auto* ptr = stream.get();
     streams_[stream_id] = std::move(stream);
@@ -300,6 +369,8 @@ int H2Session::on_stream_close_callback(nghttp2_session* /*session*/, int32_t st
     auto* stream = self->get_stream(stream_id);
     if (stream) {
         stream->state = H2StreamState::Closed;
+        // Immediately remove closed stream to free memory and allow new streams
+        self->remove_stream(stream_id);
     }
 
     return 0;
@@ -325,12 +396,17 @@ int H2Session::on_header_callback(nghttp2_session* /*session*/, const nghttp2_fr
         if (name_sv == ":method") {
             stream.request.method = parse_method(value_sv);
         } else if (name_sv == ":path") {
-            stream.request.path = value_sv;
+            // Store path in owned storage (nghttp2 memory is temporary)
+            stream.path_storage = std::string(value_sv);
+            stream.request.path = stream.path_storage;
+            stream.request.uri = stream.path_storage;  // For HTTP/2, uri = path
         } else if (name_sv == ":scheme") {
             // Store scheme if needed
         } else if (name_sv[0] != ':') {
-            // Regular header
-            stream.request.headers.push_back(Header{std::string(name_sv), std::string(value_sv)});
+            // Regular header - store in owned storage first, then create views
+            stream.request_header_storage.emplace_back(std::string(name_sv), std::string(value_sv));
+            const auto& [owned_name, owned_value] = stream.request_header_storage.back();
+            stream.request.headers.push_back(Header{owned_name, owned_value});
         }
     } else {
         // Parsing response headers
@@ -338,8 +414,10 @@ int H2Session::on_header_callback(nghttp2_session* /*session*/, const nghttp2_fr
             int status_code = std::stoi(std::string(value_sv));
             stream.response.status = static_cast<StatusCode>(status_code);
         } else if (name_sv[0] != ':') {
-            // Regular header
-            stream.response.headers.push_back(Header{std::string(name_sv), std::string(value_sv)});
+            // Regular header - store in owned storage first, then create views
+            stream.response_header_storage.emplace_back(std::string(name_sv), std::string(value_sv));
+            const auto& [owned_name, owned_value] = stream.response_header_storage.back();
+            stream.response.headers.push_back(Header{owned_name, owned_value});
         }
     }
 
