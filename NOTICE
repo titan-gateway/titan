@@ -1,0 +1,54 @@
+Titan API Gateway
+Copyright 2025 Titan Contributors
+
+This product includes software developed by the Titan project
+(https://github.com/JonathanBerhe/titan).
+
+================================================================================
+
+This product includes the following third-party components:
+
+--------------------------------------------------------------------------------
+mimalloc - Compact general purpose allocator
+Copyright (c) 2018-2025, Microsoft Corporation, Daan Leijen
+Licensed under the MIT License
+https://github.com/microsoft/mimalloc
+
+--------------------------------------------------------------------------------
+OpenSSL - Cryptography and SSL/TLS Toolkit
+Copyright (c) 1998-2025 The OpenSSL Project
+Licensed under the Apache License 2.0
+https://www.openssl.org/
+
+--------------------------------------------------------------------------------
+Catch2 - Modern C++ test framework
+Copyright (c) 2010-2025 Catch2 Contributors
+Licensed under the Boost Software License 1.0
+https://github.com/catchorg/Catch2
+
+--------------------------------------------------------------------------------
+glaze - Fast JSON library for modern C++
+Copyright (c) 2023-2025 Stephen Berry
+Licensed under the MIT License
+https://github.com/stephenberry/glaze
+
+--------------------------------------------------------------------------------
+{fmt} - Modern formatting library
+Copyright (c) 2012-2025 Victor Zverovich
+Licensed under the MIT License
+https://github.com/fmtlib/fmt
+
+--------------------------------------------------------------------------------
+llhttp - Port of http_parser to llparse
+Copyright (c) 2018-2025 Fedor Indutny
+Licensed under the MIT License
+https://github.com/nodejs/llhttp
+
+--------------------------------------------------------------------------------
+nghttp2 - HTTP/2 C Library
+Copyright (c) 2012-2025 Tatsuhiro Tsujikawa
+Copyright (c) 2012-2025 nghttp2 contributors
+Licensed under the MIT License
+https://github.com/nghttp2/nghttp2
+
+================================================================================
