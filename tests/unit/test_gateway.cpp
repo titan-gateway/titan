@@ -6,6 +6,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <map>
+
 using namespace titan::gateway;
 using namespace titan::http;
 
@@ -217,7 +219,46 @@ TEST_CASE("Least connections load balancer", "[gateway][upstream]") {
     REQUIRE(selected->host == "backend0"); // Has 0 connections
 }
 
-TEST_CASE("Upstream get and release connection", "[gateway][upstream]") {
+TEST_CASE("Weighted round-robin load balancer", "[gateway][upstream]") {
+    std::vector<Backend> backends;
+
+    // Backend 0: weight = 3
+    Backend b0;
+    b0.host = "backend0";
+    b0.port = 8080;
+    b0.weight = 3;
+    b0.status = BackendStatus::Healthy;
+    backends.push_back(std::move(b0));
+
+    // Backend 1: weight = 1
+    Backend b1;
+    b1.host = "backend1";
+    b1.port = 8081;
+    b1.weight = 1;
+    b1.status = BackendStatus::Healthy;
+    backends.push_back(std::move(b1));
+
+    WeightedRoundRobinBalancer balancer;
+
+    // Select 8 times to see the distribution
+    // Expected pattern: backend0 appears 3x more than backend1
+    // Pool: [b0, b0, b0, b1] → repeats
+    std::map<std::string, int> selection_counts;
+    for (int i = 0; i < 8; ++i) {
+        Backend* b = balancer.select(backends, "");
+        REQUIRE(b != nullptr);
+        selection_counts[b->host]++;
+    }
+
+    // backend0 should be selected 6 times (3/4 * 8)
+    // backend1 should be selected 2 times (1/4 * 8)
+    int backend0_count = selection_counts["backend0"];
+    int backend1_count = selection_counts["backend1"];
+    REQUIRE(backend0_count == 6);
+    REQUIRE(backend1_count == 2);
+}
+
+TEST_CASE("Upstream stats", "[gateway][upstream]") {
     Upstream upstream("test_upstream");
 
     Backend backend;
@@ -226,21 +267,10 @@ TEST_CASE("Upstream get and release connection", "[gateway][upstream]") {
     backend.status = BackendStatus::Healthy;
     upstream.add_backend(std::move(backend));
 
-    SECTION("Get connection") {
-        Connection* conn = upstream.get_connection();
-        REQUIRE(conn != nullptr);
-        REQUIRE(conn->backend != nullptr);
-        REQUIRE(conn->backend->host == "localhost");
-
-        upstream.release_connection(conn);
-    }
-
-    SECTION("Stats") {
-        auto stats = upstream.get_stats();
-        REQUIRE(stats.name == "test_upstream");
-        REQUIRE(stats.total_backends == 1);
-        REQUIRE(stats.healthy_backends == 1);
-    }
+    auto stats = upstream.get_stats();
+    REQUIRE(stats.name == "test_upstream");
+    REQUIRE(stats.total_backends == 1);
+    REQUIRE(stats.healthy_backends == 1);
 }
 
 TEST_CASE("UpstreamManager", "[gateway][upstream]") {

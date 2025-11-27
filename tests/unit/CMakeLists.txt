@@ -8,12 +8,14 @@ add_executable(titan_tests
   test_tls.cpp
   test_gateway.cpp
   test_keepalive.cpp
+  test_middleware.cpp
   test_config.cpp
   test_health.cpp
   test_metrics.cpp
   test_prometheus.cpp
   test_rate_limit.cpp
   test_proxy.cpp
+  test_simd.cpp
 )
 
 target_link_libraries(titan_tests

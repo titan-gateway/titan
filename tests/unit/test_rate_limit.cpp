@@ -187,7 +187,7 @@ TEST_CASE("RateLimitMiddleware integration", "[gateway][rate_limit][middleware]"
         ctx.client_ip = "192.168.1.1";
 
         // First request should succeed
-        auto result = middleware.process(ctx);
+        auto result = middleware.process_request(ctx);
         REQUIRE(result == MiddlewareResult::Continue);
     }
 
@@ -209,7 +209,7 @@ TEST_CASE("RateLimitMiddleware integration", "[gateway][rate_limit][middleware]"
         ctx.client_ip = "192.168.1.1";
 
         // Should allow first request
-        REQUIRE(middleware.process(ctx) == MiddlewareResult::Continue);
+        REQUIRE(middleware.process_request(ctx) == MiddlewareResult::Continue);
     }
 
     SECTION("Rate limit exceeded") {
@@ -230,12 +230,12 @@ TEST_CASE("RateLimitMiddleware integration", "[gateway][rate_limit][middleware]"
         ctx.client_ip = "192.168.1.1";
 
         // First 3 requests succeed
-        REQUIRE(middleware.process(ctx) == MiddlewareResult::Continue);
-        REQUIRE(middleware.process(ctx) == MiddlewareResult::Continue);
-        REQUIRE(middleware.process(ctx) == MiddlewareResult::Continue);
+        REQUIRE(middleware.process_request(ctx) == MiddlewareResult::Continue);
+        REQUIRE(middleware.process_request(ctx) == MiddlewareResult::Continue);
+        REQUIRE(middleware.process_request(ctx) == MiddlewareResult::Continue);
 
         // 4th request should be rate limited
-        auto result = middleware.process(ctx);
+        auto result = middleware.process_request(ctx);
         REQUIRE(result == MiddlewareResult::Stop);
         REQUIRE(res.status == StatusCode::TooManyRequests);
         REQUIRE(ctx.has_error);
@@ -259,16 +259,16 @@ TEST_CASE("RateLimitMiddleware integration", "[gateway][rate_limit][middleware]"
 
         // Client 1 - exhaust limit
         ctx.client_ip = "192.168.1.1";
-        REQUIRE(middleware.process(ctx) == MiddlewareResult::Continue);
-        REQUIRE(middleware.process(ctx) == MiddlewareResult::Continue);
-        REQUIRE(middleware.process(ctx) == MiddlewareResult::Stop);  // Rate limited
+        REQUIRE(middleware.process_request(ctx) == MiddlewareResult::Continue);
+        REQUIRE(middleware.process_request(ctx) == MiddlewareResult::Continue);
+        REQUIRE(middleware.process_request(ctx) == MiddlewareResult::Stop);  // Rate limited
 
         // Client 2 - still has capacity
         ctx.client_ip = "192.168.1.2";
         ctx.has_error = false;  // Clear previous error
         ctx.error_message.clear();
-        REQUIRE(middleware.process(ctx) == MiddlewareResult::Continue);
-        REQUIRE(middleware.process(ctx) == MiddlewareResult::Continue);
+        REQUIRE(middleware.process_request(ctx) == MiddlewareResult::Continue);
+        REQUIRE(middleware.process_request(ctx) == MiddlewareResult::Continue);
     }
 
     SECTION("Missing client IP") {
@@ -285,7 +285,7 @@ TEST_CASE("RateLimitMiddleware integration", "[gateway][rate_limit][middleware]"
         ctx.client_ip = "";  // No client IP
 
         // Should allow request (or could deny, depending on policy)
-        auto result = middleware.process(ctx);
+        auto result = middleware.process_request(ctx);
         REQUIRE(result == MiddlewareResult::Continue);
     }
 }
@@ -312,7 +312,7 @@ TEST_CASE("Rate limiting realistic scenario", "[gateway][rate_limit]") {
         // Send 150 requests rapidly (within burst limit)
         int allowed = 0;
         for (int i = 0; i < 150; ++i) {
-            if (middleware.process(ctx) == MiddlewareResult::Continue) {
+            if (middleware.process_request(ctx) == MiddlewareResult::Continue) {
                 allowed++;
             }
             ctx.has_error = false;  // Clear error for next iteration
@@ -326,7 +326,7 @@ TEST_CASE("Rate limiting realistic scenario", "[gateway][rate_limit]") {
         // Send 250 requests rapidly (exceeds burst limit of 200)
         int allowed = 0;
         for (int i = 0; i < 250; ++i) {
-            if (middleware.process(ctx) == MiddlewareResult::Continue) {
+            if (middleware.process_request(ctx) == MiddlewareResult::Continue) {
                 allowed++;
             }
             ctx.has_error = false;
