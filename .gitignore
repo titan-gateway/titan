@@ -1,50 +1,270 @@
-# Build directories
+# Titan API Gateway - Git Ignore File
+
+# ============================================================================
+# Build Artifacts (CMake)
+# ============================================================================
 build/
+build-*/
+cmake-build-*/
+out/
+*.cmake
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Testing/
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps/
+
+# Keep CMakeLists.txt and CMakePresets.json
+!CMakeLists.txt
+!CMakePresets.json
+!**/CMakeLists.txt
+!Makefile
+
+# ============================================================================
+# C++ Compiled Objects
+# ============================================================================
+*.o
+*.obj
+*.so
+*.dylib
+*.a
+*.lib
+*.dll
+*.exe
+*.out
+*.app
+
+# ============================================================================
+# vcpkg
+# ============================================================================
+vcpkg_installed/
+.vcpkg/
+
+# ============================================================================
+# IDE / Editor Files
+# ============================================================================
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# CLion
+.idea/
 cmake-build-*/
 
-# vcpkg
-vcpkg_installed/
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.vcxproj
+*.vcxproj.filters
 
-# IDE
-.vscode/
-.idea/
+# Vim
 *.swp
 *.swo
 *~
+.*.sw?
+
+# Emacs
+\#*\#
+.\#*
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# ============================================================================
+# macOS
+# ============================================================================
 .DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
 
-# Compiled files
-*.o
+# ============================================================================
+# Linux
+# ============================================================================
+*~
+.directory
+.Trash-*
+.nfs*
+
+# ============================================================================
+# Windows
+# ============================================================================
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# ============================================================================
+# Node.js / Docusaurus (website/)
+# ============================================================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Docusaurus build output
+website/build/
+website/.docusaurus/
+website/.cache/
+website/static/.cache/
+
+# Dependencies
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Keep the main package.json
+!website/package.json
+
+# ============================================================================
+# Python (for test scripts)
+# ============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
 *.so
-*.a
-*.dylib
-*.exe
+.Python
+env/
+venv/
+ENV/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+*.egg
 
-# CMake
-CMakeCache.txt
-CMakeFiles/
-cmake_install.cmake
-compile_commands.json
-CTestTestfile.cmake
+# ============================================================================
+# Docker
+# ============================================================================
+.dockerignore
 
-# Testing
-Testing/
-*.gcda
-*.gcno
-*.gcov
+# ============================================================================
+# Testing & Benchmarking
+# ============================================================================
+*.log
+*.txt.tmp
+*.out.tmp
+test-results/
+benchmark-results/
 
-# Fuzzing
-fuzz-*.log
-crash-*
-leak-*
-timeout-*
-slow-unit-*
+# Keep specific benchmark result files you want to track
+!*-bench.json
+!benchmarks/*.md
 
-# Profiling
-*.prof
+# ============================================================================
+# Security / Secrets
+# ============================================================================
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.crt
+secrets/
+credentials/
+
+# Keep example certs for development
+!certs/README.md
+
+# ============================================================================
+# Temporary Files
+# ============================================================================
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*.orig
+*~
+.#*
+\#*\#
+
+# ============================================================================
+# Core Dumps & Debug
+# ============================================================================
+core
+core.*
+vgcore.*
+*.dmp
+*.stackdump
+
+# ============================================================================
+# Profiling & Performance Analysis
+# ============================================================================
 perf.data
 perf.data.old
-flamegraph.svg
+*.prof
+*.gcov
+*.gcda
+*.gcno
+callgrind.out.*
+cachegrind.out.*
+massif.out.*
+gmon.out
+*.svg
+
+# Keep specific flamegraph results you want to track
+!docs/performance/*.svg
+
+# ============================================================================
+# Project Specific
+# ============================================================================
+# Titan binary outputs (allow tracking specific release binaries if needed)
+/titan
+/titan-*
+
+# Configuration overrides (keep examples)
+config/local.json
+config/*.local.json
+!config/test.json
+!config/benchmark.json
 
 # Logs
+logs/
 *.log
+
+# ============================================================================
+# Documentation Build
+# ============================================================================
+docs/_build/
+docs/.buildinfo
+
+# ============================================================================
+# Misc
+# ============================================================================
+.terraform/
+*.tfstate
+*.tfstate.backup
+.vagrant/
+.claude/
+CLAUDE.md
+ROADMAP.md
+.DS_Store
