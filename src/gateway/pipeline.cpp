@@ -1,3 +1,20 @@
+/*
+ * Copyright 2025 Titan Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
 // Titan Pipeline - Implementation
 
 #include "pipeline.hpp"
@@ -6,37 +23,34 @@
 
 namespace titan::gateway {
 
-// LoggingMiddleware implementation
+// LoggingMiddleware implementation (Response phase - logs with timing)
 
-MiddlewareResult LoggingMiddleware::process(RequestContext& ctx) {
-    if (!ctx.request) {
-        return MiddlewareResult::Error;
-    }
-
-    // Log request
-    auto now = std::chrono::steady_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-        now - ctx.start_time);
-
-    std::cout << "[" << http::to_string(ctx.request->method) << "] "
-              << ctx.request->path << " - "
-              << duration.count() << "ms"
-              << std::endl;
-
-    return MiddlewareResult::Continue;
-}
-
-// CorsMiddleware implementation
-
-MiddlewareResult CorsMiddleware::process(RequestContext& ctx) {
+MiddlewareResult LoggingMiddleware::process_response(ResponseContext& ctx) {
     if (!ctx.request || !ctx.response) {
         return MiddlewareResult::Error;
     }
 
-    // Add CORS headers
+    // Logging disabled for performance in MVP
+    // TODO: Implement lock-free async logging with background thread for production
+    // Calculate duration if needed for metrics:
+    // auto now = std::chrono::steady_clock::now();
+    // auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+    //     now - ctx.start_time);
+
+    return MiddlewareResult::Continue;
+}
+
+// CorsMiddleware implementation (Request phase - adds CORS headers)
+
+MiddlewareResult CorsMiddleware::process_request(RequestContext& ctx) {
+    if (!ctx.request || !ctx.response) {
+        return MiddlewareResult::Error;
+    }
+
+    // Add CORS headers (store strings in metadata to keep them alive)
     if (!config_.allowed_origins.empty()) {
-        std::string origin = config_.allowed_origins[0];
-        ctx.response->add_header("Access-Control-Allow-Origin", origin);
+        ctx.set_metadata("cors_origin", config_.allowed_origins[0]);
+        ctx.response->add_header("Access-Control-Allow-Origin", ctx.get_metadata("cors_origin"));
     }
 
     if (!config_.allowed_methods.empty()) {
@@ -45,7 +59,8 @@ MiddlewareResult CorsMiddleware::process(RequestContext& ctx) {
             if (i > 0) methods += ", ";
             methods += config_.allowed_methods[i];
         }
-        ctx.response->add_header("Access-Control-Allow-Methods", methods);
+        ctx.set_metadata("cors_methods", std::move(methods));
+        ctx.response->add_header("Access-Control-Allow-Methods", ctx.get_metadata("cors_methods"));
     }
 
     if (!config_.allowed_headers.empty()) {
@@ -54,14 +69,16 @@ MiddlewareResult CorsMiddleware::process(RequestContext& ctx) {
             if (i > 0) headers += ", ";
             headers += config_.allowed_headers[i];
         }
-        ctx.response->add_header("Access-Control-Allow-Headers", headers);
+        ctx.set_metadata("cors_headers", std::move(headers));
+        ctx.response->add_header("Access-Control-Allow-Headers", ctx.get_metadata("cors_headers"));
     }
 
     if (config_.allow_credentials) {
         ctx.response->add_header("Access-Control-Allow-Credentials", "true");
     }
 
-    ctx.response->add_header("Access-Control-Max-Age", std::to_string(config_.max_age));
+    ctx.set_metadata("cors_max_age", std::to_string(config_.max_age));
+    ctx.response->add_header("Access-Control-Max-Age", ctx.get_metadata("cors_max_age"));
 
     // Handle OPTIONS preflight
     if (ctx.request->method == http::Method::OPTIONS) {
@@ -72,7 +89,7 @@ MiddlewareResult CorsMiddleware::process(RequestContext& ctx) {
     return MiddlewareResult::Continue;
 }
 
-// RateLimitMiddleware implementation
+// RateLimitMiddleware implementation (Request phase - checks rate limits)
 
 RateLimitMiddleware::RateLimitMiddleware()
     : config_()
@@ -82,7 +99,7 @@ RateLimitMiddleware::RateLimitMiddleware(Config config)
     : config_(std::move(config))
     , limiter_(std::make_unique<ThreadLocalRateLimiter>(config_.burst_size, config_.requests_per_second)) {}
 
-MiddlewareResult RateLimitMiddleware::process(RequestContext& ctx) {
+MiddlewareResult RateLimitMiddleware::process_request(RequestContext& ctx) {
     // Use client IP as the rate limit key
     std::string_view key = ctx.client_ip;
     if (key.empty()) {
@@ -105,54 +122,57 @@ MiddlewareResult RateLimitMiddleware::process(RequestContext& ctx) {
 
 // ProxyMiddleware implementation
 
-MiddlewareResult ProxyMiddleware::process(RequestContext& ctx) {
-    if (!ctx.request || !ctx.response) {
-        return MiddlewareResult::Error;
+MiddlewareResult ProxyMiddleware::process_request(RequestContext& ctx) {
+    // Check if this route has an upstream configured
+    if (ctx.route_match.upstream_name.empty()) {
+        // Not a proxy route - continue to next middleware
+        return MiddlewareResult::Continue;
     }
 
-    // Get upstream from route match
-    if (ctx.route_match.handler_id.empty()) {
-        ctx.set_error("No route matched");
-        ctx.response->status = http::StatusCode::NotFound;
-        return MiddlewareResult::Stop;
-    }
-
-    // Get upstream from metadata or route
-    std::string_view upstream_name = ctx.get_metadata("upstream");
-    if (upstream_name.empty()) {
-        ctx.set_error("No upstream specified");
-        ctx.response->status = http::StatusCode::BadGateway;
-        return MiddlewareResult::Stop;
-    }
-
-    // Get upstream
-    Upstream* upstream = upstream_manager_->get_upstream(upstream_name);
+    // Get upstream from manager
+    auto* upstream = upstream_manager_->get_upstream(ctx.route_match.upstream_name);
     if (!upstream) {
-        ctx.set_error("Upstream not found");
-        ctx.response->status = http::StatusCode::BadGateway;
+        // Upstream not found - return 502
+        ctx.set_error("Upstream not found: " + std::string(ctx.route_match.upstream_name));
+        if (ctx.response) {
+            ctx.response->status = http::StatusCode::BadGateway;
+        }
         return MiddlewareResult::Stop;
     }
 
+    // Check if upstream has healthy backends
+    if (upstream->healthy_count() == 0) {
+        // No healthy backends - return 503
+        ctx.set_error("No healthy backends for upstream: " +
+                     std::string(ctx.route_match.upstream_name));
+        if (ctx.response) {
+            ctx.response->status = http::StatusCode::ServiceUnavailable;
+        }
+        return MiddlewareResult::Stop;
+    }
+
+    // Store upstream pointer for Server to use
     ctx.upstream = upstream;
 
-    // Get connection
-    Connection* conn = upstream->get_connection(ctx.client_ip);
-    if (!conn) {
-        ctx.set_error("No backend available");
-        ctx.response->status = http::StatusCode::ServiceUnavailable;
-        return MiddlewareResult::Stop;
+    // Optional: Add custom headers for backend
+    // ctx.request->add_header("X-Forwarded-For", ctx.client_ip);
+    // ctx.request->add_header("X-Real-IP", ctx.client_ip);
+
+    return MiddlewareResult::Continue;
+}
+
+MiddlewareResult ProxyMiddleware::process_response(ResponseContext& ctx) {
+    // Add proxy identification header
+    if (ctx.response) {
+        ctx.response->add_header("X-Proxy", "Titan");
+
+        // Add timing information (store in metadata to keep string alive)
+        auto now = std::chrono::steady_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - ctx.start_time);
+        ctx.set_metadata("response_time", std::to_string(duration.count()) + "ms");
+        ctx.response->add_header("X-Response-Time", ctx.get_metadata("response_time"));
     }
-
-    ctx.connection = conn;
-
-    // TODO: Actually proxy the request (requires I/O)
-    // For now, just return success
-    ctx.response->status = http::StatusCode::OK;
-    ctx.response->set_content_type("application/json");
-
-    // Release connection
-    upstream->release_connection(conn);
-    ctx.connection = nullptr;
 
     return MiddlewareResult::Continue;
 }
@@ -168,15 +188,31 @@ void Pipeline::use(MiddlewareFunc func, std::string_view name) {
         std::make_unique<FunctionMiddleware>(std::move(func), std::string(name)));
 }
 
-MiddlewareResult Pipeline::execute(RequestContext& ctx) {
+MiddlewareResult Pipeline::execute_request(RequestContext& ctx) {
     for (auto& middleware : middleware_) {
-        MiddlewareResult result = middleware->process(ctx);
+        MiddlewareResult result = middleware->process_request(ctx);
 
         if (result == MiddlewareResult::Stop) {
             return MiddlewareResult::Stop;
         }
 
         if (result == MiddlewareResult::Error || ctx.has_error) {
+            return MiddlewareResult::Error;
+        }
+    }
+
+    return MiddlewareResult::Continue;
+}
+
+MiddlewareResult Pipeline::execute_response(ResponseContext& ctx) {
+    for (auto& middleware : middleware_) {
+        MiddlewareResult result = middleware->process_response(ctx);
+
+        if (result == MiddlewareResult::Stop) {
+            return MiddlewareResult::Stop;
+        }
+
+        if (result == MiddlewareResult::Error) {
             return MiddlewareResult::Error;
         }
     }

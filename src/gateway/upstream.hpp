@@ -1,7 +1,26 @@
+/*
+ * Copyright 2025 Titan Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
 // Titan Upstream - Header
 // Connection pooling and load balancing for backend servers
 
 #pragma once
+
+#include "connection_pool.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -102,72 +121,6 @@ enum class LoadBalancingStrategy : uint8_t {
     IPHash              // Hash based on client IP (sticky sessions)
 };
 
-/// Connection to backend
-struct Connection {
-    int sockfd = -1;
-    Backend* backend = nullptr;
-    std::chrono::steady_clock::time_point created_at;
-    std::chrono::steady_clock::time_point last_used;
-    uint64_t requests_served = 0;
-    bool keep_alive = true;
-
-    [[nodiscard]] bool is_valid() const noexcept {
-        return sockfd >= 0 && backend != nullptr;
-    }
-
-    [[nodiscard]] bool is_expired(std::chrono::seconds max_idle) const noexcept {
-        auto now = std::chrono::steady_clock::now();
-        return (now - last_used) > max_idle;
-    }
-
-    [[nodiscard]] bool is_old(std::chrono::seconds max_lifetime) const noexcept {
-        auto now = std::chrono::steady_clock::now();
-        return (now - created_at) > max_lifetime;
-    }
-};
-
-/// Connection pool (per-thread, LIFO for cache locality)
-class ConnectionPool {
-public:
-    explicit ConnectionPool(size_t max_size = 100);
-    ~ConnectionPool();
-
-    // Non-copyable, movable
-    ConnectionPool(const ConnectionPool&) = delete;
-    ConnectionPool& operator=(const ConnectionPool&) = delete;
-    ConnectionPool(ConnectionPool&&) noexcept;
-    ConnectionPool& operator=(ConnectionPool&&) noexcept;
-
-    /// Acquire connection (from pool or create new)
-    [[nodiscard]] Connection* acquire(Backend* backend);
-
-    /// Release connection back to pool
-    void release(Connection* conn);
-
-    /// Close connection
-    void close(Connection* conn);
-
-    /// Evict expired connections
-    void evict_expired(std::chrono::seconds max_idle);
-
-    /// Get pool statistics
-    struct Stats {
-        size_t total_connections = 0;
-        size_t idle_connections = 0;
-        size_t active_connections = 0;
-        uint64_t total_acquires = 0;
-        uint64_t cache_hits = 0;
-        uint64_t cache_misses = 0;
-    };
-    [[nodiscard]] Stats get_stats() const noexcept { return stats_; }
-
-private:
-    std::vector<std::unique_ptr<Connection>> pool_;
-    std::vector<Connection*> free_list_;  // LIFO stack of available connections
-    size_t max_size_;
-    Stats stats_;
-};
-
 /// Load balancer interface
 class LoadBalancer {
 public:
@@ -206,10 +159,21 @@ public:
     Backend* select(const std::vector<Backend>& backends, std::string_view client_ip) override;
 };
 
+/// Weighted round-robin load balancer
+/// Distributes requests based on backend weights (higher weight = more requests)
+/// Algorithm: Each backend appears in selection pool N times (N = weight)
+class WeightedRoundRobinBalancer : public LoadBalancer {
+public:
+    Backend* select(const std::vector<Backend>& backends, std::string_view client_ip) override;
+
+private:
+    std::atomic<uint64_t> counter_{0};
+};
+
 /// Upstream group (multiple backends with load balancing)
 class Upstream {
 public:
-    explicit Upstream(std::string name);
+    explicit Upstream(std::string name, size_t backend_pool_size = 64);
     ~Upstream();
 
     // Non-copyable, movable
@@ -223,12 +187,6 @@ public:
 
     /// Remove backend by address
     void remove_backend(std::string_view address);
-
-    /// Get connection to backend (selects backend using load balancer)
-    [[nodiscard]] Connection* get_connection(std::string_view client_ip = {});
-
-    /// Release connection back to pool
-    void release_connection(Connection* conn);
 
     /// Set load balancing strategy
     void set_load_balancer(std::unique_ptr<LoadBalancer> balancer);
@@ -249,15 +207,18 @@ public:
         size_t healthy_backends = 0;
         uint64_t total_requests = 0;
         uint64_t total_failures = 0;
-        ConnectionPool::Stats pool_stats;
     };
     [[nodiscard]] Stats get_stats() const;
+
+    /// Get backend connection pool (Phase 3.0 - async backend pooling)
+    [[nodiscard]] BackendConnectionPool& backend_pool() noexcept { return backend_pool_; }
+    [[nodiscard]] const BackendConnectionPool& backend_pool() const noexcept { return backend_pool_; }
 
 private:
     std::string name_;
     std::vector<Backend> backends_;
     std::unique_ptr<LoadBalancer> balancer_;
-    ConnectionPool pool_;
+    BackendConnectionPool backend_pool_; // Phase 3.0: Simple FD-based pool for async backend
 };
 
 /// Upstream manager (registry of all upstreams)

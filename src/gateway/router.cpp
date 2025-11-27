@@ -1,6 +1,24 @@
+/*
+ * Copyright 2025 Titan Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
 // Titan Router - Implementation
 
 #include "router.hpp"
+#include "../http/simd.hpp"
 
 #include <algorithm>
 #include <sstream>
@@ -67,8 +85,22 @@ void Router::insert_route(const Route& route) {
             remaining_path.remove_prefix(1);
         }
 
-        // Extract next segment
-        size_t slash_pos = remaining_path.find('/');
+        // Extract next segment (use SIMD for long paths)
+        size_t slash_pos = std::string_view::npos;
+        if (remaining_path.size() >= 16) {
+            // Use SIMD find for longer paths
+            const char* slash_ptr = http::simd::find_char(
+                remaining_path.data(),
+                remaining_path.size(),
+                '/'
+            );
+            if (slash_ptr) {
+                slash_pos = slash_ptr - remaining_path.data();
+            }
+        } else {
+            // Use scalar for short paths
+            slash_pos = remaining_path.find('/');
+        }
         std::string_view segment = remaining_path.substr(0, slash_pos);
 
         if (slash_pos != std::string_view::npos) {
@@ -185,8 +217,18 @@ RouteMatch Router::search(
         path.remove_prefix(1);
     }
 
-    // Extract next segment
-    size_t slash_pos = path.find('/');
+    // Extract next segment (use SIMD for long paths)
+    size_t slash_pos = std::string_view::npos;
+    if (path.size() >= 16) {
+        // Use SIMD find for longer paths
+        const char* slash_ptr = http::simd::find_char(path.data(), path.size(), '/');
+        if (slash_ptr) {
+            slash_pos = slash_ptr - path.data();
+        }
+    } else {
+        // Use scalar for short paths
+        slash_pos = path.find('/');
+    }
     std::string_view segment = path.substr(0, slash_pos);
     std::string_view remaining = (slash_pos != std::string_view::npos)
         ? path.substr(slash_pos)
@@ -232,11 +274,7 @@ RouteMatch Router::search(
 
 size_t Router::common_prefix_length(std::string_view a, std::string_view b) {
     size_t min_len = std::min(a.size(), b.size());
-    size_t i = 0;
-    while (i < min_len && a[i] == b[i]) {
-        ++i;
-    }
-    return i;
+    return http::simd::common_prefix_length(a.data(), b.data(), min_len);
 }
 
 RadixNode* Router::split_node(RadixNode* node, size_t pos) {
@@ -271,11 +309,42 @@ std::vector<std::string> extract_param_names(std::string_view pattern) {
     size_t pos = 0;
 
     while (pos < pattern.size()) {
+        // Use SIMD to find next ':'
+        const char* colon_ptr = nullptr;
+        if (pattern.size() - pos >= 16) {
+            colon_ptr = http::simd::find_char(pattern.data() + pos, pattern.size() - pos, ':');
+        } else {
+            size_t colon_pos = pattern.find(':', pos);
+            if (colon_pos != std::string_view::npos) {
+                colon_ptr = pattern.data() + colon_pos;
+            }
+        }
+
+        if (!colon_ptr) {
+            break;
+        }
+
+        pos = colon_ptr - pattern.data();
+
         if (pattern[pos] == ':') {
             size_t end = pos + 1;
-            while (end < pattern.size() && pattern[end] != '/') {
-                ++end;
+
+            // Use SIMD to find next '/'
+            std::string_view remaining = pattern.substr(pos + 1);
+            const char* slash_ptr = nullptr;
+            if (remaining.size() >= 16) {
+                slash_ptr = http::simd::find_char(remaining.data(), remaining.size(), '/');
+                if (slash_ptr) {
+                    end = slash_ptr - pattern.data();
+                } else {
+                    end = pattern.size();
+                }
+            } else {
+                while (end < pattern.size() && pattern[end] != '/') {
+                    ++end;
+                }
             }
+
             params.push_back(std::string(pattern.substr(pos + 1, end - pos - 1)));
             pos = end;
         } else {
