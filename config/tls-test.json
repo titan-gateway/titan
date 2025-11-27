@@ -1,0 +1,56 @@
+{
+  "version": "1.0",
+  "description": "TLS/HTTPS test configuration",
+  "server": {
+    "listen_address": "0.0.0.0",
+    "listen_port": 8443,
+    "worker_threads": 1,
+    "tls_enabled": true,
+    "tls_certificate_path": "/workspace/certs/cert.pem",
+    "tls_private_key_path": "/workspace/certs/key.pem",
+    "tls_alpn_protocols": ["h2", "http/1.1"]
+  },
+  "upstreams": [
+    {
+      "name": "backend",
+      "backends": [
+        {
+          "host": "127.0.0.1",
+          "port": 8001
+        }
+      ],
+      "load_balancing": "round_robin"
+    }
+  ],
+  "routes": [
+    {
+      "path": "/",
+      "method": "GET",
+      "upstream": "backend",
+      "handler_id": "root"
+    },
+    {
+      "path": "/health",
+      "method": "GET",
+      "upstream": "backend",
+      "handler_id": "health"
+    }
+  ],
+  "cors": {
+    "enabled": false
+  },
+  "rate_limit": {
+    "enabled": false
+  },
+  "auth": {
+    "enabled": false
+  },
+  "logging": {
+    "level": "info",
+    "log_requests": true
+  },
+  "metrics": {
+    "enabled": true,
+    "port": 9090
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "version": "test-invalid",
+  "server": {
+    "listen_address": "127.0.0.1",
+    "listen_port": 0,
+    "backlog": 128,
+    "worker_threads": 1
+  },
+  "routes": [],
+  "upstreams": []
+}
