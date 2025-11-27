@@ -1,0 +1,46 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: titan
+
+# Resources to deploy
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml
+  - hpa.yaml
+  # - ingress.yaml  # Uncomment if using Ingress
+
+# Common labels applied to all resources
+commonLabels:
+  app: titan
+  managed-by: kustomize
+
+# Images (override with custom registry)
+images:
+  - name: titan-gateway
+    newName: ghcr.io/JonathanBerhe/titan
+    newTag: latest
+
+# ConfigMap generator (alternative to configmap.yaml)
+# configMapGenerator:
+#   - name: titan-config
+#     files:
+#       - config.json
+
+# Secret generator for TLS (example - use external secret manager in prod)
+# secretGenerator:
+#   - name: titan-tls
+#     files:
+#       - tls.crt
+#       - tls.key
+
+# Patches for environment-specific customizations
+# patchesStrategicMerge:
+#   - production-patch.yaml
+
+# Replicas (can be overridden per environment)
+# replicas:
+#   - name: titan-gateway
+#     count: 3

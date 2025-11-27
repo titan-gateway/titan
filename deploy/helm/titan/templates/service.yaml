@@ -1,0 +1,60 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "titan.fullname" . }}
+  labels:
+    {{- include "titan.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "titan.selectorLabels" . | nindent 4 }}
+  ports:
+  - name: http
+    port: {{ .Values.service.port }}
+    targetPort: http
+    protocol: TCP
+  - name: https
+    port: {{ .Values.service.httpsPort }}
+    targetPort: https
+    protocol: TCP
+  sessionAffinity: {{ .Values.service.sessionAffinity }}
+  {{- if and (eq .Values.service.type "LoadBalancer") .Values.service.loadBalancer.enabled }}
+  sessionAffinityConfig:
+    {{- toYaml .Values.service.loadBalancer.sessionAffinityConfig | nindent 4 }}
+  {{- end }}
+
+{{- if .Values.service.loadBalancer.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "titan.fullname" . }}-external
+  labels:
+    {{- include "titan.labels" . | nindent 4 }}
+  {{- with .Values.service.loadBalancer.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: LoadBalancer
+  selector:
+    {{- include "titan.selectorLabels" . | nindent 4 }}
+  ports:
+  - name: http
+    port: 80
+    targetPort: http
+    protocol: TCP
+  - name: https
+    port: 443
+    targetPort: https
+    protocol: TCP
+  sessionAffinity: {{ .Values.service.loadBalancer.sessionAffinity }}
+  {{- with .Values.service.loadBalancer.sessionAffinityConfig }}
+  sessionAffinityConfig:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

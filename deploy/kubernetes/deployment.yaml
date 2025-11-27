@@ -1,0 +1,148 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: titan-gateway
+  labels:
+    app: titan
+    component: gateway
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: titan
+      component: gateway
+  template:
+    metadata:
+      labels:
+        app: titan
+        component: gateway
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/_metrics"
+    spec:
+      # Security: Non-root user (UID 1000 from Dockerfile)
+      securityContext:
+        runAsUser: 1000
+        runAsNonRoot: true
+        fsGroup: 1000
+
+      containers:
+      - name: titan
+        image: titan-gateway:latest
+        imagePullPolicy: IfNotPresent
+
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        - name: https
+          containerPort: 8443
+          protocol: TCP
+
+        # Health checks using internal /_health endpoint
+        livenessProbe:
+          httpGet:
+            path: /_health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+
+        readinessProbe:
+          httpGet:
+            path: /_health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 2
+
+        # Startup probe for slow-starting containers
+        startupProbe:
+          httpGet:
+            path: /_health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 0
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 30
+
+        # Resource limits (adjust based on benchmarks)
+        resources:
+          requests:
+            cpu: "1000m"
+            memory: "512Mi"
+          limits:
+            cpu: "2000m"
+            memory: "1Gi"
+
+        # Volume mounts
+        volumeMounts:
+        - name: config
+          mountPath: /etc/titan
+          readOnly: true
+        - name: tls
+          mountPath: /etc/titan/tls
+          readOnly: true
+
+        # Environment variables
+        env:
+        - name: TITAN_WORKERS
+          value: "4"
+        - name: TITAN_LOG_LEVEL
+          value: "info"
+
+        # Security context (container-level)
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - NET_BIND_SERVICE
+
+      # Volumes
+      volumes:
+      - name: config
+        configMap:
+          name: titan-config
+          items:
+          - key: config.json
+            path: config.json
+      - name: tls
+        secret:
+          secretName: titan-tls
+          optional: true
+
+      # Affinity: spread pods across nodes for HA
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - titan
+              topologyKey: kubernetes.io/hostname
+
+      # Termination grace period
+      terminationGracePeriodSeconds: 30

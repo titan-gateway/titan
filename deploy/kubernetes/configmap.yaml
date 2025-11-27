@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: titan-config
+  labels:
+    app: titan
+    component: gateway
+data:
+  config.json: |
+    {
+      "server": {
+        "host": "0.0.0.0",
+        "port": 8080,
+        "https_port": 8443,
+        "workers": 4,
+        "tls": {
+          "enabled": true,
+          "cert_path": "/etc/titan/tls/tls.crt",
+          "key_path": "/etc/titan/tls/tls.key",
+          "min_version": "1.2"
+        }
+      },
+      "upstreams": [
+        {
+          "name": "backend",
+          "load_balancing": "round_robin",
+          "health_check": {
+            "enabled": true,
+            "interval_seconds": 30,
+            "timeout_seconds": 5,
+            "path": "/health"
+          },
+          "backends": [
+            {
+              "host": "backend-service",
+              "port": 8080,
+              "weight": 1,
+              "max_connections": 100
+            }
+          ]
+        }
+      ],
+      "routes": [
+        {
+          "path": "/api/*",
+          "method": "GET",
+          "upstream": "backend"
+        },
+        {
+          "path": "/api/*",
+          "method": "POST",
+          "upstream": "backend"
+        }
+      ],
+      "middleware": [
+        {
+          "type": "rate_limit",
+          "config": {
+            "requests_per_second": 100,
+            "burst": 200
+          }
+        },
+        {
+          "type": "cors",
+          "config": {
+            "allowed_origins": ["*"],
+            "allowed_methods": ["GET", "POST", "PUT", "DELETE"],
+            "allowed_headers": ["Content-Type", "Authorization"]
+          }
+        }
+      ]
+    }

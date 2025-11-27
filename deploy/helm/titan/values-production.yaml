@@ -1,0 +1,179 @@
+# Production environment values
+# Override default values for production environment
+
+replicaCount: 5
+
+image:
+  repository: ghcr.io/JonathanBerhe/titan
+  pullPolicy: IfNotPresent
+  tag: "v0.1.0"
+
+resources:
+  limits:
+    cpu: 2000m
+    memory: 1Gi
+  requests:
+    cpu: 1000m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 5
+  maxReplicas: 50
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: api.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+    - host: gateway.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: titan-tls-prod
+      hosts:
+        - api.example.com
+        - gateway.example.com
+
+service:
+  type: ClusterIP
+  loadBalancer:
+    enabled: true
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+      service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+    sessionAffinity: ClientIP
+    sessionAffinityConfig:
+      clientIP:
+        timeoutSeconds: 10800
+
+tls:
+  enabled: true
+  secretName: titan-tls
+  certManager:
+    enabled: true
+    issuer: letsencrypt-prod
+
+env:
+  - name: TITAN_WORKERS
+    value: "4"
+  - name: TITAN_LOG_LEVEL
+    value: "warn"
+
+config:
+  server:
+    host: "0.0.0.0"
+    port: 8080
+    https_port: 8443
+    workers: 4
+    tls:
+      enabled: true
+      cert_path: "/etc/titan/tls/tls.crt"
+      key_path: "/etc/titan/tls/tls.key"
+      min_version: "1.3"
+
+  upstreams:
+    - name: "backend-primary"
+      load_balancing: "weighted_round_robin"
+      health_check:
+        enabled: true
+        interval_seconds: 30
+        timeout_seconds: 5
+        path: "/health"
+      backends:
+        - host: "backend-primary-service"
+          port: 8080
+          weight: 3
+          max_connections: 200
+        - host: "backend-secondary-service"
+          port: 8080
+          weight: 1
+          max_connections: 100
+
+  routes:
+    - path: "/api/*"
+      method: "GET"
+      upstream: "backend-primary"
+    - path: "/api/*"
+      method: "POST"
+      upstream: "backend-primary"
+    - path: "/api/*"
+      method: "PUT"
+      upstream: "backend-primary"
+    - path: "/api/*"
+      method: "DELETE"
+      upstream: "backend-primary"
+
+  middleware:
+    - type: "rate_limit"
+      config:
+        requests_per_second: 1000
+        burst: 2000
+    - type: "cors"
+      config:
+        allowed_origins:
+          - "https://example.com"
+          - "https://www.example.com"
+        allowed_methods:
+          - "GET"
+          - "POST"
+          - "PUT"
+          - "DELETE"
+        allowed_headers:
+          - "Content-Type"
+          - "Authorization"
+          - "X-Request-ID"
+
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    path: /_metrics
+
+networkPolicy:
+  enabled: true
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8080
+
+priorityClassName: "high-priority"
+
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+                - titan
+        topologyKey: kubernetes.io/hostname

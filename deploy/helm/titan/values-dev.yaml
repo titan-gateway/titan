@@ -1,0 +1,59 @@
+# Development environment values
+# Override default values for dev environment
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/JonathanBerhe/titan
+  pullPolicy: Always
+  tag: "dev"
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+  requests:
+    cpu: 500m
+    memory: 256Mi
+
+autoscaling:
+  enabled: false
+
+ingress:
+  enabled: false
+
+tls:
+  enabled: false
+
+env:
+  - name: TITAN_WORKERS
+    value: "2"
+  - name: TITAN_LOG_LEVEL
+    value: "debug"
+
+config:
+  server:
+    host: "0.0.0.0"
+    port: 8080
+    https_port: 8443
+    workers: 2
+    tls:
+      enabled: false
+
+  middleware:
+    - type: "rate_limit"
+      config:
+        requests_per_second: 10
+        burst: 20
+    - type: "cors"
+      config:
+        allowed_origins:
+          - "*"
+        allowed_methods:
+          - "GET"
+          - "POST"
+          - "PUT"
+          - "DELETE"
+        allowed_headers:
+          - "Content-Type"
+          - "Authorization"

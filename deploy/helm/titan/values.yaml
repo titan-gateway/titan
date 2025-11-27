@@ -1,0 +1,291 @@
+# Default values for Titan API Gateway
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Deployment configuration
+replicaCount: 3
+
+image:
+  repository: ghcr.io/JonathanBerhe/titan
+  pullPolicy: IfNotPresent
+  tag: "latest"  # Overrides the image tag (default: Chart.appVersion)
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# Service Account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# Pod annotations
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+  prometheus.io/path: "/_metrics"
+
+# Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+# Container security context
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+  capabilities:
+    drop:
+      - ALL
+    add:
+      - NET_BIND_SERVICE
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 80
+  httpsPort: 443
+  targetPort: 8080
+  httpsTargetPort: 8443
+  annotations: {}
+  sessionAffinity: None
+
+  # LoadBalancer configuration (if service.type is LoadBalancer)
+  loadBalancer:
+    enabled: false
+    annotations:
+      # AWS
+      # service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+      # GCP
+      # cloud.google.com/load-balancer-type: "External"
+    sessionAffinity: ClientIP
+    sessionAffinityConfig:
+      clientIP:
+        timeoutSeconds: 10800
+
+# Ingress configuration
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: api.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: titan-tls-ingress
+      hosts:
+        - api.example.com
+
+# Resource limits
+resources:
+  limits:
+    cpu: 2000m
+    memory: 1Gi
+  requests:
+    cpu: 1000m
+    memory: 512Mi
+
+# Horizontal Pod Autoscaler
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+      selectPolicy: Min
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 60
+        - type: Pods
+          value: 4
+          periodSeconds: 60
+      selectPolicy: Max
+
+# Node selection
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Pod affinity
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - titan
+          topologyKey: kubernetes.io/hostname
+
+# Pod Disruption Budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+  # maxUnavailable: 1
+
+# Liveness probe
+livenessProbe:
+  httpGet:
+    path: /_health
+    port: http
+    scheme: HTTP
+  initialDelaySeconds: 10
+  periodSeconds: 30
+  timeoutSeconds: 5
+  successThreshold: 1
+  failureThreshold: 3
+
+# Readiness probe
+readinessProbe:
+  httpGet:
+    path: /_health
+    port: http
+    scheme: HTTP
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  successThreshold: 1
+  failureThreshold: 2
+
+# Startup probe
+startupProbe:
+  httpGet:
+    path: /_health
+    port: http
+    scheme: HTTP
+  initialDelaySeconds: 0
+  periodSeconds: 5
+  timeoutSeconds: 3
+  successThreshold: 1
+  failureThreshold: 30
+
+# Environment variables
+env:
+  - name: TITAN_WORKERS
+    value: "4"
+  - name: TITAN_LOG_LEVEL
+    value: "info"
+
+# TLS configuration
+tls:
+  enabled: true
+  secretName: titan-tls
+  # If cert-manager is enabled, auto-generate certificates
+  certManager:
+    enabled: false
+    issuer: letsencrypt-prod
+
+# Titan configuration
+config:
+  server:
+    host: "0.0.0.0"
+    port: 8080
+    https_port: 8443
+    workers: 4
+    tls:
+      enabled: true
+      cert_path: "/etc/titan/tls/tls.crt"
+      key_path: "/etc/titan/tls/tls.key"
+      min_version: "1.2"
+
+  upstreams:
+    - name: "backend"
+      load_balancing: "round_robin"
+      health_check:
+        enabled: true
+        interval_seconds: 30
+        timeout_seconds: 5
+        path: "/health"
+      backends:
+        - host: "backend-service"
+          port: 8080
+          weight: 1
+          max_connections: 100
+
+  routes:
+    - path: "/api/*"
+      method: "GET"
+      upstream: "backend"
+    - path: "/api/*"
+      method: "POST"
+      upstream: "backend"
+
+  middleware:
+    - type: "rate_limit"
+      config:
+        requests_per_second: 100
+        burst: 200
+    - type: "cors"
+      config:
+        allowed_origins:
+          - "*"
+        allowed_methods:
+          - "GET"
+          - "POST"
+          - "PUT"
+          - "DELETE"
+        allowed_headers:
+          - "Content-Type"
+          - "Authorization"
+
+# Monitoring
+monitoring:
+  enabled: false
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    path: /_metrics
+    labels: {}
+
+# Network Policy
+networkPolicy:
+  enabled: false
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8080
+
+# Priority Class
+priorityClassName: ""
+
+# Termination grace period
+terminationGracePeriodSeconds: 30

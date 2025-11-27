@@ -1,0 +1,83 @@
+# Staging environment values
+# Override default values for staging environment
+
+replicaCount: 2
+
+image:
+  repository: ghcr.io/JonathanBerhe/titan
+  pullPolicy: IfNotPresent
+  tag: "staging"
+
+resources:
+  limits:
+    cpu: 1500m
+    memory: 768Mi
+  requests:
+    cpu: 750m
+    memory: 384Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-staging"
+  hosts:
+    - host: api-staging.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: titan-tls-staging
+      hosts:
+        - api-staging.example.com
+
+tls:
+  enabled: true
+  secretName: titan-tls
+  certManager:
+    enabled: true
+    issuer: letsencrypt-staging
+
+env:
+  - name: TITAN_WORKERS
+    value: "4"
+  - name: TITAN_LOG_LEVEL
+    value: "info"
+
+config:
+  server:
+    host: "0.0.0.0"
+    port: 8080
+    https_port: 8443
+    workers: 4
+    tls:
+      enabled: true
+      cert_path: "/etc/titan/tls/tls.crt"
+      key_path: "/etc/titan/tls/tls.key"
+      min_version: "1.2"
+
+  middleware:
+    - type: "rate_limit"
+      config:
+        requests_per_second: 50
+        burst: 100
+    - type: "cors"
+      config:
+        allowed_origins:
+          - "https://staging.example.com"
+        allowed_methods:
+          - "GET"
+          - "POST"
+          - "PUT"
+          - "DELETE"
+        allowed_headers:
+          - "Content-Type"
+          - "Authorization"

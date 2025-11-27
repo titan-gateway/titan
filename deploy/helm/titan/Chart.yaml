@@ -1,0 +1,30 @@
+apiVersion: v2
+name: titan
+description: High-performance C++23 API Gateway - Helm Chart
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+keywords:
+  - gateway
+  - api-gateway
+  - reverse-proxy
+  - http2
+  - tls
+
+home: https://github.com/JonathanBerhe/titan
+sources:
+  - https://github.com/JonathanBerhe/titan
+
+maintainers:
+  - name: Titan Maintainers
+    email: maintainers@example.com
+
+icon: https://raw.githubusercontent.com/JonathanBerhe/titan/main/docs/logo.svg
+
+# Dependencies (if any)
+# dependencies:
+#   - name: prometheus
+#     version: "15.x.x"
+#     repository: https://prometheus-community.github.io/helm-charts
+#     condition: prometheus.enabled
