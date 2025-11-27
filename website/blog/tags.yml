@@ -1,0 +1,14 @@
+announcement:
+  label: Announcement
+  permalink: /announcement
+  description: Product announcements and releases
+
+performance:
+  label: Performance
+  permalink: /performance
+  description: Performance benchmarks and optimizations
+
+architecture:
+  label: Architecture
+  permalink: /architecture
+  description: System architecture and design decisions
