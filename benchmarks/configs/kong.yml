@@ -1,0 +1,25 @@
+# Kong Configuration for Benchmark
+# Note: Kong setup is complex, this is declarative config
+
+_format_version: "3.0"
+
+services:
+- name: backend-service
+  url: http://localhost:3001
+  protocol: http
+  connect_timeout: 60000
+  write_timeout: 60000
+  read_timeout: 60000
+
+routes:
+- name: catch-all
+  service: backend-service
+  protocols:
+  - http
+  - https
+  paths:
+  - /
+
+# Minimal configuration for performance
+# Kong uses database-less mode (declarative)
+# Start command: kong start -c /path/to/kong.conf --vv

@@ -1,0 +1,114 @@
+{
+  "Light Load - Root Endpoint": {
+    "name": "Light Load - Root Endpoint",
+    "path": "/",
+    "duration": 10,
+    "connections": 10,
+    "threads": 2,
+    "raw_output": "Running 10s test @ http://127.0.0.1:8080/\n  2 threads and 10 connections\n  Thread Stats   Avg      Stdev     Max   +/- Stdev\n    Latency     2.48ms    1.62ms  31.39ms   98.35%\n    Req/Sec     2.12k   166.44     2.35k    79.50%\n  Latency Distribution\n     50%    2.27ms\n     75%    2.39ms\n     90%    2.50ms\n     99%    9.71ms\n  42327 requests in 10.02s, 2.91MB read\nRequests/sec:   4223.48\nTransfer/sec:    296.96KB\n",
+    "requests_per_sec": 4223.48,
+    "transfer_per_sec": "296.96KB",
+    "percentiles": {
+      "p50": "2.27ms",
+      "p75": "2.39ms",
+      "p90": "2.50ms",
+      "p99": "9.71ms"
+    }
+  },
+  "Medium Load - Root Endpoint": {
+    "name": "Medium Load - Root Endpoint",
+    "path": "/",
+    "duration": 10,
+    "connections": 100,
+    "threads": 4,
+    "raw_output": "Running 10s test @ http://127.0.0.1:8080/\n  4 threads and 100 connections\n  Thread Stats   Avg      Stdev     Max   +/- Stdev\n    Latency    23.26ms    1.40ms  38.81ms   89.24%\n    Req/Sec     1.08k    69.44     1.24k    69.50%\n  Latency Distribution\n     50%   22.84ms\n     75%   23.65ms\n     90%   24.70ms\n     99%   28.20ms\n  43065 requests in 10.08s, 2.96MB read\nRequests/sec:   4274.39\nTransfer/sec:    300.54KB\n",
+    "requests_per_sec": 4274.39,
+    "transfer_per_sec": "300.54KB",
+    "percentiles": {
+      "p50": "22.84ms",
+      "p75": "23.65ms",
+      "p90": "24.70ms",
+      "p99": "28.20ms"
+    }
+  },
+  "Heavy Load - Root Endpoint": {
+    "name": "Heavy Load - Root Endpoint",
+    "path": "/",
+    "duration": 10,
+    "connections": 500,
+    "threads": 8,
+    "raw_output": "Running 10s test @ http://127.0.0.1:8080/\n  8 threads and 500 connections\n  Thread Stats   Avg      Stdev     Max   +/- Stdev\n    Latency    33.79ms   52.91ms   1.70s    99.37%\n    Req/Sec   553.40    206.49     0.91k    72.44%\n  Latency Distribution\n     50%   29.80ms\n     75%   30.68ms\n     90%   31.81ms\n     99%   49.50ms\n  43128 requests in 10.09s, 2.96MB read\n  Socket errors: connect 0, read 0, write 0, timeout 13\nRequests/sec:   4273.45\nTransfer/sec:    300.48KB\n",
+    "requests_per_sec": 4273.45,
+    "transfer_per_sec": "300.48KB",
+    "percentiles": {
+      "p50": "29.80ms",
+      "p75": "30.68ms",
+      "p90": "31.81ms",
+      "p99": "49.50ms"
+    }
+  },
+  "Medium Load - JSON Endpoint": {
+    "name": "Medium Load - JSON Endpoint",
+    "path": "/api/users/123",
+    "duration": 10,
+    "connections": 100,
+    "threads": 4,
+    "raw_output": "Running 10s test @ http://127.0.0.1:8080/api/users/123\n  4 threads and 100 connections\n  Thread Stats   Avg      Stdev     Max   +/- Stdev\n    Latency    25.66ms    1.81ms  39.30ms   91.64%\n    Req/Sec     0.97k    48.02     1.06k    87.50%\n  Latency Distribution\n     50%   25.20ms\n     75%   25.96ms\n     90%   27.11ms\n     99%   33.82ms\n  38945 requests in 10.06s, 4.20MB read\nRequests/sec:   3869.38\nTransfer/sec:    426.99KB\n",
+    "requests_per_sec": 3869.38,
+    "transfer_per_sec": "426.99KB",
+    "percentiles": {
+      "p50": "25.20ms",
+      "p75": "25.96ms",
+      "p90": "27.11ms",
+      "p99": "33.82ms"
+    }
+  },
+  "Medium Load - Large Response": {
+    "name": "Medium Load - Large Response",
+    "path": "/large",
+    "duration": 10,
+    "connections": 100,
+    "threads": 4,
+    "raw_output": "Running 10s test @ http://127.0.0.1:8080/large\n  4 threads and 100 connections\n  Thread Stats   Avg      Stdev     Max   +/- Stdev\n    Latency   227.97ms   19.88ms 264.41ms   92.21%\n    Req/Sec   108.64     34.42   202.00     72.22%\n  Latency Distribution\n     50%  227.88ms\n     75%  234.23ms\n     90%  240.23ms\n     99%  258.72ms\n  4340 requests in 10.07s, 123.54MB read\nRequests/sec:    431.09\nTransfer/sec:     12.27MB\n",
+    "requests_per_sec": 431.09,
+    "transfer_per_sec": "12.27MB",
+    "percentiles": {
+      "p50": "227.88ms",
+      "p75": "234.23ms",
+      "p90": "240.23ms",
+      "p99": "258.72ms"
+    }
+  },
+  "Extreme Concurrency": {
+    "name": "Extreme Concurrency",
+    "path": "/",
+    "duration": 10,
+    "connections": 1000,
+    "threads": 8,
+    "raw_output": "Running 10s test @ http://127.0.0.1:8080/\n  8 threads and 1000 connections\n  Thread Stats   Avg      Stdev     Max   +/- Stdev\n    Latency    32.33ms   48.16ms   1.70s    99.52%\n    Req/Sec   529.79    311.23     1.46k    59.80%\n  Latency Distribution\n     50%   29.96ms\n     75%   31.12ms\n     90%   32.40ms\n     99%   43.53ms\n  41869 requests in 10.09s, 2.87MB read\n  Socket errors: connect 0, read 0, write 0, timeout 13\nRequests/sec:   4148.43\nTransfer/sec:    291.69KB\n",
+    "requests_per_sec": 4148.43,
+    "transfer_per_sec": "291.69KB",
+    "percentiles": {
+      "p50": "29.96ms",
+      "p75": "31.12ms",
+      "p90": "32.40ms",
+      "p99": "43.53ms"
+    }
+  },
+  "Sustained Load - 30s": {
+    "name": "Sustained Load - 30s",
+    "path": "/",
+    "duration": 30,
+    "connections": 200,
+    "threads": 4,
+    "raw_output": "Running 30s test @ http://127.0.0.1:8080/\n  4 threads and 200 connections\n  Thread Stats   Avg      Stdev     Max   +/- Stdev\n    Latency    32.54ms   36.79ms   1.69s    99.52%\n    Req/Sec     1.06k   167.90     1.99k    65.05%\n  Latency Distribution\n     50%   30.00ms\n     75%   31.11ms\n     90%   32.87ms\n     99%   46.46ms\n  126991 requests in 30.08s, 8.72MB read\n  Socket errors: connect 0, read 0, write 0, timeout 6\nRequests/sec:   4221.77\nTransfer/sec:    296.84KB\n",
+    "requests_per_sec": 4221.77,
+    "transfer_per_sec": "296.84KB",
+    "percentiles": {
+      "p50": "30.00ms",
+      "p75": "31.11ms",
+      "p90": "32.87ms",
+      "p99": "46.46ms"
+    }
+  }
+}
