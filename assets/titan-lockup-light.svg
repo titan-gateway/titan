@@ -1,0 +1,13 @@
+<svg width="200" height="64" viewBox="0 0 200 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Parallel Gateway Icon -->
+  <!-- Vertical stem -->
+  <rect fill="#0F172A" x="27" y="8" width="10" height="48"/>
+  <!-- Parallel horizontal lines -->
+  <rect fill="#0F172A" x="10" y="8" width="44" height="3"/>
+  <rect fill="#0F172A" x="12" y="13" width="40" height="3" opacity="0.8"/>
+  <rect fill="#0F172A" x="14" y="18" width="36" height="3" opacity="0.6"/>
+  <rect fill="#0F172A" x="16" y="23" width="32" height="3" opacity="0.4"/>
+  
+  <!-- TITAN Wordmark -->
+  <text x="72" y="42" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="28" font-weight="600" letter-spacing="0.05em" fill="#0F172A">TITAN</text>
+</svg>
