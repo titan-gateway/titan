@@ -34,47 +34,27 @@
 
 ## Why Titan?
 
-Modern microservices demand API gateways that can handle massive throughput without becoming bottlenecks. Titan is built from the ground up to eliminate every source of overhead in the request path—no wasted CPU cycles, no memory allocations, no lock contention.
+I got tired of API gateways that either perform well but lack features, or have every feature but add 5ms of overhead per request. Titan is my attempt at building something that does both: handle 100k+ requests per second while staying under 1ms P99 latency.
 
-The result? **Exceptional throughput with P99 latencies under 1 millisecond**. Every request flows through zero-copy proxying, with data moving directly from client socket to backend socket without duplication. Thread-per-core architecture means each CPU core owns its resources independently—no locks, no queues, no cache contention.
+It's written in C++23 and uses a thread-per-core architecture where each worker thread owns its memory, connection pool, and routing table. No shared state means no locks in the hot path. Requests get zero-copy proxied from client socket to backend socket—no intermediate buffers, no allocations.
 
-## What Can Titan Do?
+## What Can You Do With It?
 
-Titan serves multiple roles in modern infrastructure. Choose the capabilities that match your needs:
+**Reverse Proxy** - Load balance across backends (round-robin, least-connections, weighted, random). Connection pooling keeps backend connections warm. Health checks drop dead backends automatically.
 
-### Reverse Proxy & Load Balancer
+**API Gateway** - Route by URL path with parameters (`/users/:id`) and wildcards (`/static/*`). Add CORS headers, enforce rate limits, inject authentication. Reload config with `kill -HUP` without dropping connections.
 
-Distribute traffic across multiple backend servers with intelligent load balancing strategies. Titan supports round-robin, least-connections, random, and weighted round-robin algorithms. Connection pooling maintains persistent connections to backends, eliminating TCP handshake overhead on every request. Health checks automatically detect and route around failed instances, ensuring high availability without manual intervention.
+**TLS Termination** - Handle HTTPS at the edge (TLS 1.2/1.3 with OpenSSL 3.x), talk to backends over plain HTTP internally. ALPN negotiates HTTP/2 vs HTTP/1.1 automatically.
 
-### API Gateway
+**Rate Limiting** - Token bucket algorithm, per-IP limits. Each worker enforces limits locally, no cross-thread coordination.
 
-Route incoming requests to different backend services based on URL paths, with support for path parameters and wildcard patterns. The middleware pipeline enables request validation, transformation, and response manipulation. Built-in CORS handling, rate limiting, and authentication hooks provide the building blocks for securing and managing your API ecosystem. Hot configuration reloads allow you to add routes or modify upstreams without restarting the gateway or dropping active connections.
+**Observability** - Prometheus metrics endpoint, structured JSON logs, health checks for Kubernetes liveness/readiness probes.
 
-### TLS Termination
-
-Handle TLS encryption at the network edge using modern cipher suites from OpenSSL 3.x. Titan supports TLS 1.2 and 1.3 with automatic ALPN protocol negotiation, allowing clients to connect via HTTPS while your internal backend services communicate over plain HTTP within your private network. This offloads cryptographic operations from your application servers and centralizes certificate management.
-
-### Rate Limiting & Traffic Control
-
-Protect your backend services from overload with per-IP rate limiting using token bucket algorithms. Rate limits are enforced locally on each worker thread, providing consistent protection without distributed coordination overhead. Configure different limits per route or globally across all traffic.
-
-### HTTP/2 & HTTP/1.1 Gateway
-
-Support both HTTP/1.1 and HTTP/2 on the same port with automatic protocol detection. For TLS connections, ALPN negotiation selects the optimal protocol. For cleartext connections, Titan detects the HTTP/2 connection preface. HTTP/2 multiplexing allows hundreds of concurrent streams over a single TCP connection, reducing connection overhead for modern web applications.
-
-### Observability & Monitoring
-
-Export Prometheus-compatible metrics for request rates, latency histograms, connection pool statistics, and per-route error rates. Health check endpoints provide Kubernetes-ready liveness and readiness probes. Structured logging captures request details for integration with Elasticsearch, Loki, or CloudWatch.
-
-### Zero-Downtime Operations
-
-Update configuration files and reload them with a SIGHUP signal—routes, upstreams, and middleware changes take effect immediately without dropping in-flight requests. Graceful shutdown on SIGTERM waits for active requests to complete before terminating, ensuring clean deployments in Kubernetes rolling updates or systemd service restarts.
+**Hot Reload** - Edit config file, send `SIGHUP`, changes apply instantly. In-flight requests finish with old config, new requests use new config (RCU pattern).
 
 ## Quick Start
 
-### Run with Docker (Recommended)
-
-The fastest way to try Titan is using the pre-built Docker image:
+Docker is easiest:
 
 ```bash
 # Pull the latest image
@@ -124,15 +104,14 @@ make test
 make help
 ```
 
-## Benchmarking
-
-See [benchmark/README.md](benchmark/README.md) for benchmarking instructions.
-
 ## Performance
 
-Titan is engineered to deliver exceptional performance in production environments where latency and throughput are critical. The architecture achieves P99 latencies under 1 millisecond under sustained load, ensuring predictable response times even during traffic spikes. This performance characteristic stems from careful architectural decisions that eliminate common bottlenecks found in traditional API gateways.
+Tested on ARM64 Linux (4 cores), proxying to a local Nginx backend:
 
-The gateway maintains this low-latency performance while handling substantial throughput through efficient resource utilization. Connection pooling to backend services eliminates the overhead of repeated TCP handshakes, while integrated health checking ensures traffic is only routed to healthy instances. Configuration updates happen without service interruption, allowing teams to deploy changes confidently without scheduled maintenance windows.
+- **HTTP/2 (TLS):** 118k req/s, 666μs mean latency
+- **HTTP/1.1:** 190k req/s, 642μs mean latency
+
+P99 stays under 1ms during sustained load. Connection pool prevents CLOSE-WAIT leaks (validated with 1M+ request tests). No locks in request path, no allocations after startup.
 
 ## Documentation
 
