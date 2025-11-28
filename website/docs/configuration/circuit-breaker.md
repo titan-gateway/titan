@@ -219,18 +219,18 @@ Circuit breaker state transitions are logged:
 Default values work for most cases, but consider your traffic patterns:
 
 - **High traffic** (1000+ req/s): Use higher `failure_threshold` (10-20) to avoid false positives
-- **Low traffic** (<10 req/s): Use lower `failure_threshold` (3-5) for faster detection
+- **Low traffic** (&lt;10 req/s): Use lower `failure_threshold` (3-5) for faster detection
 - **Flaky network**: Increase `window_ms` to 30000ms (30s) to tolerate transient issues
 
 ### 2. Set Appropriate Timeout
 
-- **Fast backends** (<100ms): Use shorter `timeout_ms` (10000ms = 10s)
-- **Slow backends** (>1s): Use longer `timeout_ms` (60000ms = 60s)
+- **Fast backends** (&lt;100ms): Use shorter `timeout_ms` (10000ms = 10s)
+- **Slow backends** (&gt;1s): Use longer `timeout_ms` (60000ms = 60s)
 - Balance between recovery speed and avoiding thundering herd
 
 ### 3. Monitor State Transitions
 
-If circuit breaker is opening and closing frequently (>10 transitions/hour), investigate:
+If circuit breaker is opening and closing frequently (&gt;10 transitions/hour), investigate:
 - Backend instability (fix root cause)
 - Thresholds too aggressive (increase `failure_threshold` or `window_ms`)
 - Timeouts too short (backend is slow but healthy)
