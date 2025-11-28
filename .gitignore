@@ -137,8 +137,9 @@ package-lock.json
 yarn.lock
 pnpm-lock.yaml
 
-# Keep the main package.json
+# Keep website dependencies for reproducible builds
 !website/package.json
+!website/package-lock.json
 
 # ============================================================================
 # Python (for test scripts)
@@ -233,6 +234,7 @@ gmon.out
 
 # Keep specific flamegraph results you want to track
 !docs/performance/*.svg
+!assets/*.svg
 
 # ============================================================================
 # Project Specific
