@@ -1,7 +1,7 @@
 name: CI - Pull Request Checks
 
 on:
-  pull_request_target:
+  pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
 
@@ -63,8 +63,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Install dependencies
         run: |
@@ -112,8 +110,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Install dependencies
         run: |
@@ -140,8 +136,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
@@ -192,8 +186,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Setup Python
         uses: actions/setup-python@v5
