@@ -21,6 +21,10 @@ spec:
     port: {{ .Values.service.httpsPort }}
     targetPort: https
     protocol: TCP
+  - name: admin
+    port: {{ .Values.service.adminPort }}
+    targetPort: admin
+    protocol: TCP
   sessionAffinity: {{ .Values.service.sessionAffinity }}
   {{- if and (eq .Values.service.type "LoadBalancer") .Values.service.loadBalancer.enabled }}
   sessionAffinityConfig:

@@ -23,8 +23,8 @@ spec:
         component: gateway
       annotations:
         prometheus.io/scrape: "true"
-        prometheus.io/port: "8080"
-        prometheus.io/path: "/_metrics"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
     spec:
       # Security: Non-root user (UID 1000 from Dockerfile)
       securityContext:
@@ -44,12 +44,15 @@ spec:
         - name: https
           containerPort: 8443
           protocol: TCP
+        - name: admin
+          containerPort: 9090
+          protocol: TCP
 
-        # Health checks using internal /_health endpoint
+        # Health checks using admin server /health endpoint (port 9090)
         livenessProbe:
           httpGet:
-            path: /_health
-            port: http
+            path: /health
+            port: admin
             scheme: HTTP
           initialDelaySeconds: 10
           periodSeconds: 30
@@ -59,8 +62,8 @@ spec:
 
         readinessProbe:
           httpGet:
-            path: /_health
-            port: http
+            path: /health
+            port: admin
             scheme: HTTP
           initialDelaySeconds: 5
           periodSeconds: 10
@@ -71,8 +74,8 @@ spec:
         # Startup probe for slow-starting containers
         startupProbe:
           httpGet:
-            path: /_health
-            port: http
+            path: /health
+            port: admin
             scheme: HTTP
           initialDelaySeconds: 0
           periodSeconds: 5

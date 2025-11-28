@@ -162,6 +162,24 @@ MiddlewareResult ProxyMiddleware::process_request(RequestContext& ctx) {
 }
 
 MiddlewareResult ProxyMiddleware::process_response(ResponseContext& ctx) {
+    // Record circuit breaker feedback
+    if (ctx.backend && ctx.backend->circuit_breaker) {
+        if (ctx.backend_error) {
+            // Backend timeout or connection error
+            ctx.backend->circuit_breaker->record_failure();
+        } else if (ctx.response) {
+            // Got response from backend
+            if (ctx.response->status >= http::StatusCode::InternalServerError) {
+                // 5xx error - backend failure
+                ctx.backend->circuit_breaker->record_failure();
+            } else if (ctx.response->status < http::StatusCode::BadRequest) {
+                // 2xx or 3xx - success
+                ctx.backend->circuit_breaker->record_success();
+            }
+            // 4xx errors are client errors, don't count as backend failure
+        }
+    }
+
     // Add proxy identification header
     if (ctx.response) {
         ctx.response->add_header("X-Proxy", "Titan");

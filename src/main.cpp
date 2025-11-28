@@ -30,6 +30,8 @@
 namespace titan::core {
     std::atomic<bool> g_server_running{true};
     std::atomic<bool> g_graceful_shutdown{false};
+    // Global upstream manager pointer for metrics (set by worker 0)
+    std::atomic<const gateway::UpstreamManager*> g_upstream_manager_for_metrics{nullptr};
 }
 
 namespace {
@@ -80,7 +82,7 @@ void signal_handler(int signal) {
 }
 
 int main(int argc, char* argv[]) {
-    printf("Titan API Gateway v0.1.0 (Phase 2: Multi-threaded)\n");
+    printf("Titan API Gateway v0.1.0\n");
     printf("High-performance C++23 API Gateway\n\n");
 
     // Initialize OpenSSL
@@ -141,7 +143,7 @@ int main(int argc, char* argv[]) {
     std::signal(SIGTERM, signal_handler);  // Kill signal
     std::signal(SIGHUP, signal_handler);   // Config reload (future)
 
-    // Start server (Phase 2: Multi-threaded by default)
+    // Start server
     std::error_code ec;
     if (single_threaded) {
         printf("Starting Titan in single-threaded mode...\n");
@@ -151,7 +153,7 @@ int main(int argc, char* argv[]) {
         if (num_workers == 0) {
             num_workers = titan::core::get_cpu_count();
         }
-        printf("Starting Titan with %u worker threads (Phase 2: Multi-threaded + Dual Epoll)...\n", num_workers);
+        printf("Starting Titan with %u worker threads...\n", num_workers);
         ec = titan::core::run_multi_threaded_server(config);
     }
 

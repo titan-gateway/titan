@@ -66,6 +66,7 @@ helm install titan-prod ./deploy/helm/titan \
 | `service.type` | Service type | `ClusterIP` |
 | `service.port` | HTTP port | `80` |
 | `service.httpsPort` | HTTPS port | `443` |
+| `service.adminPort` | Admin port (metrics, health) | `9090` |
 | `ingress.enabled` | Enable ingress | `false` |
 | `autoscaling.enabled` | Enable HPA | `true` |
 | `autoscaling.minReplicas` | Minimum replicas | `3` |
@@ -337,15 +338,20 @@ kubectl get configmap -n titan titan-config -o jsonpath='{.data.config\.json}' |
 ### Health Check Failures
 
 ```bash
-# Port-forward to pod
-kubectl port-forward -n titan titan-xxxx-yyyy 8080:8080
+# Port-forward to pod (admin port)
+kubectl port-forward -n titan titan-xxxx-yyyy 9090:9090
 
-# Test health endpoint
-curl http://localhost:8080/_health
+# Test health endpoint (now on admin port 9090)
+curl http://localhost:9090/health
+
+# Test metrics endpoint
+curl http://localhost:9090/metrics
 
 # Check probe configuration
 kubectl get pod -n titan titan-xxxx-yyyy -o yaml | grep -A 10 livenessProbe
 ```
+
+**Note:** Health and metrics endpoints have been moved to a separate admin server on port 9090 for security. This prevents exposing internal endpoints on the public-facing port 8080.
 
 ## Advanced Configuration
 

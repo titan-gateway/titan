@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include "../gateway/upstream.hpp"
+
 #include <chrono>
 #include <cstdint>
 #include <string>
@@ -112,6 +114,12 @@ public:
 
     /// Update active connections
     void update_active_connections(uint64_t count);
+
+    /// Update backend health and circuit breaker state
+    /// This integrates health checks with circuit breakers
+    static void update_backend_with_circuit_breaker(
+        gateway::Backend* backend,
+        HealthStatus status);
 
 private:
     bool running_ = false;

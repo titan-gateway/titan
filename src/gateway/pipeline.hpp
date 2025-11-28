@@ -87,6 +87,12 @@ struct ResponseContext {
     std::string client_ip;
     uint16_t client_port = 0;
 
+    // Backend (for circuit breaker feedback)
+    Backend* backend = nullptr;  // Which backend served this request
+
+    // Error flag (for circuit breaker - true if timeout/connection error)
+    bool backend_error = false;
+
     // Metadata (from request phase)
     std::unordered_map<std::string, std::string> metadata;
 

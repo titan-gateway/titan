@@ -113,7 +113,21 @@ Server::Server(const control::Config& config)
             backend.port = backend_config.port;
             backend.weight = backend_config.weight;
             backend.max_connections = backend_config.max_connections;
-            upstream->add_backend(std::move(backend));
+
+            // Initialize circuit breaker if enabled
+            if (upstream_config.circuit_breaker.enabled) {
+                gateway::CircuitBreakerConfig cb_config;
+                cb_config.failure_threshold = upstream_config.circuit_breaker.failure_threshold;
+                cb_config.success_threshold = upstream_config.circuit_breaker.success_threshold;
+                cb_config.timeout_ms = upstream_config.circuit_breaker.timeout_ms;
+                cb_config.window_ms = upstream_config.circuit_breaker.window_ms;
+                cb_config.enable_global_hints = upstream_config.circuit_breaker.enable_global_hints;
+                cb_config.catastrophic_threshold = upstream_config.circuit_breaker.catastrophic_threshold;
+
+                upstream->add_backend_with_circuit_breaker(std::move(backend), cb_config);
+            } else {
+                upstream->add_backend(std::move(backend));
+            }
         }
 
         // Set load balancing strategy from config
@@ -163,7 +177,7 @@ Server::Server(const control::Config& config)
         }
     }
 
-    // Phase 2: Create backend epoll/kqueue instance for non-blocking backend I/O
+    // Create backend epoll/kqueue instance for non-blocking backend I/O
 #ifdef __linux__
     backend_epoll_fd_ = epoll_create1(0);
     if (backend_epoll_fd_ < 0) {
@@ -543,7 +557,7 @@ void Server::handle_close(int client_fd) {
         }
     }
 
-    // Phase 2: Clean up backend connection if exists (HTTP/1.1)
+    // Clean up backend connection if exists (HTTP/1.1)
     if (conn.backend_conn) {
         int backend_fd = conn.backend_conn->backend_fd;
 
@@ -600,25 +614,9 @@ void Server::handle_close(int client_fd) {
 }
 
 bool Server::process_request(Connection& conn) {
-    // Internal health endpoint (for K8s liveness/readiness probes)
-    // Uses scalar comparison (8 bytes < 16 byte SIMD threshold)
-    if (conn.request.path == "/_health" && conn.request.method == http::Method::GET) {
-        conn.response.status = http::StatusCode::OK;
-        conn.response.version = http::Version::HTTP_1_1;
-        conn.response.headers.clear();
-        conn.response.headers.push_back({"Content-Type", "application/json"});
-
-        // Simple health response
-        std::string body = R"({"status":"healthy","version":"0.1.0"})";
-        conn.response.body = std::vector<uint8_t>(body.begin(), body.end());
-
-        char content_length[32];
-        snprintf(content_length, sizeof(content_length), "%zu", conn.response.body.size());
-        conn.response.headers.push_back({"Content-Length", content_length});
-
-        send_response(conn, true); // Always keep-alive for health checks
-        return true;
-    }
+    // Internal endpoints (/_health, /metrics) moved to separate admin server
+    // This ensures they're not exposed on public-facing port 8080
+    // Admin server runs on port 9090 (configurable via metrics.port)
 
     // Match route (uses SIMD-accelerated router for longer paths)
     auto match = router_->match(conn.request.method, conn.request.path);
@@ -654,7 +652,7 @@ bool Server::process_request(Connection& conn) {
         }
     }
 
-    // Execute request middleware (Phase 1: Before proxy)
+    // Execute request middleware
     auto middleware_result = pipeline_->execute_request(ctx);
 
     if (middleware_result == gateway::MiddlewareResult::Stop) {
@@ -769,7 +767,7 @@ void Server::send_response(Connection& conn, bool keep_alive) {
 }
 
 bool Server::proxy_to_backend(Connection& conn, gateway::RequestContext& ctx) {
-    // Phase 2: Async proxy - return immediately, handle in backend_epoll
+    // Async proxy - return immediately, handle in backend_epoll
 
     // Get upstream from context (set by ProxyMiddleware)
     auto* upstream = ctx.upstream;
@@ -777,13 +775,27 @@ bool Server::proxy_to_backend(Connection& conn, gateway::RequestContext& ctx) {
         return false;
     }
 
-    // Get backend from upstream (for now, just use first backend)
-    // TODO: Implement proper load balancing
+    // Select backend using load balancer with circuit breaker check
     const auto& backends = upstream->backends();
     if (backends.empty()) {
         return false;
     }
-    const auto& backend = backends[0];
+
+    // Find first available backend (health + circuit breaker check)
+    const gateway::Backend* selected_backend = nullptr;
+    for (const auto& backend : backends) {
+        if (backend.can_accept_connection()) {
+            selected_backend = &backend;
+            break;
+        }
+    }
+
+    if (!selected_backend) {
+        // No healthy/available backends (all unhealthy or circuit breakers open)
+        return false;
+    }
+
+    const auto& backend = *selected_backend;
 
     // Create async backend connection
     conn.backend_conn = std::make_unique<BackendConnection>();
@@ -796,7 +808,7 @@ bool Server::proxy_to_backend(Connection& conn, gateway::RequestContext& ctx) {
     conn.backend_conn->start_time = ctx.start_time;
     conn.backend_conn->metadata = ctx.metadata;
 
-    // Phase 3.0: Try to acquire from pool first
+    // Try to acquire from pool first
     conn.backend_conn->backend_fd = upstream->backend_pool().acquire(backend.host, backend.port);
 
     if (conn.backend_conn->backend_fd < 0) {
@@ -1038,7 +1050,7 @@ bool Server::receive_backend_response(int backend_fd, http::Response& response, 
     http::Parser parser;
     uint8_t chunk[kBackendReadChunkSize];
 
-    // Phase 1: Read with blocking until we get some data
+    // Read with blocking until we get some data
     ssize_t n = recv(backend_fd, chunk, sizeof(chunk), 0);
     if (n <= 0) {
         return false;  // Connection error or closed
@@ -1047,7 +1059,7 @@ bool Server::receive_backend_response(int backend_fd, http::Response& response, 
     // Append to buffer (uses memcpy internally, faster than insert with iterators)
     buffer.insert(buffer.end(), chunk, chunk + n);
 
-    // Phase 2: Continue reading all immediately available data (non-blocking)
+    // Continue reading all immediately available data (non-blocking)
     // This ensures we read the complete response before parsing
     while (true) {
         n = recv(backend_fd, chunk, sizeof(chunk), MSG_DONTWAIT);
@@ -1072,7 +1084,7 @@ bool Server::receive_backend_response(int backend_fd, http::Response& response, 
         }
     }
 
-    // Phase 3: Parse the response
+    // Parse the response
     auto [result, consumed] = parser.parse_response(std::span<const uint8_t>(buffer), response);
 
     if (result == http::ParseResult::Complete) {
@@ -1086,7 +1098,7 @@ bool Server::receive_backend_response(int backend_fd, http::Response& response, 
     timeout.tv_usec = 0;
     setsockopt(backend_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
-    // Phase 4: If still incomplete, keep reading until complete or timeout
+    // If still incomplete, keep reading until complete or timeout
     while (result == http::ParseResult::Incomplete) {
         n = recv(backend_fd, chunk, sizeof(chunk), 0);
         if (n <= 0) {
@@ -1117,7 +1129,7 @@ bool Server::receive_backend_response(int backend_fd, http::Response& response, 
     return result == http::ParseResult::Complete;
 }
 
-// Phase 2: Backend event handling for dual epoll pattern
+// Backend event handling for dual epoll pattern
 void Server::handle_backend_event(int backend_fd, bool readable, bool writable, bool error) {
     auto it = backend_connections_.find(backend_fd);
     if (it == backend_connections_.end()) {
@@ -1190,6 +1202,20 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
         socklen_t len = sizeof(connect_error);
         if (getsockopt(backend_fd, SOL_SOCKET, SO_ERROR, &connect_error, &len) < 0) {
             // getsockopt failed
+
+            // Record circuit breaker failure before cleanup
+            auto* upstream = upstream_manager_->get_upstream(backend_conn->upstream_name);
+            if (upstream) {
+                for (auto& backend : upstream->backends()) {
+                    if (backend.host == backend_conn->backend_host && backend.port == backend_conn->backend_port) {
+                        if (backend.circuit_breaker) {
+                            backend.circuit_breaker->record_failure();
+                        }
+                        break;
+                    }
+                }
+            }
+
             backend_connections_.erase(it);
             close(backend_fd);
 
@@ -1210,6 +1236,20 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
 
         if (connect_error != 0) {
             // Connect failed
+
+            // Record circuit breaker failure before cleanup
+            auto* upstream = upstream_manager_->get_upstream(backend_conn->upstream_name);
+            if (upstream) {
+                for (auto& backend : upstream->backends()) {
+                    if (backend.host == backend_conn->backend_host && backend.port == backend_conn->backend_port) {
+                        if (backend.circuit_breaker) {
+                            backend.circuit_breaker->record_failure();
+                        }
+                        break;
+                    }
+                }
+            }
+
             backend_connections_.erase(it);
             close(backend_fd);
 
@@ -1249,6 +1289,20 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
             }
         } else if (sent < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
             // Send failed
+
+            // Record circuit breaker failure before cleanup
+            auto* upstream = upstream_manager_->get_upstream(backend_conn->upstream_name);
+            if (upstream) {
+                for (auto& backend : upstream->backends()) {
+                    if (backend.host == backend_conn->backend_host && backend.port == backend_conn->backend_port) {
+                        if (backend.circuit_breaker) {
+                            backend.circuit_breaker->record_failure();
+                        }
+                        break;
+                    }
+                }
+            }
+
             backend_connections_.erase(it);
             close(backend_fd);
 
@@ -1307,7 +1361,7 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
                 client_conn.response_body.assign(response.body.begin(), response.body.end());
                 client_conn.response.body = client_conn.response_body;
 
-                // Execute response middleware (Phase 2: After backend responds)
+                // Execute response middleware
                 gateway::ResponseContext resp_ctx;
                 resp_ctx.request = &client_conn.request;
                 resp_ctx.response = &client_conn.response;
@@ -1316,19 +1370,47 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
                 resp_ctx.start_time = backend_conn->start_time;
                 resp_ctx.metadata = backend_conn->metadata;
 
+                // Populate backend for circuit breaker feedback
+                auto* upstream = upstream_manager_->get_upstream(backend_conn->upstream_name);
+                if (upstream) {
+                    // Find the backend by host:port
+                    for (auto& backend : upstream->backends()) {
+                        if (backend.host == backend_conn->backend_host && backend.port == backend_conn->backend_port) {
+                            resp_ctx.backend = const_cast<gateway::Backend*>(&backend);
+                            break;
+                        }
+                    }
+                }
+
                 (void)pipeline_->execute_response(resp_ctx);
 
-                // Phase 3.0: Return backend connection to pool
+                // Return backend connection to pool (or close if not keep-alive)
                 // CRITICAL: Remove from epoll BEFORE returning to pool!
-                auto* upstream = upstream_manager_->get_upstream(backend_conn->upstream_name);
+                // Reuse upstream from above (already looked up for circuit breaker)
                 if (upstream) {
                     // Remove from epoll so pooled connections don't generate spurious events
                     (void)remove_backend_from_epoll(backend_fd);
 
-                    // Now safe to return to pool
-                    upstream->backend_pool().release(backend_fd,
-                                                     backend_conn->backend_host,
-                                                     backend_conn->backend_port);
+                    // Check if backend wants to close the connection
+                    bool should_close = false;
+                    for (const auto& [name, value] : response.headers) {
+                        if (name == "Connection" || name == "connection") {
+                            if (value == "close" || value == "Close") {
+                                should_close = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (should_close) {
+                        // Backend sent Connection: close - don't pool, just close
+                        close(backend_fd);
+                    } else {
+                        // Safe to return to pool for reuse
+                        upstream->backend_pool().release(backend_fd,
+                                                         backend_conn->backend_host,
+                                                         backend_conn->backend_port);
+                    }
                 } else {
                     // Upstream not found - just close
                     close(backend_fd);

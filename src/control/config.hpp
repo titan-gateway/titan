@@ -75,6 +75,17 @@ struct BackendConfig {
     std::string health_check_path = "/health";
 };
 
+/// Circuit breaker configuration
+struct CircuitBreakerConfigSchema {
+    bool enabled = true;
+    uint32_t failure_threshold = 5;      // Failures to open circuit
+    uint32_t success_threshold = 2;       // Successes to close circuit
+    uint32_t timeout_ms = 30000;          // Time before OPEN → HALF_OPEN (30s)
+    uint32_t window_ms = 10000;           // Sliding window for failures (10s)
+    bool enable_global_hints = true;      // Cross-worker catastrophic failure hints
+    uint32_t catastrophic_threshold = 20; // Failures to trigger global hint
+};
+
 /// Upstream group configuration
 struct UpstreamConfig {
     std::string name;
@@ -88,6 +99,9 @@ struct UpstreamConfig {
     // Connection pool settings
     uint32_t pool_size = 100;
     uint32_t pool_idle_timeout = 60;      // seconds
+
+    // Circuit breaker settings
+    CircuitBreakerConfigSchema circuit_breaker;
 };
 
 /// Route configuration
@@ -292,6 +306,20 @@ namespace glz {
     };
 
     template <>
+    struct meta<titan::control::CircuitBreakerConfigSchema> {
+        using T = titan::control::CircuitBreakerConfigSchema;
+        static constexpr auto value = object(
+            "enabled", &T::enabled,
+            "failure_threshold", &T::failure_threshold,
+            "success_threshold", &T::success_threshold,
+            "timeout_ms", &T::timeout_ms,
+            "window_ms", &T::window_ms,
+            "enable_global_hints", &T::enable_global_hints,
+            "catastrophic_threshold", &T::catastrophic_threshold
+        );
+    };
+
+    template <>
     struct meta<titan::control::UpstreamConfig> {
         using T = titan::control::UpstreamConfig;
         static constexpr auto value = object(
@@ -301,7 +329,8 @@ namespace glz {
             "max_retries", &T::max_retries,
             "retry_timeout", &T::retry_timeout,
             "pool_size", &T::pool_size,
-            "pool_idle_timeout", &T::pool_idle_timeout
+            "pool_idle_timeout", &T::pool_idle_timeout,
+            "circuit_breaker", &T::circuit_breaker
         );
     };
 

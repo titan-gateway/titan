@@ -24,6 +24,7 @@
 #include "socket.hpp"
 #include "tls.hpp"
 #include "../control/config.hpp"
+#include "../control/prometheus.hpp"
 #include "../gateway/pipeline.hpp"
 #include "../gateway/router.hpp"
 #include "../gateway/upstream.hpp"
@@ -128,6 +129,11 @@ public:
         return listen_fd_;
     }
 
+    /// Get upstream manager (for metrics/admin server)
+    [[nodiscard]] const gateway::UpstreamManager* upstream_manager() const noexcept {
+        return upstream_manager_.get();
+    }
+
     /// Process incoming connection
     void handle_accept(int client_fd, std::string_view remote_ip, uint16_t remote_port);
 
@@ -137,7 +143,7 @@ public:
     /// Handle connection close
     void handle_close(int client_fd);
 
-    /// Phase 2: Backend event handling (dual epoll pattern)
+    /// Backend event handling (dual epoll pattern)
     /// Returns backend epoll fd for worker to monitor
     [[nodiscard]] int backend_epoll_fd() const noexcept {
         return backend_epoll_fd_;
@@ -175,7 +181,7 @@ private:
     // TODO: Add TTL-based expiration for production
     std::unordered_map<std::string, sockaddr_in> dns_cache_;
 
-    // Phase 2: Dual epoll for non-blocking backend I/O
+    // Dual epoll for non-blocking backend I/O
     int backend_epoll_fd_ = -1;  // Separate epoll instance for backend sockets
     // Map backend_fd -> (client_fd, stream_id) to avoid storing dangling raw pointers
     // stream_id = -1 for HTTP/1.1, >= 0 for HTTP/2 streams
@@ -197,7 +203,7 @@ private:
     /// Connect to backend server (blocking - legacy)
     [[nodiscard]] int connect_to_backend(const std::string& host, uint16_t port);
 
-    /// Phase 2: Connect to backend server (non-blocking for async proxy)
+    /// Connect to backend server (non-blocking for async proxy)
     /// Returns socket fd in connecting state, or -1 on immediate failure
     [[nodiscard]] int connect_to_backend_async(const std::string& host, uint16_t port);
 
