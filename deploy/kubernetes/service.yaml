@@ -21,6 +21,10 @@ spec:
     port: 443
     targetPort: https
     protocol: TCP
+  - name: admin
+    port: 9090
+    targetPort: admin
+    protocol: TCP
   sessionAffinity: None
 
 ---
@@ -80,4 +84,8 @@ spec:
   - name: https
     port: 8443
     targetPort: https
+    protocol: TCP
+  - name: admin
+    port: 9090
+    targetPort: admin
     protocol: TCP

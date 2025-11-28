@@ -46,6 +46,9 @@ spec:
         - name: https
           containerPort: {{ .Values.config.server.https_port }}
           protocol: TCP
+        - name: admin
+          containerPort: {{ .Values.service.adminPort }}
+          protocol: TCP
         livenessProbe:
           {{- toYaml .Values.livenessProbe | nindent 12 }}
         readinessProbe:

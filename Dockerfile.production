@@ -73,12 +73,13 @@ RUN useradd -r -u 1000 -s /bin/false titan && \
 # Switch to non-root user
 USER titan
 
-# Health check using internal endpoint
+# Health check using admin endpoint (port 9090)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8080/_health || exit 1
+    CMD curl -f http://localhost:9090/health || exit 1
 
 # Default ports
-EXPOSE 8080 8443
+# 8080: HTTP proxy, 8443: HTTPS proxy, 9090: Admin (metrics, health)
+EXPOSE 8080 8443 9090
 
 # Required volume for config
 VOLUME ["/etc/titan"]

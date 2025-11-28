@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "circuit_breaker.hpp"
 #include "connection_pool.hpp"
 
 #include <atomic>
@@ -55,6 +56,9 @@ struct Backend {
     std::chrono::steady_clock::time_point last_health_check;
     uint32_t consecutive_failures = 0;
 
+    // Circuit breaker
+    std::unique_ptr<CircuitBreaker> circuit_breaker;
+
     // Statistics
     std::atomic<uint64_t> total_requests{0};
     std::atomic<uint64_t> total_failures{0};
@@ -72,6 +76,7 @@ struct Backend {
         , active_connections(other.active_connections)
         , last_health_check(other.last_health_check)
         , consecutive_failures(other.consecutive_failures)
+        , circuit_breaker(std::move(other.circuit_breaker))
         , total_requests(other.total_requests.load())
         , total_failures(other.total_failures.load())
         , total_bytes_sent(other.total_bytes_sent.load())
@@ -87,6 +92,7 @@ struct Backend {
             active_connections = other.active_connections;
             last_health_check = other.last_health_check;
             consecutive_failures = other.consecutive_failures;
+            circuit_breaker = std::move(other.circuit_breaker);
             total_requests.store(other.total_requests.load());
             total_failures.store(other.total_failures.load());
             total_bytes_sent.store(other.total_bytes_sent.load());
@@ -104,7 +110,24 @@ struct Backend {
     }
 
     [[nodiscard]] bool can_accept_connection() const noexcept {
-        return is_available() && active_connections < max_connections;
+        // Gate 1: Health check status (background validation)
+        if (!is_available()) {
+            return false;  // HealthChecker marked backend as down
+        }
+
+        // Gate 2: Circuit breaker state (real-time failure tracking)
+        // Note: const_cast is safe here since should_allow_request() only reads state
+        // for CLOSED/OPEN decision (mutations happen in record_failure/success)
+        if (circuit_breaker && !const_cast<CircuitBreaker*>(circuit_breaker.get())->should_allow_request()) {
+            return false;  // Too many recent failures, circuit is OPEN
+        }
+
+        // Gate 3: Connection limit
+        if (active_connections >= max_connections) {
+            return false;
+        }
+
+        return true;
     }
 
     [[nodiscard]] std::string address() const {
@@ -185,6 +208,9 @@ public:
     /// Add backend to upstream
     void add_backend(Backend backend);
 
+    /// Add backend with circuit breaker
+    void add_backend_with_circuit_breaker(Backend backend, CircuitBreakerConfig cb_config);
+
     /// Remove backend by address
     void remove_backend(std::string_view address);
 
@@ -210,7 +236,7 @@ public:
     };
     [[nodiscard]] Stats get_stats() const;
 
-    /// Get backend connection pool (Phase 3.0 - async backend pooling)
+    /// Get backend connection pool
     [[nodiscard]] BackendConnectionPool& backend_pool() noexcept { return backend_pool_; }
     [[nodiscard]] const BackendConnectionPool& backend_pool() const noexcept { return backend_pool_; }
 
@@ -218,7 +244,7 @@ private:
     std::string name_;
     std::vector<Backend> backends_;
     std::unique_ptr<LoadBalancer> balancer_;
-    BackendConnectionPool backend_pool_; // Phase 3.0: Simple FD-based pool for async backend
+    BackendConnectionPool backend_pool_; // Simple FD-based pool for async backend
 };
 
 /// Upstream manager (registry of all upstreams)

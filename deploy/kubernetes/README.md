@@ -154,14 +154,14 @@ kubectl describe hpa titan-gateway -n titan
 
 ### Health Checks
 
-Titan provides the `/_health` endpoint for Kubernetes probes:
+Titan provides the `/health` endpoint on the admin port (9090) for Kubernetes probes:
 
 ```bash
 # Port-forward and test
-kubectl port-forward -n titan svc/titan-gateway 8080:80
+kubectl port-forward -n titan svc/titan-gateway 9090:9090
 
 # Test health endpoint
-curl http://localhost:8080/_health
+curl http://localhost:9090/health
 ```
 
 ### Logs
@@ -179,15 +179,17 @@ kubectl logs -n titan titan-gateway-xxx-yyy --previous
 
 ### Metrics
 
-If using Prometheus:
+Titan exposes Prometheus-compatible metrics on the admin port (9090):
 
 ```bash
 # Port-forward to access metrics
-kubectl port-forward -n titan svc/titan-gateway 8080:80
+kubectl port-forward -n titan svc/titan-gateway 9090:9090
 
-# Scrape metrics (if /_metrics endpoint is implemented)
-curl http://localhost:8080/_metrics
+# Scrape metrics
+curl http://localhost:9090/metrics
 ```
+
+The admin server is bound to localhost by default for security. In Kubernetes, the admin port (9090) is exposed via ClusterIP service for internal monitoring only (not exposed via LoadBalancer).
 
 ## Troubleshooting
 
@@ -207,9 +209,9 @@ kubectl top pods -n titan
 ### Connection Issues
 
 ```bash
-# Test service connectivity
+# Test service connectivity (health check on admin port)
 kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- \
-  curl http://titan-gateway.titan.svc.cluster.local/_health
+  curl http://titan-gateway.titan.svc.cluster.local:9090/health
 
 # Check service endpoints
 kubectl get endpoints -n titan titan-gateway

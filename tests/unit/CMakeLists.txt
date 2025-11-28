@@ -16,6 +16,7 @@ add_executable(titan_tests
   test_rate_limit.cpp
   test_proxy.cpp
   test_simd.cpp
+  test_circuit_breaker.cpp
 )
 
 target_link_libraries(titan_tests

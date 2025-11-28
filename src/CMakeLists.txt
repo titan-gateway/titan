@@ -12,6 +12,8 @@ add_library(titan_lib
   core/server.cpp
   core/server_runner.hpp
   core/server_runner.cpp
+  core/admin_server.hpp
+  core/admin_server.cpp
   http/http.hpp
   http/http.cpp
   http/parser.hpp
@@ -24,6 +26,8 @@ add_library(titan_lib
   gateway/upstream.cpp
   gateway/connection_pool.hpp
   gateway/connection_pool.cpp
+  gateway/circuit_breaker.hpp
+  gateway/circuit_breaker.cpp
   gateway/rate_limit.hpp
   gateway/rate_limit.cpp
   gateway/pipeline.hpp

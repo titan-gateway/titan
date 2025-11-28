@@ -23,8 +23,8 @@ serviceAccount:
 # Pod annotations
 podAnnotations:
   prometheus.io/scrape: "true"
-  prometheus.io/port: "8080"
-  prometheus.io/path: "/_metrics"
+  prometheus.io/port: "9090"
+  prometheus.io/path: "/metrics"
 
 # Pod security context
 podSecurityContext:
@@ -51,8 +51,10 @@ service:
   type: ClusterIP
   port: 80
   httpsPort: 443
+  adminPort: 9090
   targetPort: 8080
   httpsTargetPort: 8443
+  adminTargetPort: 9090
   annotations: {}
   sessionAffinity: None
 
@@ -155,8 +157,8 @@ podDisruptionBudget:
 # Liveness probe
 livenessProbe:
   httpGet:
-    path: /_health
-    port: http
+    path: /health
+    port: admin
     scheme: HTTP
   initialDelaySeconds: 10
   periodSeconds: 30
@@ -167,8 +169,8 @@ livenessProbe:
 # Readiness probe
 readinessProbe:
   httpGet:
-    path: /_health
-    port: http
+    path: /health
+    port: admin
     scheme: HTTP
   initialDelaySeconds: 5
   periodSeconds: 10
@@ -179,8 +181,8 @@ readinessProbe:
 # Startup probe
 startupProbe:
   httpGet:
-    path: /_health
-    port: http
+    path: /health
+    port: admin
     scheme: HTTP
   initialDelaySeconds: 0
   periodSeconds: 5
@@ -263,7 +265,8 @@ monitoring:
   serviceMonitor:
     enabled: false
     interval: 30s
-    path: /_metrics
+    port: 9090
+    path: /metrics
     labels: {}
 
 # Network Policy

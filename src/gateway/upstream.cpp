@@ -152,6 +152,12 @@ void Upstream::add_backend(Backend backend) {
     backends_.push_back(std::move(backend));
 }
 
+void Upstream::add_backend_with_circuit_breaker(Backend backend, CircuitBreakerConfig cb_config) {
+    // Create circuit breaker for this backend
+    backend.circuit_breaker = std::make_unique<CircuitBreaker>(cb_config);
+    backends_.push_back(std::move(backend));
+}
+
 void Upstream::remove_backend(std::string_view address) {
     backends_.erase(
         std::remove_if(backends_.begin(), backends_.end(),

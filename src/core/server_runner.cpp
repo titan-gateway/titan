@@ -18,6 +18,7 @@
 // Titan Server Runner - Implementation
 
 #include "server_runner.hpp"
+#include "admin_server.hpp"
 #include "socket.hpp"
 
 #include <arpa/inet.h>
@@ -39,6 +40,7 @@ namespace titan::core {
 
 extern std::atomic<bool> g_server_running;
 extern std::atomic<bool> g_graceful_shutdown;
+extern std::atomic<const gateway::UpstreamManager*> g_upstream_manager_for_metrics;
 
 // Worker thread function - runs dual epoll event loop for one worker
 // Each worker has its own Server instance and TWO epoll/kqueue instances:
@@ -52,6 +54,11 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
     Server server(config);
     if (auto ec = server.start(); ec) {
         return;
+    }
+
+    // Worker 0 shares its upstream_manager for admin server metrics
+    if (worker_id == 0) {
+        g_upstream_manager_for_metrics.store(server.upstream_manager(), std::memory_order_release);
     }
 
     int listen_fd = server.listen_fd();
@@ -84,7 +91,7 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
     epoll_event backend_events[MAX_EVENTS];
 
     while (g_server_running) {
-        // Phase 1: Process client events (non-blocking poll with 0 timeout)
+        // Process client events (non-blocking poll with 0 timeout)
         int n_client = epoll_wait(client_epoll_fd, client_events, MAX_EVENTS, 0);
 
         for (int i = 0; i < n_client; ++i) {
@@ -138,7 +145,7 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
             }
         }
 
-        // Phase 2: Process backend events (with 1ms timeout)
+        // Process backend events (with 1ms timeout)
         int n_backend = epoll_wait(backend_epoll_fd, backend_events, MAX_EVENTS, 1);
 
         for (int i = 0; i < n_backend; ++i) {
@@ -150,7 +157,7 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
             server.handle_backend_event(backend_fd, readable, writable, error);
         }
 
-        // Phase 3: Process any pending backend operations
+        // Process any pending backend operations
         server.process_backend_operations();
     }
 
@@ -223,6 +230,11 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
         return;
     }
 
+    // Worker 0 shares its upstream_manager for admin server metrics
+    if (worker_id == 0) {
+        g_upstream_manager_for_metrics.store(server.upstream_manager(), std::memory_order_release);
+    }
+
     int listen_fd = server.listen_fd();
     if (auto ec = set_nonblocking(listen_fd); ec) {
         return;
@@ -254,7 +266,7 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
     struct timespec timeout{0, 1000000};  // 1ms timeout
 
     while (g_server_running) {
-        // Phase 1: Process client events (immediate timeout)
+        // Process client events (immediate timeout)
         struct timespec zero_timeout{0, 0};
         int n_client = kevent(client_kq, nullptr, 0, client_events, MAX_EVENTS, &zero_timeout);
 
@@ -307,7 +319,7 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
             }
         }
 
-        // Phase 2: Process backend events (1ms timeout)
+        // Process backend events (1ms timeout)
         int n_backend = kevent(backend_kq, nullptr, 0, backend_events, MAX_EVENTS, &timeout);
 
         for (int i = 0; i < n_backend; ++i) {
@@ -319,7 +331,7 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
             server.handle_backend_event(backend_fd, readable, writable, error);
         }
 
-        // Phase 3: Process any pending backend operations
+        // Process any pending backend operations
         server.process_backend_operations();
     }
 
@@ -496,7 +508,7 @@ std::error_code run_simple_server(const control::Config& config) {
             }
         }
 
-        // Phase 2: Process backend events (with 1ms timeout)
+        // Process backend events (with 1ms timeout)
         int n_backend = epoll_wait(backend_epoll_fd, backend_events, MAX_EVENTS, 1);
 
         for (int i = 0; i < n_backend; ++i) {
@@ -508,7 +520,7 @@ std::error_code run_simple_server(const control::Config& config) {
             server.handle_backend_event(backend_fd, readable, writable, error);
         }
 
-        // Phase 3: Process any pending backend operations (async proxy support)
+        // Process any pending backend operations (async proxy support)
         server.process_backend_operations();
     }
 
@@ -630,7 +642,7 @@ std::error_code run_simple_server(const control::Config& config) {
             }
         }
 
-        // Phase 2: Process backend events (with 1ms timeout)
+        // Process backend events (with 1ms timeout)
         int n_backend = kevent(backend_kq, nullptr, 0, backend_events, MAX_EVENTS, &backend_timeout);
 
         for (int i = 0; i < n_backend; ++i) {
@@ -642,7 +654,7 @@ std::error_code run_simple_server(const control::Config& config) {
             server.handle_backend_event(backend_fd, readable, writable, error);
         }
 
-        // Phase 3: Process any pending backend operations (async proxy support)
+        // Process any pending backend operations (async proxy support)
         server.process_backend_operations();
     }
 
@@ -656,7 +668,7 @@ std::error_code run_simple_server(const control::Config& config) {
 }
 #endif
 
-// Phase 2: Multi-threaded server with SO_REUSEPORT load balancing
+// Multi-threaded server with SO_REUSEPORT load balancing
 std::error_code run_multi_threaded_server(const control::Config& config) {
     // Determine number of worker threads (default to CPU core count)
     uint32_t num_workers = config.server.worker_threads;
@@ -666,6 +678,31 @@ std::error_code run_multi_threaded_server(const control::Config& config) {
 
     // Set server running flag
     g_server_running = true;
+
+    // Start admin server on separate port (metrics, health)
+    // This runs on port 9090 (configurable) and is NOT exposed to public
+    std::unique_ptr<AdminServer> admin_server;
+    std::thread admin_thread;
+
+    if (config.metrics.enabled) {
+        // Admin server will read upstream_manager from global once worker 0 sets it
+        admin_server = std::make_unique<AdminServer>(config, nullptr);
+
+        auto err = admin_server->start();
+        if (err) {
+            std::fprintf(stderr, "Failed to start admin server on port %u: %s\n",
+                        config.metrics.port, err.message().c_str());
+            // Continue anyway - metrics are optional
+        } else {
+            std::printf("Admin server listening on 127.0.0.1:%u (metrics, health)\n",
+                       config.metrics.port);
+
+            // Run admin server in separate thread
+            admin_thread = std::thread([&admin_server]() {
+                admin_server->run();
+            });
+        }
+    }
 
     // Spawn worker threads
     std::vector<std::thread> workers;
@@ -681,6 +718,14 @@ std::error_code run_multi_threaded_server(const control::Config& config) {
     for (auto& worker : workers) {
         if (worker.joinable()) {
             worker.join();
+        }
+    }
+
+    // Stop admin server
+    if (admin_server) {
+        admin_server->stop();
+        if (admin_thread.joinable()) {
+            admin_thread.join();
         }
     }
 

@@ -20,6 +20,7 @@
 #include "health.hpp"
 
 #include <algorithm>
+#include <fmt/core.h>
 #include <sstream>
 
 namespace titan::control {
@@ -46,7 +47,7 @@ BackendHealth HealthChecker::check_backend(
 
     // TODO: Actual TCP connection and HTTP request
     // For MVP, we'll simulate a successful check
-    // In Phase 6, this will use io_uring to make actual HTTP requests
+    // TODO: Use io_uring to make actual HTTP requests for improved performance
 
     auto start = std::chrono::steady_clock::now();
 
@@ -178,6 +179,44 @@ void HealthChecker::record_error() {
 
 void HealthChecker::update_active_connections(uint64_t count) {
     active_connections_ = count;
+}
+
+void HealthChecker::update_backend_with_circuit_breaker(
+    gateway::Backend* backend,
+    HealthStatus status) {
+
+    if (!backend) {
+        return;
+    }
+
+    // Update backend status based on health check
+    if (status == HealthStatus::Healthy) {
+        if (backend->status != gateway::BackendStatus::Healthy) {
+            fmt::print("[INFO] Health check: Backend {}:{} recovered → Healthy\n",
+                      backend->host, backend->port);
+        }
+        backend->status = gateway::BackendStatus::Healthy;
+        backend->consecutive_failures = 0;
+    } else if (status == HealthStatus::Degraded) {
+        if (backend->status != gateway::BackendStatus::Degraded) {
+            fmt::print("[WARN] Health check: Backend {}:{} degraded\n",
+                      backend->host, backend->port);
+        }
+        backend->status = gateway::BackendStatus::Degraded;
+    } else if (status == HealthStatus::Unhealthy) {
+        if (backend->status != gateway::BackendStatus::Unhealthy) {
+            fmt::print("[ERROR] Health check: Backend {}:{} unhealthy\n",
+                      backend->host, backend->port);
+        }
+        backend->status = gateway::BackendStatus::Unhealthy;
+        backend->consecutive_failures++;
+
+        // Force circuit breaker to OPEN state when health check marks backend unhealthy
+        // This ensures circuit breaker stays open until health check confirms recovery
+        if (backend->circuit_breaker) {
+            backend->circuit_breaker->force_open();
+        }
+    }
 }
 
 HealthChecker::BackendState* HealthChecker::find_backend_state(

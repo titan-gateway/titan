@@ -16,7 +16,7 @@
 
 
 // Titan Server Runner - Header
-// Simple server loop for MVP (Phase 5)
+// Simple server loop for MVP
 
 #pragma once
 
@@ -30,7 +30,7 @@ namespace titan::core {
 /// Run HTTP server using poll() (single-threaded)
 [[nodiscard]] std::error_code run_simple_server(const control::Config& config);
 
-/// Phase 2: Run HTTP server with multi-threading (SO_REUSEPORT + dual epoll)
+/// Run HTTP server with multi-threading (SO_REUSEPORT + dual epoll)
 /// Spawns N worker threads (one per CPU core), each with its own event loop
 [[nodiscard]] std::error_code run_multi_threaded_server(const control::Config& config);
 
