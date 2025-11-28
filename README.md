@@ -24,41 +24,51 @@
 
 ---
 
+> **⚠️ Early Development Notice**
+>
+> Titan is currently in active development and has not yet reached v1.0. While core features are functional and extensively tested, the project is still evolving. Breaking changes may occur, and we recommend against production deployments until the v1.0 stable release.
+>
+> We welcome early adopters, contributors, and feedback from the community as we work toward a stable release.
+
+---
+
 ## Why Titan?
 
 Modern microservices demand API gateways that can handle massive throughput without becoming bottlenecks. Titan is built from the ground up to eliminate every source of overhead in the request path—no wasted CPU cycles, no memory allocations, no lock contention.
 
 The result? **Exceptional throughput with P99 latencies under 1 millisecond**. Every request flows through zero-copy proxying, with data moving directly from client socket to backend socket without duplication. Thread-per-core architecture means each CPU core owns its resources independently—no locks, no queues, no cache contention.
 
-## Key Features
+## What Can Titan Do?
 
-### Performance Without Compromise
+Titan serves multiple roles in modern infrastructure. Choose the capabilities that match your needs:
 
-**Thread-Per-Core Architecture:** Each CPU core runs a dedicated worker thread that owns its arena allocator, connection pool, and metrics. This shared-nothing design eliminates synchronization overhead and delivers near-linear scalability—double your cores, double your throughput.
+### Reverse Proxy & Load Balancer
 
-**Zero-Copy Proxying:** Request and response bodies never get copied in memory. Data flows directly from client to backend, dramatically reducing CPU overhead and memory pressure.
+Distribute traffic across multiple backend servers with intelligent load balancing strategies. Titan supports round-robin, least-connections, random, and weighted round-robin algorithms. Connection pooling maintains persistent connections to backends, eliminating TCP handshake overhead on every request. Health checks automatically detect and route around failed instances, ensuring high availability without manual intervention.
 
-**Connection Pooling:** Persistent connections to backends eliminate TCP handshake overhead. Background health checks detect failures before they impact traffic, automatically routing around unhealthy instances.
+### API Gateway
 
-### Production-Ready Operations
+Route incoming requests to different backend services based on URL paths, with support for path parameters and wildcard patterns. The middleware pipeline enables request validation, transformation, and response manipulation. Built-in CORS handling, rate limiting, and authentication hooks provide the building blocks for securing and managing your API ecosystem. Hot configuration reloads allow you to add routes or modify upstreams without restarting the gateway or dropping active connections.
 
-**Hot Configuration Reload:** Update routes, upstreams, and middleware without dropping a single request. RCU (Read-Copy-Update) patterns ensure new requests see updated config while in-flight requests complete with the old config.
+### TLS Termination
 
-**Graceful Shutdown:** Clean exits that wait for all in-flight requests to complete before terminating. No abrupt connection closures, no failed requests.
+Handle TLS encryption at the network edge using modern cipher suites from OpenSSL 3.x. Titan supports TLS 1.2 and 1.3 with automatic ALPN protocol negotiation, allowing clients to connect via HTTPS while your internal backend services communicate over plain HTTP within your private network. This offloads cryptographic operations from your application servers and centralizes certificate management.
 
-**Full Observability:** Prometheus-compatible metrics for request rates, latency histograms, connection pool sizes, and error rates. Structured logging integrates with Elasticsearch, Loki, or CloudWatch.
+### Rate Limiting & Traffic Control
 
-### Modern Protocol Support
+Protect your backend services from overload with per-IP rate limiting using token bucket algorithms. Rate limits are enforced locally on each worker thread, providing consistent protection without distributed coordination overhead. Configure different limits per route or globally across all traffic.
 
-**HTTP/1.1 & HTTP/2:** Full support for both protocols with automatic ALPN negotiation. HTTP/2 multiplexing allows hundreds of concurrent streams over a single TCP connection.
+### HTTP/2 & HTTP/1.1 Gateway
 
-**TLS 1.2/1.3:** Modern cipher suites with OpenSSL 3.x. Terminate SSL at the gateway and communicate with backends over plain HTTP within your private network.
+Support both HTTP/1.1 and HTTP/2 on the same port with automatic protocol detection. For TLS connections, ALPN negotiation selects the optimal protocol. For cleartext connections, Titan detects the HTTP/2 connection preface. HTTP/2 multiplexing allows hundreds of concurrent streams over a single TCP connection, reducing connection overhead for modern web applications.
 
-### Developer-Friendly
+### Observability & Monitoring
 
-**Simple JSON Configuration:** No complex YAML manifests or arcane directives. The entire configuration is self-explanatory JSON that any developer can read and understand.
+Export Prometheus-compatible metrics for request rates, latency histograms, connection pool statistics, and per-route error rates. Health check endpoints provide Kubernetes-ready liveness and readiness probes. Structured logging captures request details for integration with Elasticsearch, Loki, or CloudWatch.
 
-**Middleware Pipeline:** Two-phase architecture (request/response) with built-in support for rate limiting, CORS, authentication, and custom header injection.
+### Zero-Downtime Operations
+
+Update configuration files and reload them with a SIGHUP signal—routes, upstreams, and middleware changes take effect immediately without dropping in-flight requests. Graceful shutdown on SIGTERM waits for active requests to complete before terminating, ensuring clean deployments in Kubernetes rolling updates or systemd service restarts.
 
 ## Quick Start
 
