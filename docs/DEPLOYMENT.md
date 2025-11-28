@@ -260,10 +260,10 @@ helm rollback titan-prod
 docker build -f Dockerfile.production -t titan:latest .
 
 # Tag for registry
-docker tag titan:latest ghcr.io/JonathanBerhe/titan:v0.1.0
+docker tag titan:latest ghcr.io/titan-gateway/titan:v0.1.0
 
 # Push
-docker push ghcr.io/JonathanBerhe/titan:v0.1.0
+docker push ghcr.io/titan-gateway/titan:v0.1.0
 ```
 
 ### Run Container
@@ -847,5 +847,5 @@ export TITAN_LOG_LEVEL=debug
 ## Support
 
 For issues and questions:
-- GitHub Issues: https://github.com/JonathanBerhe/titan/issues
-- Documentation: https://github.com/JonathanBerhe/titan/docs
+- GitHub Issues: https://github.com/titan-gateway/titan/issues
+- Documentation: https://github.com/titan-gateway/titan/docs

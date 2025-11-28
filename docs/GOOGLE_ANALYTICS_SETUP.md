@@ -33,7 +33,7 @@ Quick guide to set up Google Analytics 4 tracking for your Docusaurus documentat
 
 7. **Set up Data Stream:**
    - Platform: **Web**
-   - Website URL: `https://JonathanBerhe.github.io` (your GitHub Pages URL)
+   - Website URL: `https://titan-gateway.github.io` (your GitHub Pages URL)
    - Stream name: `Titan Docs Site`
    - Click "Create stream"
 
@@ -95,7 +95,7 @@ Quick guide to set up Google Analytics 4 tracking for your Docusaurus documentat
    ```
 
 2. **Visit your live site:**
-   - Example: https://JonathanBerhe.github.io/titan
+   - Example: https://titan-gateway.github.io/titan
 
 3. **Verify tracking in GA4:**
    - Check "Realtime" reports
@@ -238,4 +238,4 @@ Once you have analytics set up:
 **Need Help?**
 - [GA4 Documentation](https://support.google.com/analytics/answer/9304153)
 - [Docusaurus Analytics Guide](https://docusaurus.io/docs/api/plugins/@docusaurus/plugin-google-gtag)
-- Open an issue: https://github.com/JonathanBerhe/titan/issues
+- Open an issue: https://github.com/titan-gateway/titan/issues
