@@ -1,7 +1,7 @@
 name: CI - Pull Request Checks
 
 on:
-  pull_request_target:
+  pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
 
@@ -23,7 +23,8 @@ jobs:
       - name: Check branch prefix
         id: check-branch-prefix
         run: |
-          BRANCH="${{ github.head_ref }}"
+          # For pull_request events, use head_ref. For push events, use ref_name
+          BRANCH="${{ github.head_ref || github.ref_name }}"
           if [[ ! "$BRANCH" =~ ^(epic|feat|fix|chore)/ ]]; then
             echo "❌ Branch name must start with: epic/, feat/, fix/, or chore/"
             echo "   Current branch: $BRANCH"
@@ -63,8 +64,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Install dependencies
         run: |
@@ -112,8 +111,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Install dependencies
         run: |
@@ -140,8 +137,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
@@ -192,8 +187,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Setup Python
         uses: actions/setup-python@v5
