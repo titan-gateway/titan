@@ -58,6 +58,11 @@ const config: Config = {
 
   themeConfig: {
     image: 'img/logo/og-image.png',
+    colorMode: {
+      defaultMode: 'dark',
+      disableSwitch: false,
+      respectPrefersColorScheme: false,
+    },
     navbar: {
       title: 'Titan',
       logo: {
