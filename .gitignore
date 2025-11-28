@@ -233,6 +233,7 @@ gmon.out
 
 # Keep specific flamegraph results you want to track
 !docs/performance/*.svg
+!assets/*.svg
 
 # ============================================================================
 # Project Specific
