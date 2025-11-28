@@ -21,6 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check branch prefix
+        id: check-branch-prefix
         run: |
           BRANCH="${{ github.head_ref }}"
           if [[ ! "$BRANCH" =~ ^(epic|feat|fix|chore)/ ]]; then
