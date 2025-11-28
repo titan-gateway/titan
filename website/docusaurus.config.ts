@@ -7,10 +7,10 @@ const config: Config = {
   tagline: 'High-Performance API Gateway Built for Speed',
   favicon: 'favicon.ico',
 
-  url: 'https://JonathanBerhe.github.io',
+  url: 'https://titan-gateway.github.io',
   baseUrl: '/titan/',
 
-  organizationName: 'JonathanBerhe',
+  organizationName: 'titan-gateway',
   projectName: 'titan',
 
   onBrokenLinks: 'throw',

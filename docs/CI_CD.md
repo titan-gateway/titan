@@ -25,8 +25,8 @@ graph TB
         RELEASE_JOBS --> HELM[helm.yml<br/>Package Chart]
 
         BINARY --> GH_RELEASE[GitHub Release]
-        DOCKER --> GHCR_DOCKER[ghcr.io/JonathanBerhe/titan]
-        HELM --> GHCR_HELM[ghcr.io/JonathanBerhe/charts/titan]
+        DOCKER --> GHCR_DOCKER[ghcr.io/titan-gateway/titan]
+        HELM --> GHCR_HELM[ghcr.io/titan-gateway/charts/titan]
     end
 
     style PR fill:#e3f2fd
@@ -155,11 +155,11 @@ Add `[skip ci]` or `[no version]` to commit message to skip versioning.
 
 **Tags Created:**
 ```
-ghcr.io/JonathanBerhe/titan:v0.2.0       # Exact version
-ghcr.io/JonathanBerhe/titan:0.2           # Major.minor
-ghcr.io/JonathanBerhe/titan:0             # Major only
-ghcr.io/JonathanBerhe/titan:latest        # Latest stable
-ghcr.io/JonathanBerhe/titan:sha-abc123f   # Commit SHA
+ghcr.io/titan-gateway/titan:v0.2.0       # Exact version
+ghcr.io/titan-gateway/titan:0.2           # Major.minor
+ghcr.io/titan-gateway/titan:0             # Major only
+ghcr.io/titan-gateway/titan:latest        # Latest stable
+ghcr.io/titan-gateway/titan:sha-abc123f   # Commit SHA
 ```
 
 **Features:**
@@ -172,12 +172,12 @@ ghcr.io/JonathanBerhe/titan:sha-abc123f   # Commit SHA
 **Usage:**
 ```bash
 # Pull latest
-docker pull ghcr.io/JonathanBerhe/titan:latest
+docker pull ghcr.io/titan-gateway/titan:latest
 
 # Run locally
 docker run -p 8080:8080 \
   -v $(pwd)/config.json:/etc/titan/config.json \
-  ghcr.io/JonathanBerhe/titan:v0.2.0 \
+  ghcr.io/titan-gateway/titan:v0.2.0 \
   --config /etc/titan/config.json
 ```
 
@@ -197,7 +197,7 @@ docker run -p 8080:8080 \
 
 **Chart Location:**
 ```
-oci://ghcr.io/JonathanBerhe/charts/titan:0.2.0
+oci://ghcr.io/titan-gateway/charts/titan:0.2.0
 ```
 
 **Usage:**
@@ -206,13 +206,13 @@ oci://ghcr.io/JonathanBerhe/charts/titan:0.2.0
 echo $GITHUB_TOKEN | helm registry login ghcr.io -u USERNAME --password-stdin
 
 # Install chart
-helm install titan oci://ghcr.io/JonathanBerhe/charts/titan \
+helm install titan oci://ghcr.io/titan-gateway/charts/titan \
   --version 0.2.0 \
   --namespace titan \
   --create-namespace
 
 # Upgrade
-helm upgrade --install titan oci://ghcr.io/JonathanBerhe/charts/titan \
+helm upgrade --install titan oci://ghcr.io/titan-gateway/charts/titan \
   --version 0.2.0 \
   --namespace titan \
   --values custom-values.yaml
@@ -287,7 +287,7 @@ git push origin fix/critical-bug
 ## 📊 Monitoring Releases
 
 ### GitHub Actions Dashboard
-https://github.com/JonathanBerhe/titan/actions
+https://github.com/titan-gateway/titan/actions
 
 ### Release Status
 ```bash
@@ -343,7 +343,7 @@ git push origin v0.2.0
 **Verify:**
 ```bash
 # Check if chart was published
-helm show chart oci://ghcr.io/JonathanBerhe/charts/titan --version 0.2.0
+helm show chart oci://ghcr.io/titan-gateway/charts/titan --version 0.2.0
 
 # Check GHCR permissions
 gh auth status
