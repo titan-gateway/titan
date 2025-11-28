@@ -316,6 +316,4 @@ docker compose start backend
 
 ## Further Reading
 
-- [Architecture: Thread-Per-Core Design](/docs/architecture/overview)
-- [Configuration: Health Checks](/docs/configuration/health-checks)
-- [Deployment: Monitoring with Prometheus](/docs/deployment/monitoring)
+- Check the main documentation for more details on Titan's architecture and configuration
