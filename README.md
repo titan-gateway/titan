@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./assets/titan-lockup-dark-400x128.png">
-    <source media="(prefers-color-scheme: light)" srcset="./assets/titan-lockup-light-400x128.png">
-    <img alt="Titan" src="./assets/titan-lockup-light-400x128.png" width="400">
+    <source media="(prefers-color-scheme: dark)" srcset="./assets/titan-lockup-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="./assets/titan-lockup-light.svg">
+    <img alt="Titan" src="./assets/titan-lockup-light.svg" width="400">
   </picture>
 </p>
 
@@ -68,7 +68,7 @@ The fastest way to try Titan is using the pre-built Docker image:
 
 ```bash
 # Pull the latest image
-docker pull ghcr.io/jonathanberhe/titan:latest
+docker pull ghcr.io/titan-gateway/titan:latest
 
 # Create a simple configuration
 cat > config.json <<EOF
@@ -86,7 +86,7 @@ EOF
 docker run -d -p 8080:8080 \
   -v $(pwd)/config.json:/etc/titan/config.json \
   --name titan \
-  ghcr.io/jonathanberhe/titan:latest
+  ghcr.io/titan-gateway/titan:latest
 
 # Test it
 curl http://localhost:8080/get
@@ -137,12 +137,12 @@ See [SCALABILITY_ANALYSIS.md](SCALABILITY_ANALYSIS.md) for detailed benchmark me
 
 ## Documentation
 
-Full documentation is available at **[jonathanberhe.github.io/titan](https://jonathanberhe.github.io/titan/)**
+Full documentation is available at **[titan-gateway.github.io/titan](https://titan-gateway.github.io/titan/)**
 
-- [Getting Started](https://jonathanberhe.github.io/titan/docs/getting-started/installation)
-- [Architecture Overview](https://jonathanberhe.github.io/titan/docs/architecture/overview)
-- [Configuration Guide](https://jonathanberhe.github.io/titan/docs/configuration/overview)
-- [Deployment Options](https://jonathanberhe.github.io/titan/docs/deployment/overview)
+- [Getting Started](https://titan-gateway.github.io/titan/docs/getting-started/installation)
+- [Architecture Overview](https://titan-gateway.github.io/titan/docs/architecture/overview)
+- [Configuration Guide](https://titan-gateway.github.io/titan/docs/configuration/overview)
+- [Deployment Options](https://titan-gateway.github.io/titan/docs/deployment/overview)
 
 ## License
 

@@ -12,9 +12,9 @@ title: Introduction
 
 ### Built for Performance
 
-Modern applications demand more than what traditional API gateways can deliver. Titan is designed to deliver **exceptional throughput with P99 latencies under 1 millisecond**—performance that outperforms traditional proxies in production workloads. This isn't just synthetic benchmarking; it's real-world performance under sustained load with connection pooling, TLS termination, and full middleware processing.
+Modern applications demand more than what traditional API gateways can deliver. Titan is designed to deliver **exceptional throughput with P99 latencies under 1 millisecond**—performance that outperforms traditional proxies in production workloads.
 
-The secret lies in Titan's **thread-per-core architecture**. Instead of fighting over shared locks and mutexes, each CPU core runs independently with its own connection pool, routing table, and memory allocator. SIMD optimizations accelerate both HTTP parsing and routing lookups, while zero-copy proxying ensures minimal overhead between client and backend connections.
+Titan achieves this through careful architectural design focused on eliminating bottlenecks. The system is built to maximize CPU efficiency while minimizing contention, ensuring consistent performance even under heavy load.
 
 ### Zero-Downtime Operations
 
