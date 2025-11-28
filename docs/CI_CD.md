@@ -287,7 +287,7 @@ git push origin fix/critical-bug
 ## 📊 Monitoring Releases
 
 ### GitHub Actions Dashboard
-https://github.com/JonathanBerhe/titan/actions
+https://github.com/titan-gateway/titan/actions
 
 ### Release Status
 ```bash

@@ -847,5 +847,5 @@ export TITAN_LOG_LEVEL=debug
 ## Support
 
 For issues and questions:
-- GitHub Issues: https://github.com/JonathanBerhe/titan/issues
-- Documentation: https://github.com/JonathanBerhe/titan/docs
+- GitHub Issues: https://github.com/titan-gateway/titan/issues
+- Documentation: https://titan-gateway.github.io/titan/

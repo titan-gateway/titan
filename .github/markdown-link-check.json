@@ -1,0 +1,33 @@
+{
+  "ignorePatterns": [
+    {
+      "pattern": "^http://localhost"
+    },
+    {
+      "pattern": "^https://localhost"
+    },
+    {
+      "pattern": "^https://docsearch\\.algolia\\.com/apply"
+    },
+    {
+      "pattern": "^https://analytics\\.yourdomain\\.com"
+    },
+    {
+      "pattern": "^https://titan\\.goatcounter\\.com"
+    },
+    {
+      "pattern": "^https://titan\\.dev"
+    },
+    {
+      "pattern": "^https://example\\.com"
+    },
+    {
+      "pattern": "^http://backend1\\.example\\.com"
+    }
+  ],
+  "timeout": "20s",
+  "retryOn429": true,
+  "retryCount": 3,
+  "fallbackRetryDelay": "30s",
+  "aliveStatusCodes": [200, 206, 301, 302, 307, 308]
+}
