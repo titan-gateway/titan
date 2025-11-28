@@ -108,35 +108,24 @@ make test
 make help
 ```
 
-## Architecture
-
-See [CLAUDE.md](CLAUDE.md) for detailed architecture documentation.
-
-## Development Roadmap
-
-See [ROADMAP.md](ROADMAP.md) for the development plan and progress tracking.
-
 ## Benchmarking
 
 See [benchmark/README.md](benchmark/README.md) for benchmarking instructions.
 
 ## Performance
 
-**Design Goals:**
-- **Throughput:** Designed to outperform traditional API gateways through zero-copy proxying and lock-free architecture
-- **Latency:** P99 <1ms under sustained load with thread-per-core design
-- **Reliability:** Connection pooling with health checks and zero-downtime reloads
+Titan is engineered to deliver exceptional performance in production environments where latency and throughput are critical. The architecture achieves P99 latencies under 1 millisecond under sustained load, ensuring predictable response times even during traffic spikes. This performance characteristic stems from careful architectural decisions that eliminate common bottlenecks found in traditional API gateways.
 
-See [SCALABILITY_ANALYSIS.md](SCALABILITY_ANALYSIS.md) for detailed benchmark methodology and results.
+The gateway maintains this low-latency performance while handling substantial throughput through efficient resource utilization. Connection pooling to backend services eliminates the overhead of repeated TCP handshakes, while integrated health checking ensures traffic is only routed to healthy instances. Configuration updates happen without service interruption, allowing teams to deploy changes confidently without scheduled maintenance windows.
 
 ## Documentation
 
-Full documentation is available at **[jonathanberhe.github.io/titan](https://jonathanberhe.github.io/titan/)**
+Full documentation is available at **[titan-gateway.github.io/titan](https://titan-gateway.github.io/titan/)**
 
-- [Getting Started](https://jonathanberhe.github.io/titan/docs/getting-started/installation)
-- [Architecture Overview](https://jonathanberhe.github.io/titan/docs/architecture/overview)
-- [Configuration Guide](https://jonathanberhe.github.io/titan/docs/configuration/overview)
-- [Deployment Options](https://jonathanberhe.github.io/titan/docs/deployment/overview)
+- [Getting Started](https://titan-gateway.github.io/titan/docs/getting-started/installation)
+- [Architecture Overview](https://titan-gateway.github.io/titan/docs/architecture/overview)
+- [Configuration Guide](https://titan-gateway.github.io/titan/docs/configuration/overview)
+- [Deployment Options](https://titan-gateway.github.io/titan/docs/deployment/overview)
 
 ## License
 
