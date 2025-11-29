@@ -24,6 +24,11 @@
 
 #pragma once
 
+// Fix libc++/glibc interaction on x86-64 with SSE intrinsics
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
