@@ -25,20 +25,16 @@
 #pragma once
 
 // Fix libc++/glibc interaction on x86-64 with SSE intrinsics
-// Define missing float types before system headers
-#if defined(__x86_64__) && defined(__clang__) && defined(_LIBCPP_VERSION)
-    #ifndef _Float32
-        typedef float _Float32;
-    #endif
-    #ifndef _Float64
-        typedef double _Float64;
-    #endif
-    #ifndef _Float32x
-        typedef double _Float32x;
-    #endif
-    #ifndef _Float64x
-        typedef long double _Float64x;
-    #endif
+// MUST be defined before ANY system headers
+#if defined(__x86_64__) && !defined(__FLOAT_TYPES_DEFINED__)
+#define __FLOAT_TYPES_DEFINED__ 1
+extern "C" {
+    typedef float _Float32;
+    typedef double _Float64;
+    typedef double _Float32x;
+    typedef long double _Float64x;
+    typedef long double _Float128;
+}
 #endif
 
 #include <cstddef>
