@@ -26,7 +26,7 @@
 
 // IMPORTANT: Include platform compatibility layer BEFORE any SIMD headers
 // This defines _Float32/_Float64 types needed by x86-64 SSE headers when using libc++
-#include "core/platform_compat.hpp"
+#include "../core/platform_compat.hpp"
 
 #include <cstddef>
 #include <cstdint>
