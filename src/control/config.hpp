@@ -16,7 +16,7 @@
 
 
 // Titan Configuration - Header
-// JSON configuration schema using Glaze for serialization
+// JSON configuration schema using nlohmann/json for serialization
 
 #pragma once
 
@@ -24,7 +24,7 @@
 #include "../gateway/upstream.hpp"
 #include "../http/http.hpp"
 
-#include <glaze/glaze.hpp>
+#include <nlohmann/json.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -185,6 +185,37 @@ struct Config {
     std::optional<std::string> description;
 };
 
+// nlohmann/json serialization macros
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ServerConfig, worker_threads, listen_address, listen_port, backlog,
+    read_timeout, write_timeout, idle_timeout, shutdown_timeout, max_connections, max_request_size,
+    max_header_size, tls_enabled, tls_certificate_path, tls_private_key_path, tls_alpn_protocols);
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(BackendConfig, host, port, weight, max_connections,
+    health_check_enabled, health_check_interval, health_check_timeout, health_check_path);
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(CircuitBreakerConfigSchema, enabled, failure_threshold,
+    success_threshold, timeout_ms, window_ms, enable_global_hints, catastrophic_threshold);
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(UpstreamConfig, name, backends, load_balancing, max_retries,
+    retry_timeout, pool_size, pool_idle_timeout, circuit_breaker);
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(RouteConfig, path, method, upstream, handler_id, priority,
+    rewrite_path, timeout, middleware);
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(CorsConfig, enabled, allowed_origins, allowed_methods,
+    allowed_headers, allow_credentials, max_age);
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(RateLimitConfig, enabled, requests_per_second, burst_size, key);
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(AuthConfig, enabled, type, header, valid_tokens);
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(LogConfig, level, format, log_requests, log_responses, exclude_paths);
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(MetricsConfig, enabled, port, path, format);
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Config, server, routes, upstreams, cors, rate_limit, auth,
+    logging, metrics, version, description);
+
 /// Configuration validation result
 struct ValidationResult {
     bool valid = true;
@@ -265,162 +296,3 @@ private:
 };
 
 } // namespace titan::control
-
-// Glaze reflection metadata
-namespace glz {
-    template <>
-    struct meta<titan::control::ServerConfig> {
-        using T = titan::control::ServerConfig;
-        static constexpr auto value = object(
-            "worker_threads", &T::worker_threads,
-            "listen_address", &T::listen_address,
-            "listen_port", &T::listen_port,
-            "backlog", &T::backlog,
-            "read_timeout", &T::read_timeout,
-            "write_timeout", &T::write_timeout,
-            "idle_timeout", &T::idle_timeout,
-            "shutdown_timeout", &T::shutdown_timeout,
-            "max_connections", &T::max_connections,
-            "max_request_size", &T::max_request_size,
-            "max_header_size", &T::max_header_size,
-            "tls_enabled", &T::tls_enabled,
-            "tls_certificate_path", &T::tls_certificate_path,
-            "tls_private_key_path", &T::tls_private_key_path,
-            "tls_alpn_protocols", &T::tls_alpn_protocols
-        );
-    };
-
-    template <>
-    struct meta<titan::control::BackendConfig> {
-        using T = titan::control::BackendConfig;
-        static constexpr auto value = object(
-            "host", &T::host,
-            "port", &T::port,
-            "weight", &T::weight,
-            "max_connections", &T::max_connections,
-            "health_check_enabled", &T::health_check_enabled,
-            "health_check_interval", &T::health_check_interval,
-            "health_check_timeout", &T::health_check_timeout,
-            "health_check_path", &T::health_check_path
-        );
-    };
-
-    template <>
-    struct meta<titan::control::CircuitBreakerConfigSchema> {
-        using T = titan::control::CircuitBreakerConfigSchema;
-        static constexpr auto value = object(
-            "enabled", &T::enabled,
-            "failure_threshold", &T::failure_threshold,
-            "success_threshold", &T::success_threshold,
-            "timeout_ms", &T::timeout_ms,
-            "window_ms", &T::window_ms,
-            "enable_global_hints", &T::enable_global_hints,
-            "catastrophic_threshold", &T::catastrophic_threshold
-        );
-    };
-
-    template <>
-    struct meta<titan::control::UpstreamConfig> {
-        using T = titan::control::UpstreamConfig;
-        static constexpr auto value = object(
-            "name", &T::name,
-            "backends", &T::backends,
-            "load_balancing", &T::load_balancing,
-            "max_retries", &T::max_retries,
-            "retry_timeout", &T::retry_timeout,
-            "pool_size", &T::pool_size,
-            "pool_idle_timeout", &T::pool_idle_timeout,
-            "circuit_breaker", &T::circuit_breaker
-        );
-    };
-
-    template <>
-    struct meta<titan::control::RouteConfig> {
-        using T = titan::control::RouteConfig;
-        static constexpr auto value = object(
-            "path", &T::path,
-            "method", &T::method,
-            "upstream", &T::upstream,
-            "handler_id", &T::handler_id,
-            "priority", &T::priority,
-            "rewrite_path", &T::rewrite_path,
-            "timeout", &T::timeout,
-            "middleware", &T::middleware
-        );
-    };
-
-    template <>
-    struct meta<titan::control::CorsConfig> {
-        using T = titan::control::CorsConfig;
-        static constexpr auto value = object(
-            "enabled", &T::enabled,
-            "allowed_origins", &T::allowed_origins,
-            "allowed_methods", &T::allowed_methods,
-            "allowed_headers", &T::allowed_headers,
-            "allow_credentials", &T::allow_credentials,
-            "max_age", &T::max_age
-        );
-    };
-
-    template <>
-    struct meta<titan::control::RateLimitConfig> {
-        using T = titan::control::RateLimitConfig;
-        static constexpr auto value = object(
-            "enabled", &T::enabled,
-            "requests_per_second", &T::requests_per_second,
-            "burst_size", &T::burst_size,
-            "key", &T::key
-        );
-    };
-
-    template <>
-    struct meta<titan::control::AuthConfig> {
-        using T = titan::control::AuthConfig;
-        static constexpr auto value = object(
-            "enabled", &T::enabled,
-            "type", &T::type,
-            "header", &T::header,
-            "valid_tokens", &T::valid_tokens
-        );
-    };
-
-    template <>
-    struct meta<titan::control::LogConfig> {
-        using T = titan::control::LogConfig;
-        static constexpr auto value = object(
-            "level", &T::level,
-            "format", &T::format,
-            "log_requests", &T::log_requests,
-            "log_responses", &T::log_responses,
-            "exclude_paths", &T::exclude_paths
-        );
-    };
-
-    template <>
-    struct meta<titan::control::MetricsConfig> {
-        using T = titan::control::MetricsConfig;
-        static constexpr auto value = object(
-            "enabled", &T::enabled,
-            "port", &T::port,
-            "path", &T::path,
-            "format", &T::format
-        );
-    };
-
-    template <>
-    struct meta<titan::control::Config> {
-        using T = titan::control::Config;
-        static constexpr auto value = object(
-            "server", &T::server,
-            "routes", &T::routes,
-            "upstreams", &T::upstreams,
-            "cors", &T::cors,
-            "rate_limit", &T::rate_limit,
-            "auth", &T::auth,
-            "logging", &T::logging,
-            "metrics", &T::metrics,
-            "version", &T::version,
-            "description", &T::description
-        );
-    };
-}

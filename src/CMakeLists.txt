@@ -49,7 +49,7 @@ target_link_libraries(titan_lib
     OpenSSL::SSL
     OpenSSL::Crypto
     fmt::fmt
-    glaze::glaze
+    nlohmann_json::nlohmann_json
     llhttp::llhttp_static
     PkgConfig::NGHTTP2
 )

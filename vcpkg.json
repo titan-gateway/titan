@@ -17,7 +17,7 @@
     "mimalloc",
     "openssl",
     "catch2",
-    "glaze",
+    "nlohmann-json",
     "fmt",
     "llhttp",
     "nghttp2"

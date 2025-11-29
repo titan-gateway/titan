@@ -18,7 +18,9 @@ TEST_CASE("Config JSON serialization", "[control][config]") {
     std::string json = ConfigLoader::to_json(config);
     REQUIRE_FALSE(json.empty());
     REQUIRE(json.find("\"version\"") != std::string::npos);
-    REQUIRE(json.find("\"listen_port\":8080") != std::string::npos);
+    // nlohmann/json adds space after colon, so check for both "listen_port": 8080 or "listen_port":8080
+    REQUIRE((json.find("\"listen_port\": 8080") != std::string::npos ||
+             json.find("\"listen_port\":8080") != std::string::npos));
 }
 
 TEST_CASE("Config JSON deserialization", "[control][config]") {

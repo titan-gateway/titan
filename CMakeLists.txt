@@ -33,7 +33,7 @@ set(Threads_FOUND TRUE)
 find_package(mimalloc CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(Catch2 3 CONFIG REQUIRED)
-find_package(glaze CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 find_package(fmt CONFIG REQUIRED)
 find_package(llhttp CONFIG REQUIRED)
 
