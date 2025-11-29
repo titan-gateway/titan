@@ -28,6 +28,10 @@
 #include <cstdint>
 #include <cstring>
 
+#if defined(__x86_64__) || defined(_M_X64)
+#include <cpuid.h>
+#endif
+
 namespace titan::http::simd {
 
 // ============================================================================
