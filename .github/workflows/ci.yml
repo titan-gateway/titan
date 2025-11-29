@@ -23,7 +23,8 @@ jobs:
       - name: Check branch prefix
         id: check-branch-prefix
         run: |
-          BRANCH="${{ github.head_ref }}"
+          # For pull_request: use head_ref. For push: use ref_name
+          BRANCH="${{ github.head_ref || github.ref_name }}"
           if [[ ! "$BRANCH" =~ ^(epic|feat|fix|chore)/ ]]; then
             echo "❌ Branch name must start with: epic/, feat/, fix/, or chore/"
             echo "   Current branch: $BRANCH"
