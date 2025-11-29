@@ -43,6 +43,7 @@ jobs:
             cmake \
             ninja-build \
             clang-18 \
+            clang-tools-18 \
             lld-18 \
             libc++-18-dev \
             libc++abi-18-dev \
