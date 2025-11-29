@@ -97,7 +97,4 @@ RUN ARCH="$(uname -m)" \
 # Create working directory
 WORKDIR /workspace
 
-# Set default C++ standard
-ENV CXXFLAGS="-std=c++23 -stdlib=libc++"
-
 CMD ["/bin/bash"]

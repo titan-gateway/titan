@@ -52,10 +52,8 @@ target_link_libraries(titan_lib
     glaze::glaze
     llhttp::llhttp_static
     PkgConfig::NGHTTP2
-    c++
-    c++abi
 )
 
 # Titan executable
 add_executable(titan main.cpp)
-target_link_libraries(titan PRIVATE titan_lib c++ c++abi)
+target_link_libraries(titan PRIVATE titan_lib)

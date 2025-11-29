@@ -48,8 +48,17 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     -Wextra
     -Wpedantic
     -Wno-unused-parameter
-    -stdlib=libc++
   )
+
+  # Use libc++ on ARM64, libstdc++ on x86-64
+  # Rationale: SSE intrinsic headers on x86-64 cause libc++/glibc conflicts
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64")
+    add_compile_options(-stdlib=libc++)
+    add_link_options(-stdlib=libc++)
+    message(STATUS "Using libc++ (ARM64)")
+  else()
+    message(STATUS "Using libstdc++ (x86-64)")
+  endif()
 
   # Release optimizations
   if(CMAKE_BUILD_TYPE STREQUAL "Release")
