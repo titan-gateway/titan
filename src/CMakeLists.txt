@@ -12,6 +12,8 @@ add_library(titan_lib
   core/server.cpp
   core/server_runner.hpp
   core/server_runner.cpp
+  core/admin_server.hpp
+  core/admin_server.cpp
   http/http.hpp
   http/http.cpp
   http/parser.hpp
