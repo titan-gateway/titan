@@ -50,10 +50,9 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     -Wno-unused-parameter
   )
 
-  # Use libc++ for C++23 std::expected support
-  add_compile_options(-stdlib=libc++)
-  add_link_options(-stdlib=libc++)
-  message(STATUS "Using libc++ (LLVM C++ standard library)")
+  # Use libstdc++ (GCC's standard library) to match vcpkg dependencies
+  # Note: libstdc++ from GCC 13+ has std::expected support
+  message(STATUS "Using libstdc++ (GCC C++ standard library)")
 
   # Release optimizations
   if(CMAKE_BUILD_TYPE STREQUAL "Release")
