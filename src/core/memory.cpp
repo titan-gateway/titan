@@ -128,3 +128,4 @@ void Arena::grow(size_t min_size) {
 }
 
 } // namespace titan::core
+// Test CI workflow trigger
