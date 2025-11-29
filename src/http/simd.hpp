@@ -28,19 +28,7 @@
 #include <cstdint>
 #include <cstring>
 
-// Workaround for libc++ compatibility with glibc's _Float32 extension
-// libc++ doesn't support _Float32, but glibc's math.h uses it
-#if defined(_LIBCPP_VERSION) && !defined(_Float32)
-#define _Float32 float
-#define _Float64 double
-#define _Float128 long double
-#define _Float32x double
-#define _Float64x long double
-#endif
-
-#if defined(__x86_64__) || defined(_M_X64)
-#include <cpuid.h>
-#endif
+// No headers needed - we use Clang built-ins for CPU feature detection
 
 namespace titan::http::simd {
 
@@ -85,13 +73,10 @@ private:
         // x86_64 always has SSE2
         result = result | SIMDFeature::SSE2;
 
-        // Check for AVX2 using CPUID
-#if defined(__GNUC__) || defined(__clang__)
-        unsigned int eax, ebx, ecx, edx;
-        if (__get_cpuid_count(7, 0, &eax, &ebx, &ecx, &edx)) {
-            if (ebx & (1 << 5)) {  // AVX2 bit
-                result = result | SIMDFeature::AVX2;
-            }
+        // Check for AVX2 using Clang built-in (no headers needed!)
+#if defined(__clang__)
+        if (__builtin_cpu_supports("avx2")) {
+            result = result | SIMDFeature::AVX2;
         }
 #endif
 
