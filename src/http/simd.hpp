@@ -28,6 +28,16 @@
 #include <cstdint>
 #include <cstring>
 
+// Workaround for libc++ compatibility with glibc's _Float32 extension
+// libc++ doesn't support _Float32, but glibc's math.h uses it
+#if defined(_LIBCPP_VERSION) && !defined(_Float32)
+#define _Float32 float
+#define _Float64 double
+#define _Float128 long double
+#define _Float32x double
+#define _Float64x long double
+#endif
+
 #if defined(__x86_64__) || defined(_M_X64)
 #include <cpuid.h>
 #endif

@@ -67,8 +67,9 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   endif()
 endif()
 
-# Static binary build option
+# Build options
 option(BUILD_STATIC "Build fully static binary" OFF)
+option(BUILD_BENCHMARKS "Build benchmark executables" OFF)
 
 if(BUILD_STATIC)
   message(STATUS "Building static binary - linking libstdc++ and OpenSSL statically")
@@ -92,5 +93,7 @@ add_subdirectory(src)
 enable_testing()
 add_subdirectory(tests)
 
-# Benchmarks
-add_subdirectory(benchmarks)
+# Benchmarks (optional)
+if(BUILD_BENCHMARKS)
+  add_subdirectory(benchmarks)
+endif()
