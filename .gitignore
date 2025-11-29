@@ -212,6 +212,7 @@ credentials/
 # Core Dumps & Debug
 # ============================================================================
 core
+!src/core/
 core.*
 vgcore.*
 *.dmp
