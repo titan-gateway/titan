@@ -1,0 +1,15 @@
+name: Test PR Trigger
+
+on:
+  pull_request:
+
+jobs:
+  test:
+    name: Simple Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Echo test
+        run: |
+          echo "Pull request workflow is working!"
+          echo "PR number: ${{ github.event.pull_request.number }}"
+          echo "PR branch: ${{ github.head_ref }}"
