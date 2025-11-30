@@ -202,7 +202,16 @@ def titan_server(process_manager, titan_config, mock_backend_1, mock_backend_2):
 
     yield "http://127.0.0.1:8080"
 
-    # Cleanup happens via process_manager fixture
+    # Explicit cleanup to ensure Titan stops between tests
+    if proc.poll() is None:
+        print(f"Stopping Titan (PID {proc.pid})")
+        try:
+            proc.terminate()
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+    time.sleep(0.5)  # Ensure port 8080 is released
 
 
 @pytest.fixture

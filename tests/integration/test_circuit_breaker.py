@@ -274,6 +274,9 @@ def test_circuit_breaker_opens_on_failures(titan_server, mock_backend, metrics_u
     """
     Test that circuit breaker opens after threshold failures
     """
+    # Reset backend state to ensure clean test
+    requests.post(f"{mock_backend}/_control/reset", timeout=2)
+
     # 1. Verify normal operation
     resp = requests.get(f"{titan_server}/api", timeout=2)
     assert resp.status_code == 200
@@ -320,6 +323,9 @@ def test_circuit_breaker_closes_after_recovery(titan_server, mock_backend, metri
     """
     Test that circuit breaker closes after backend recovers
     """
+    # Reset backend state to ensure clean test
+    requests.post(f"{mock_backend}/_control/reset", timeout=2)
+
     # 1. Make backend fail
     requests.post(f"{mock_backend}/_control/fail", timeout=2)
 
