@@ -2,9 +2,10 @@
 Mock Backend Server for Titan Testing and Benchmarking
 Unified FastAPI server with circuit breaker control endpoints
 """
+import os
+import time
 from fastapi import FastAPI, Response
 from fastapi.responses import JSONResponse, PlainTextResponse
-import time
 
 app = FastAPI(title="Titan Mock Backend")
 
@@ -18,14 +19,14 @@ state = {
 
 @app.get("/")
 async def root():
-    """Root endpoint - simple text response"""
-    return PlainTextResponse("Mock Backend v1.0")
+    """Root endpoint - JSON response for compatibility"""
+    return JSONResponse({"message": "Hello from mock backend", "port": int(os.getenv("PORT", "3001"))})
 
 
 @app.get("/health")
 async def health():
     """Health check endpoint"""
-    return JSONResponse({"status": "healthy", "timestamp": time.time()})
+    return JSONResponse({"status": "healthy", "port": int(os.getenv("PORT", "3001"))})
 
 
 @app.get("/api")
@@ -40,12 +41,13 @@ async def api():
 
 
 @app.get("/api/users/{user_id}")
-async def get_user(user_id: int):
-    """Simulated user lookup"""
+async def get_user(user_id: str):
+    """Simulated user lookup - returns string user_id for compatibility"""
     return JSONResponse({
         "id": user_id,
         "name": f"User {user_id}",
-        "email": f"user{user_id}@example.com"
+        "email": f"user{user_id}@example.com",
+        "port": int(os.getenv("PORT", "3001"))
     })
 
 
