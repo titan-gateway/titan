@@ -30,24 +30,24 @@
       "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_CXX_COMPILER": "clang++-18",
-        "CMAKE_C_COMPILER": "clang-18",
+        "CMAKE_CXX_COMPILER": "g++-14",
+        "CMAKE_C_COMPILER": "gcc-14",
         "VCPKG_TARGET_TRIPLET": "arm64-linux"
       }
     },
     {
       "name": "fuzz",
       "displayName": "Fuzz Testing Build",
-      "description": "Build with libFuzzer support",
+      "description": "Build with sanitizers for fuzzing (use AFL++ for fuzzing)",
       "binaryDir": "${sourceDir}/build/fuzz",
       "generator": "Ninja",
       "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_CXX_COMPILER": "clang++-18",
-        "CMAKE_C_COMPILER": "clang-18",
-        "CMAKE_CXX_FLAGS": "-fsanitize=fuzzer,address -g",
-        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=fuzzer,address",
+        "CMAKE_CXX_COMPILER": "g++-14",
+        "CMAKE_C_COMPILER": "gcc-14",
+        "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -g -O1 -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined",
         "VCPKG_TARGET_TRIPLET": "arm64-linux"
       }
     },
@@ -60,8 +60,8 @@
       "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_CXX_COMPILER": "clang++-18",
-        "CMAKE_C_COMPILER": "clang-18",
+        "CMAKE_CXX_COMPILER": "g++-14",
+        "CMAKE_C_COMPILER": "gcc-14",
         "CMAKE_CXX_FLAGS": "-fsanitize=thread -g -O1 -fno-omit-frame-pointer",
         "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=thread",
         "VCPKG_TARGET_TRIPLET": "arm64-linux"
@@ -76,8 +76,8 @@
       "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_CXX_COMPILER": "clang++-18",
-        "CMAKE_C_COMPILER": "clang-18",
+        "CMAKE_CXX_COMPILER": "g++-14",
+        "CMAKE_C_COMPILER": "gcc-14",
         "VCPKG_TARGET_TRIPLET": "arm64-linux",
         "BUILD_STATIC": "ON"
       }
@@ -91,10 +91,10 @@
       "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_CXX_COMPILER": "clang++-18",
-        "CMAKE_C_COMPILER": "clang-18",
+        "CMAKE_CXX_COMPILER": "g++-14",
+        "CMAKE_C_COMPILER": "gcc-14",
         "CMAKE_CXX_FLAGS": "-O3 -march=x86-64-v2 -mtune=generic -flto=full -fstack-protector-strong",
-        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=lld -flto=full",
+        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=gold -flto=full",
         "BUILD_STATIC": "ON"
       }
     },
@@ -107,10 +107,10 @@
       "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_CXX_COMPILER": "clang++-18",
-        "CMAKE_C_COMPILER": "clang-18",
+        "CMAKE_CXX_COMPILER": "g++-14",
+        "CMAKE_C_COMPILER": "gcc-14",
         "CMAKE_CXX_FLAGS": "-O3 -march=armv8-a -mtune=generic -flto=full -fstack-protector-strong",
-        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=lld -flto=full",
+        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=gold -flto=full",
         "VCPKG_TARGET_TRIPLET": "arm64-linux",
         "BUILD_STATIC": "ON"
       }
@@ -124,10 +124,10 @@
       "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_CXX_COMPILER": "clang++-18",
-        "CMAKE_C_COMPILER": "clang-18",
+        "CMAKE_CXX_COMPILER": "g++-14",
+        "CMAKE_C_COMPILER": "gcc-14",
         "CMAKE_CXX_FLAGS": "-O3 -march=haswell -mtune=haswell -flto=full -fstack-protector-strong",
-        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=lld -flto=full",
+        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=gold -flto=full",
         "BUILD_STATIC": "ON"
       }
     },
@@ -140,10 +140,10 @@
       "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_CXX_COMPILER": "clang++-18",
-        "CMAKE_C_COMPILER": "clang-18",
+        "CMAKE_CXX_COMPILER": "g++-14",
+        "CMAKE_C_COMPILER": "gcc-14",
         "CMAKE_CXX_FLAGS": "-O3 -march=skylake -mtune=skylake -flto=full -fstack-protector-strong",
-        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=lld -flto=full",
+        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=gold -flto=full",
         "BUILD_STATIC": "ON"
       }
     },
@@ -156,10 +156,10 @@
       "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_CXX_COMPILER": "clang++-18",
-        "CMAKE_C_COMPILER": "clang-18",
+        "CMAKE_CXX_COMPILER": "g++-14",
+        "CMAKE_C_COMPILER": "gcc-14",
         "CMAKE_CXX_FLAGS": "-O3 -march=znver3 -mtune=znver3 -flto=full -fstack-protector-strong",
-        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=lld -flto=full",
+        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=gold -flto=full",
         "BUILD_STATIC": "ON"
       }
     },
@@ -172,10 +172,10 @@
       "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_CXX_COMPILER": "clang++-18",
-        "CMAKE_C_COMPILER": "clang-18",
+        "CMAKE_CXX_COMPILER": "g++-14",
+        "CMAKE_C_COMPILER": "gcc-14",
         "CMAKE_CXX_FLAGS": "-O3 -march=armv8.2-a+crypto+fp16+dotprod -mtune=neoverse-n1 -flto=full -fstack-protector-strong",
-        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=lld -flto=full",
+        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=gold -flto=full",
         "VCPKG_TARGET_TRIPLET": "arm64-linux",
         "BUILD_STATIC": "ON"
       }
@@ -189,10 +189,10 @@
       "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_CXX_COMPILER": "clang++-18",
-        "CMAKE_C_COMPILER": "clang-18",
+        "CMAKE_CXX_COMPILER": "g++-14",
+        "CMAKE_C_COMPILER": "gcc-14",
         "CMAKE_CXX_FLAGS": "-O3 -march=armv8.4-a+crypto+fp16+dotprod+sve -mtune=neoverse-v1 -flto=full -fstack-protector-strong",
-        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=lld -flto=full",
+        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=gold -flto=full",
         "VCPKG_TARGET_TRIPLET": "arm64-linux",
         "BUILD_STATIC": "ON"
       }
@@ -206,10 +206,10 @@
       "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_CXX_COMPILER": "clang++-18",
-        "CMAKE_C_COMPILER": "clang-18",
+        "CMAKE_CXX_COMPILER": "g++-14",
+        "CMAKE_C_COMPILER": "gcc-14",
         "CMAKE_CXX_FLAGS": "-O3 -march=armv8.5-a+crypto+fp16+dotprod -mtune=apple-m1 -flto=full -fstack-protector-strong",
-        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=lld -flto=full",
+        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=gold -flto=full",
         "VCPKG_TARGET_TRIPLET": "arm64-linux",
         "BUILD_STATIC": "ON"
       }
