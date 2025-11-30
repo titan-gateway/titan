@@ -291,24 +291,24 @@ TEST_CASE("RateLimitMiddleware integration", "[gateway][rate_limit][middleware]"
 }
 
 TEST_CASE("Rate limiting realistic scenario", "[gateway][rate_limit]") {
-    // Simulate 100 req/s with 200 burst
-    RateLimitMiddleware::Config config;
-    config.requests_per_second = 100;
-    config.burst_size = 200;
-
-    RateLimitMiddleware middleware(config);
-
-    Request req;
-    Response res;
-    RouteMatch match;
-
-    RequestContext ctx;
-    ctx.request = &req;
-    ctx.response = &res;
-    ctx.route_match = match;
-    ctx.client_ip = "10.0.0.1";
-
     SECTION("Burst within limit") {
+        // Simulate 100 req/s with 200 burst
+        RateLimitMiddleware::Config config;
+        config.requests_per_second = 100;
+        config.burst_size = 200;
+
+        RateLimitMiddleware middleware(config);
+
+        Request req;
+        Response res;
+        RouteMatch match;
+
+        RequestContext ctx;
+        ctx.request = &req;
+        ctx.response = &res;
+        ctx.route_match = match;
+        ctx.client_ip = "10.0.0.1";
+
         // Send 150 requests rapidly (within burst limit)
         int allowed = 0;
         for (int i = 0; i < 150; ++i) {
@@ -323,6 +323,24 @@ TEST_CASE("Rate limiting realistic scenario", "[gateway][rate_limit]") {
     }
 
     SECTION("Burst exceeds limit") {
+        // Use refill_rate=0 to prevent timing-dependent flakiness
+        // Without refill, we get deterministic behavior: exactly burst_size requests allowed
+        RateLimitMiddleware::Config config;
+        config.requests_per_second = 0;  // No refill (was 100, caused race condition)
+        config.burst_size = 200;
+
+        RateLimitMiddleware middleware(config);
+
+        Request req;
+        Response res;
+        RouteMatch match;
+
+        RequestContext ctx;
+        ctx.request = &req;
+        ctx.response = &res;
+        ctx.route_match = match;
+        ctx.client_ip = "10.0.0.1";
+
         // Send 250 requests rapidly (exceeds burst limit of 200)
         int allowed = 0;
         for (int i = 0; i < 250; ++i) {
@@ -333,6 +351,6 @@ TEST_CASE("Rate limiting realistic scenario", "[gateway][rate_limit]") {
             ctx.error_message.clear();
         }
 
-        REQUIRE(allowed == 200);  // Only burst_size allowed
+        REQUIRE(allowed == 200);  // Only burst_size allowed (deterministic with refill_rate=0)
     }
 }

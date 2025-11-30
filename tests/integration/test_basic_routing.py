@@ -121,5 +121,7 @@ def test_large_response(titan_server, http_session):
 
     assert resp.status_code == 200
     data = resp.json()
-    assert "data" in data  # Mock backend returns "data" field
-    assert data["size"] == 10000  # Mock backend returns 10k bytes of data
+    assert "items" in data  # Backend returns "items" field
+    assert len(data["items"]) == 1000  # Backend returns 1000 items
+    assert data["items"][0]["id"] == 0  # Verify item structure
+    assert "value" in data["items"][0]

@@ -1331,19 +1331,73 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
 
     // Handle readable (backend response available)
     if (readable && backend_conn->recv_pending) {
-        uint8_t chunk[8192];
-        ssize_t n = recv(backend_fd, chunk, sizeof(chunk), MSG_DONTWAIT);
+        // CRITICAL FIX: Loop reading until response complete or EAGAIN
+        // Large responses (>8KB) require multiple recv() calls
+        bool done_reading = false;
+        bool should_send_error = false;
 
-        if (n > 0) {
-            backend_conn->recv_buffer.insert(backend_conn->recv_buffer.end(), chunk, chunk + n);
+        // Read loop: accumulate data in recv_buffer without parsing
+        while (!done_reading) {
+            uint8_t chunk[8192];
+            ssize_t n = recv(backend_fd, chunk, sizeof(chunk), MSG_DONTWAIT);
 
-            // Try parsing response
+            if (n > 0) {
+                // Append data to buffer
+                backend_conn->recv_buffer.insert(backend_conn->recv_buffer.end(), chunk, chunk + n);
+                // Continue reading more data (don't parse yet - would create invalid string_views!)
+            } else if (n == 0) {
+                // Backend closed connection
+                done_reading = true;
+            } else {
+                // n < 0 - check if EAGAIN (no more data available) or real error
+                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    // No more data available now - try parsing what we have
+                    done_reading = true;  // Exit read loop and try parsing
+                } else {
+                    // Real error - send 502
+                    should_send_error = true;
+                    done_reading = true;
+                }
+            }
+        }
+
+        // Now try parsing the complete buffer (AFTER all reading is done)
+        bool response_complete = false;
+        http::Response response;
+
+        if (!should_send_error && !backend_conn->recv_buffer.empty()) {
             http::Parser parser;
-            http::Response response;
             auto [result, consumed] = parser.parse_response(
                 std::span<const uint8_t>(backend_conn->recv_buffer), response);
 
             if (result == http::ParseResult::Complete) {
+                response_complete = true;
+            } else if (result == http::ParseResult::Error) {
+                should_send_error = true;
+            } else {
+                // Incomplete - wait for next epoll event to read more data
+                return;  // Don't process response yet, wait for more data
+            }
+        }
+
+        // Handle error cases - send 502 Bad Gateway to client
+        if (should_send_error) {
+
+            // Send error response using existing client_conn reference
+            client_conn.response.status = http::StatusCode::BadGateway;
+            client_conn.response.reason_phrase = "Bad Gateway";
+            client_conn.response.headers.clear();
+            client_conn.response.body = std::span<const uint8_t>();
+            send_response(client_conn, false);  // Close connection after error
+
+            // Cleanup backend connection
+            close(backend_fd);
+            (void)remove_backend_from_epoll(backend_fd);
+            backend_connections_.erase(it);
+            return;
+        }
+
+        if (response_complete) {
                 // Response complete - copy response to client connection
 
                 // Copy status and reason
@@ -1508,42 +1562,8 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
                     // HTTP/1.1 - use existing send_response
                     send_response(client_conn, client_conn.keep_alive);
                 }
-            } else if (result == http::ParseResult::Error) {
-                // Parse error
-                backend_connections_.erase(it);
-                close(backend_fd);
-                client_conn.backend_conn.reset();
-
-                client_conn.response.status = http::StatusCode::BadGateway;
-                client_conn.response.reason_phrase = "Bad Gateway";
-                client_conn.response.headers.clear();  // Clear any residual headers from middleware
-                client_conn.response_body.clear();
-                send_response(client_conn, false);
-            }
-            // else: Incomplete - keep waiting for more data
-        } else if (n == 0) {
-            // Backend closed connection
-            backend_connections_.erase(it);
-            close(backend_fd);
-            client_conn.backend_conn.reset();
-
-            client_conn.response.status = http::StatusCode::BadGateway;
-            client_conn.response.reason_phrase = "Bad Gateway";
-            client_conn.response.headers.clear();  // Clear any residual headers from middleware
-                                                   // client_conn.response_body.clear();
-            send_response(client_conn, false);
-        } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
-            // Recv failed
-            backend_connections_.erase(it);
-            close(backend_fd);
-            client_conn.backend_conn.reset();
-
-            client_conn.response.status = http::StatusCode::BadGateway;
-            client_conn.response.reason_phrase = "Bad Gateway";
-            client_conn.response.headers.clear();  // Clear any residual headers from middleware
-                                                   // client_conn.response_body.clear();
-            send_response(client_conn, false);
         }
+        // If !response_complete: either EAGAIN (wait for more data) or error (already handled in loop)
     }
 }
 
