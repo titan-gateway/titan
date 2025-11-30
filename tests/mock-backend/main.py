@@ -23,6 +23,12 @@ def root():
     return jsonify({"message": "Hello from mock backend", "port": PORT}), 200
 
 
+@app.route("/api", methods=["GET"])
+def api():
+    """Generic API endpoint"""
+    return jsonify({"message": "API endpoint", "port": PORT}), 200
+
+
 @app.route("/api/users/<user_id>", methods=["GET"])
 def get_user(user_id):
     """Get user by ID"""

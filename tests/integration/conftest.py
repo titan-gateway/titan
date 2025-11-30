@@ -18,7 +18,7 @@ import requests
 REPO_ROOT = Path(__file__).parent.parent.parent
 BUILD_DIR = REPO_ROOT / "build" / "dev"
 TITAN_BINARY = BUILD_DIR / "src" / "titan"
-MOCK_BACKEND_DIR = REPO_ROOT / "tests" / "mock-backend"
+INTEGRATION_TEST_DIR = Path(__file__).parent
 TEST_CONFIG_DIR = Path(__file__).parent / "configs"
 
 
@@ -87,12 +87,12 @@ def process_manager():
 
 @pytest.fixture(scope="session")
 def mock_backend_1(process_manager):
-    """Start mock backend on port 3001"""
+    """Start unified FastAPI mock backend on port 3001"""
     proc = process_manager.start_process(
         "backend-1",
-        ["python3", "main.py"],
-        cwd=MOCK_BACKEND_DIR,
-        env={**os.environ, "PORT": "3001"},
+        ["uvicorn", "main:app", "--host", "127.0.0.1", "--port", "3001", "--log-level", "warning"],
+        cwd=INTEGRATION_TEST_DIR,
+        env={**os.environ},
     )
 
     # Wait for backend to be ready
@@ -111,12 +111,12 @@ def mock_backend_1(process_manager):
 
 @pytest.fixture(scope="session")
 def mock_backend_2(process_manager):
-    """Start mock backend on port 3002"""
+    """Start unified FastAPI mock backend on port 3002"""
     proc = process_manager.start_process(
         "backend-2",
-        ["python3", "main.py"],
-        cwd=MOCK_BACKEND_DIR,
-        env={**os.environ, "PORT": "3002"},
+        ["uvicorn", "main:app", "--host", "127.0.0.1", "--port", "3002", "--log-level", "warning"],
+        cwd=INTEGRATION_TEST_DIR,
+        env={**os.environ},
     )
 
     if not process_manager.wait_for_port(3002, timeout=10):

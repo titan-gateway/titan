@@ -16,7 +16,7 @@ import requests
 REPO_ROOT = Path(__file__).parent.parent.parent
 BUILD_DIR = REPO_ROOT / "build" / "dev"
 TITAN_BINARY = BUILD_DIR / "src" / "titan"
-MOCK_BACKEND_SCRIPT = Path(__file__).parent / "mock_backend_circuit_breaker.py"
+INTEGRATION_TEST_DIR = Path(__file__).parent
 
 
 class ProcessManager:
@@ -83,11 +83,11 @@ def process_manager():
 
 @pytest.fixture
 def mock_backend(process_manager):
-    """Start mock backend with failure injection support"""
+    """Start unified FastAPI mock backend with circuit breaker control endpoints"""
     proc = process_manager.start_process(
         "mock-backend",
-        ["python3", str(MOCK_BACKEND_SCRIPT), "--port", "3001"],
-        cwd=REPO_ROOT,
+        ["uvicorn", "main:app", "--host", "127.0.0.1", "--port", "3001", "--log-level", "warning"],
+        cwd=INTEGRATION_TEST_DIR,
     )
 
     if not process_manager.wait_for_port(3001, timeout=10):
