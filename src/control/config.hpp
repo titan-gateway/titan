@@ -185,7 +185,7 @@ struct Config {
     std::optional<std::string> description;
 };
 
-// nlohmann/json serialization macros
+// nlohmann/json serialization macros (to_json only - from_json customized below)
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ServerConfig, worker_threads, listen_address, listen_port, backlog,
     read_timeout, write_timeout, idle_timeout, shutdown_timeout, max_connections, max_request_size,
     max_header_size, tls_enabled, tls_certificate_path, tls_private_key_path, tls_alpn_protocols);
@@ -215,6 +215,119 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(MetricsConfig, enabled, port, path, format);
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Config, server, routes, upstreams, cors, rate_limit, auth,
     logging, metrics, version, description);
+
+// Custom from_json functions to handle missing fields with defaults
+inline void from_json(const nlohmann::json& j, ServerConfig& s) {
+    s.worker_threads = j.value("worker_threads", 0u);
+    s.listen_address = j.value("listen_address", std::string("0.0.0.0"));
+    s.listen_port = j.value("listen_port", uint16_t(8080));
+    s.backlog = j.value("backlog", 128u);
+    s.read_timeout = j.value("read_timeout", 60000u);
+    s.write_timeout = j.value("write_timeout", 60000u);
+    s.idle_timeout = j.value("idle_timeout", 300000u);
+    s.shutdown_timeout = j.value("shutdown_timeout", 30000u);
+    s.max_connections = j.value("max_connections", 10000u);
+    s.max_request_size = j.value("max_request_size", 1048576u);
+    s.max_header_size = j.value("max_header_size", 8192u);
+    s.tls_enabled = j.value("tls_enabled", false);
+    s.tls_certificate_path = j.value("tls_certificate_path", std::string());
+    s.tls_private_key_path = j.value("tls_private_key_path", std::string());
+    s.tls_alpn_protocols = j.value("tls_alpn_protocols", std::vector<std::string>{"h2", "http/1.1"});
+}
+
+inline void from_json(const nlohmann::json& j, BackendConfig& b) {
+    j.at("host").get_to(b.host);  // host is required
+    b.port = j.value("port", uint16_t(80));
+    b.weight = j.value("weight", 1u);
+    b.max_connections = j.value("max_connections", 1000u);
+    b.health_check_enabled = j.value("health_check_enabled", true);
+    b.health_check_interval = j.value("health_check_interval", 30u);
+    b.health_check_timeout = j.value("health_check_timeout", 5u);
+    b.health_check_path = j.value("health_check_path", std::string("/health"));
+}
+
+inline void from_json(const nlohmann::json& j, CircuitBreakerConfigSchema& c) {
+    c.enabled = j.value("enabled", true);
+    c.failure_threshold = j.value("failure_threshold", 5u);
+    c.success_threshold = j.value("success_threshold", 2u);
+    c.timeout_ms = j.value("timeout_ms", 30000u);
+    c.window_ms = j.value("window_ms", 10000u);
+    c.enable_global_hints = j.value("enable_global_hints", true);
+    c.catastrophic_threshold = j.value("catastrophic_threshold", 20u);
+}
+
+inline void from_json(const nlohmann::json& j, UpstreamConfig& u) {
+    j.at("name").get_to(u.name);  // name is required
+    j.at("backends").get_to(u.backends);  // backends is required
+    u.load_balancing = j.value("load_balancing", std::string("round_robin"));
+    u.max_retries = j.value("max_retries", 2u);
+    u.retry_timeout = j.value("retry_timeout", 1000u);
+    u.pool_size = j.value("pool_size", 100u);
+    u.pool_idle_timeout = j.value("pool_idle_timeout", 60u);
+    u.circuit_breaker = j.value("circuit_breaker", CircuitBreakerConfigSchema{});
+}
+
+inline void from_json(const nlohmann::json& j, RouteConfig& r) {
+    j.at("path").get_to(r.path);  // path is required
+    j.at("upstream").get_to(r.upstream);  // upstream is required
+    r.method = j.value("method", std::string("GET"));
+    r.handler_id = j.value("handler_id", std::string());
+    r.priority = j.value("priority", 0u);
+    r.rewrite_path = j.value("rewrite_path", std::optional<std::string>());
+    r.timeout = j.value("timeout", std::optional<uint32_t>());
+    r.middleware = j.value("middleware", std::vector<std::string>());
+}
+
+inline void from_json(const nlohmann::json& j, CorsConfig& c) {
+    c.enabled = j.value("enabled", false);
+    c.allowed_origins = j.value("allowed_origins", std::vector<std::string>{"*"});
+    c.allowed_methods = j.value("allowed_methods", std::vector<std::string>{"GET", "POST", "PUT", "DELETE", "OPTIONS"});
+    c.allowed_headers = j.value("allowed_headers", std::vector<std::string>{"*"});
+    c.allow_credentials = j.value("allow_credentials", false);
+    c.max_age = j.value("max_age", 86400u);
+}
+
+inline void from_json(const nlohmann::json& j, RateLimitConfig& r) {
+    r.enabled = j.value("enabled", false);
+    r.requests_per_second = j.value("requests_per_second", 100u);
+    r.burst_size = j.value("burst_size", 200u);
+    r.key = j.value("key", std::string("client_ip"));
+}
+
+inline void from_json(const nlohmann::json& j, AuthConfig& a) {
+    a.enabled = j.value("enabled", false);
+    a.type = j.value("type", std::string("bearer"));
+    a.header = j.value("header", std::string("Authorization"));
+    a.valid_tokens = j.value("valid_tokens", std::vector<std::string>());
+}
+
+inline void from_json(const nlohmann::json& j, LogConfig& l) {
+    l.level = j.value("level", std::string("info"));
+    l.format = j.value("format", std::string("json"));
+    l.log_requests = j.value("log_requests", true);
+    l.log_responses = j.value("log_responses", false);
+    l.exclude_paths = j.value("exclude_paths", std::vector<std::string>());
+}
+
+inline void from_json(const nlohmann::json& j, MetricsConfig& m) {
+    m.enabled = j.value("enabled", true);
+    m.port = j.value("port", uint16_t(9090));
+    m.path = j.value("path", std::string("/metrics"));
+    m.format = j.value("format", std::string("prometheus"));
+}
+
+inline void from_json(const nlohmann::json& j, Config& c) {
+    c.server = j.value("server", ServerConfig{});
+    c.routes = j.value("routes", std::vector<RouteConfig>());
+    c.upstreams = j.value("upstreams", std::vector<UpstreamConfig>());
+    c.cors = j.value("cors", CorsConfig{});
+    c.rate_limit = j.value("rate_limit", RateLimitConfig{});
+    c.auth = j.value("auth", AuthConfig{});
+    c.logging = j.value("logging", LogConfig{});
+    c.metrics = j.value("metrics", MetricsConfig{});
+    c.version = j.value("version", std::string("1.0"));
+    c.description = j.value("description", std::optional<std::string>());
+}
 
 /// Configuration validation result
 struct ValidationResult {
