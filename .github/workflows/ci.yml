@@ -33,16 +33,18 @@ jobs:
 
       - name: Install clang-format
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-format-18
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 21
+          sudo apt-get install -y clang-format-21
 
       - name: Check C++ formatting
         run: |
           echo "Checking C++ code formatting..."
           find src tests -name '*.cpp' -o -name '*.hpp' | while read -r file; do
-            if ! clang-format-18 --dry-run --Werror "$file" 2>&1; then
+            if ! clang-format-21 --dry-run --Werror "$file" 2>&1; then
               echo "❌ Format check failed for: $file"
-              echo "Run: clang-format-18 -i $file"
+              echo "Run: clang-format-21 -i $file"
               exit 1
             fi
           done
