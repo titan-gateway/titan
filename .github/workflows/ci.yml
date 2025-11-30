@@ -55,11 +55,33 @@ jobs:
             python3 \
             python3-pip
 
+      - name: Setup vcpkg cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /opt/vcpkg
+            ~/.cache/vcpkg
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+
       - name: Setup vcpkg
         run: |
-          git clone https://github.com/microsoft/vcpkg.git /opt/vcpkg
-          /opt/vcpkg/bootstrap-vcpkg.sh
+          if [ ! -d "/opt/vcpkg" ]; then
+            git clone https://github.com/microsoft/vcpkg.git /opt/vcpkg
+            /opt/vcpkg/bootstrap-vcpkg.sh
+          fi
           echo "VCPKG_ROOT=/opt/vcpkg" >> $GITHUB_ENV
+
+      - name: Setup build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/dev
+            ~/.cache/ccache
+          key: build-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            build-${{ runner.os }}-
 
       - name: Configure and Build
         run: |
