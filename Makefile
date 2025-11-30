@@ -41,6 +41,34 @@ test-verbose: ## Run unit tests with verbose output
 	@echo "Running unit tests (verbose)..."
 	cd $(BUILD_DIR) && ctest --output-on-failure --verbose
 
+test-coverage: ## Run tests and generate coverage report
+	@echo "Running tests with coverage..."
+	@echo "Configuring with coverage flags..."
+	cmake --preset=dev \
+		-DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer --coverage" \
+		-DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined --coverage"
+	@echo "Building..."
+	cmake --build --preset=dev --parallel $$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+	@echo "Running tests..."
+	cd $(BUILD_DIR) && ctest --output-on-failure --parallel $$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+	@echo "Generating coverage report..."
+	@lcov --capture --directory $(BUILD_DIR) \
+		--output-file coverage.info \
+		--exclude '/usr/*' \
+		--exclude '/opt/*' \
+		--exclude '*/vcpkg_installed/*' \
+		--exclude '*/tests/*' \
+		--exclude '*/build/*' \
+		|| echo "Coverage generation skipped (no coverage data found)"
+	@echo ""
+	@if [ -f coverage.info ]; then \
+		echo "Coverage Summary:"; \
+		lcov --list coverage.info || true; \
+		echo ""; \
+		echo "Coverage report generated: coverage.info"; \
+		echo "To view HTML report, run: genhtml coverage.info --output-directory coverage_html && open coverage_html/index.html"; \
+	fi
+
 benchmark: ## Run benchmarks
 	@echo "Running benchmarks..."
 	cd benchmarks && ./run-benchmarks.sh

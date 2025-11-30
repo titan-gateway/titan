@@ -82,7 +82,8 @@ jobs:
             binutils \
             pkg-config \
             python3 \
-            python3-pip
+            python3-pip \
+            lcov
 
       - name: Setup vcpkg cache
         uses: actions/cache@v4
@@ -112,13 +113,19 @@ jobs:
           restore-keys: |
             build-${{ runner.os }}-
 
-      - name: Configure and Build
-        run: |
-          make configure PRESET=dev
-          make build PRESET=dev
+      - name: Build and Test (with coverage)
+        run: make test-coverage
 
-      - name: Run Unit Tests
-        run: make test PRESET=dev
+      - name: Upload Coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.info
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        continue-on-error: true
 
       - name: Upload titan binary
         uses: actions/upload-artifact@v4
