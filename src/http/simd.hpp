@@ -28,7 +28,15 @@
 #include <cstdint>
 #include <cstring>
 
-// No headers needed - we use Clang built-ins for CPU feature detection
+// Platform-specific SIMD headers (must be included before namespace)
+#if defined(__x86_64__) || defined(_M_X64)
+    #include <emmintrin.h>  // SSE2
+    #if defined(__AVX2__)
+        #include <immintrin.h>  // AVX2
+    #endif
+#elif defined(__aarch64__) || defined(_M_ARM64)
+    #include <arm_neon.h>
+#endif
 
 namespace titan::http::simd {
 
@@ -90,19 +98,6 @@ private:
 
     SIMDFeature features_;
 };
-
-// ============================================================================
-// Platform-specific SIMD Headers
-// ============================================================================
-
-#if defined(__x86_64__) || defined(_M_X64)
-    #include <emmintrin.h>  // SSE2
-    #if defined(__AVX2__)
-        #include <immintrin.h>  // AVX2
-    #endif
-#elif defined(__aarch64__) || defined(_M_ARM64)
-    #include <arm_neon.h>
-#endif
 
 // ============================================================================
 // SIMD String Operations
