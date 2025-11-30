@@ -62,6 +62,16 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Install clang-format-21 for code formatting (matches CI version)
+RUN wget https://apt.llvm.org/llvm.sh \
+    && chmod +x llvm.sh \
+    && ./llvm.sh 21 \
+    && apt-get install -y clang-format-21 \
+    && rm llvm.sh \
+    && ln -sf /usr/bin/clang-format-21 /usr/local/bin/clang-format \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install Python testing dependencies (if they exist)
 RUN pip3 install --no-cache-dir --break-system-packages \
     requests pytest fastapi uvicorn || true

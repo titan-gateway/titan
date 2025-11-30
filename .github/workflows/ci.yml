@@ -31,7 +31,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install clang-format
+      - name: Install clang-format-21
         run: |
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
@@ -39,16 +39,7 @@ jobs:
           sudo apt-get install -y clang-format-21
 
       - name: Check C++ formatting
-        run: |
-          echo "Checking C++ code formatting..."
-          find src tests -name '*.cpp' -o -name '*.hpp' | while read -r file; do
-            if ! clang-format-21 --dry-run --Werror "$file" 2>&1; then
-              echo "❌ Format check failed for: $file"
-              echo "Run: clang-format-21 -i $file"
-              exit 1
-            fi
-          done
-          echo "✅ All C++ files are properly formatted"
+        run: make format-check
 
       - name: Check for TODO/FIXME comments
         run: |
