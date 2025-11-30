@@ -1,9 +1,9 @@
 // Titan Memory Management Unit Tests
 
-#include "../../src/core/memory.hpp"
-
-#include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_template_test_macros.hpp>
+#include <catch2/catch_test_macros.hpp>
+
+#include "../../src/core/memory.hpp"
 
 using namespace titan::core;
 
@@ -45,7 +45,7 @@ TEST_CASE("Arena string copy", "[memory][arena]") {
         std::string_view copied = arena.copy_string(original);
 
         REQUIRE(copied == original);
-        REQUIRE(copied.data() != original.data()); // Different memory
+        REQUIRE(copied.data() != original.data());  // Different memory
     }
 
     SECTION("Copy empty string") {
@@ -71,7 +71,7 @@ TEST_CASE("Arena reset", "[memory][arena]") {
 }
 
 TEST_CASE("Arena growth", "[memory][arena]") {
-    Arena arena(64); // Small initial size
+    Arena arena(64);  // Small initial size
 
     SECTION("Grows when needed") {
         size_t initial_capacity = arena.capacity();
@@ -167,7 +167,7 @@ TEST_CASE("ObjectPool acquire and release", "[memory][pool]") {
         pool.release(obj1);
 
         int* obj2 = pool.acquire(2);
-        REQUIRE(obj2 == first_addr); // Should reuse same address
+        REQUIRE(obj2 == first_addr);  // Should reuse same address
         REQUIRE(*obj2 == 2);
 
         pool.release(obj2);

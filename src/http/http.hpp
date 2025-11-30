@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-
 // Titan HTTP Protocol - Header
 // Zero-copy HTTP value types using std::span and std::string_view
 
@@ -42,12 +41,7 @@ enum class Method : uint8_t {
 };
 
 /// HTTP version
-enum class Version : uint8_t {
-    HTTP_1_0,
-    HTTP_1_1,
-    HTTP_2_0,
-    UNKNOWN
-};
+enum class Version : uint8_t { HTTP_1_0, HTTP_1_1, HTTP_2_0, UNKNOWN };
 
 /// HTTP status codes
 enum class StatusCode : uint16_t {
@@ -102,8 +96,8 @@ struct Request {
 
     // Zero-copy views into request buffer
     std::string_view uri;
-    std::string_view path;        // URI without query string
-    std::string_view query;       // Query string (if present)
+    std::string_view path;   // URI without query string
+    std::string_view query;  // Query string (if present)
 
     // Headers stored in arena (small vector optimization)
     std::vector<Header> headers;
@@ -115,9 +109,8 @@ struct Request {
     [[nodiscard]] const Header* find_header(std::string_view name) const noexcept;
 
     // Helper: Get header value or default
-    [[nodiscard]] std::string_view get_header(
-        std::string_view name,
-        std::string_view default_value = {}) const noexcept;
+    [[nodiscard]] std::string_view get_header(std::string_view name,
+                                              std::string_view default_value = {}) const noexcept;
 
     // Helper: Check if header exists
     [[nodiscard]] bool has_header(std::string_view name) const noexcept;
@@ -145,9 +138,8 @@ struct Response {
     [[nodiscard]] const Header* find_header(std::string_view name) const noexcept;
 
     // Helper: Get header value or default
-    [[nodiscard]] std::string_view get_header(
-        std::string_view name,
-        std::string_view default_value = {}) const noexcept;
+    [[nodiscard]] std::string_view get_header(std::string_view name,
+                                              std::string_view default_value = {}) const noexcept;
 
     // Helper: Check if header exists
     [[nodiscard]] bool has_header(std::string_view name) const noexcept;
@@ -185,4 +177,4 @@ struct Response {
 /// Case-insensitive header name comparison
 [[nodiscard]] bool header_name_equals(std::string_view a, std::string_view b) noexcept;
 
-} // namespace titan::http
+}  // namespace titan::http

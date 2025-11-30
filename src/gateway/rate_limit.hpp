@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-
 // Titan Rate Limiting - Header
 // Thread-local token bucket algorithm (lock-free, approximate limits)
 
@@ -50,19 +49,13 @@ public:
     [[nodiscard]] bool consume(uint64_t tokens = 1);
 
     /// Get current number of available tokens
-    [[nodiscard]] uint64_t available() const noexcept {
-        return tokens_;
-    }
+    [[nodiscard]] uint64_t available() const noexcept { return tokens_; }
 
     /// Get bucket capacity
-    [[nodiscard]] uint64_t capacity() const noexcept {
-        return capacity_;
-    }
+    [[nodiscard]] uint64_t capacity() const noexcept { return capacity_; }
 
     /// Get refill rate (tokens per second)
-    [[nodiscard]] uint64_t refill_rate() const noexcept {
-        return refill_rate_;
-    }
+    [[nodiscard]] uint64_t refill_rate() const noexcept { return refill_rate_; }
 
     /// Reset the bucket to full capacity
     void reset() noexcept;
@@ -71,9 +64,9 @@ private:
     /// Refill tokens based on elapsed time (no atomics needed - thread-local)
     void refill();
 
-    const uint64_t capacity_;      // Maximum tokens (burst size)
-    const uint64_t refill_rate_;   // Tokens per second
-    uint64_t tokens_;              // Current available tokens (no atomic - thread-local)
+    const uint64_t capacity_;     // Maximum tokens (burst size)
+    const uint64_t refill_rate_;  // Tokens per second
+    uint64_t tokens_;             // Current available tokens (no atomic - thread-local)
     std::chrono::steady_clock::time_point last_refill_;
 };
 
@@ -105,9 +98,7 @@ public:
     void clear();
 
     /// Get number of tracked keys
-    [[nodiscard]] size_t key_count() const noexcept {
-        return buckets_.size();
-    }
+    [[nodiscard]] size_t key_count() const noexcept { return buckets_.size(); }
 
     /// Get available tokens for a key (capacity if key not found)
     [[nodiscard]] uint64_t available(std::string_view key) const;
@@ -118,4 +109,4 @@ private:
     std::unordered_map<std::string, TokenBucket> buckets_;  // Thread-local, no mutex
 };
 
-} // namespace titan::gateway
+}  // namespace titan::gateway

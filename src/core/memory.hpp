@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-
 // Titan Memory Management - Header
 // Monotonic arena allocator for allocation-free hot path
 
@@ -33,7 +32,7 @@ namespace titan::core {
 /// No individual deallocation - entire arena is reset at once
 class Arena {
 public:
-    explicit Arena(size_t initial_size = 64 * 1024); // 64KB default
+    explicit Arena(size_t initial_size = 64 * 1024);  // 64KB default
     ~Arena();
 
     // Non-copyable, movable
@@ -46,20 +45,20 @@ public:
     [[nodiscard]] void* allocate(size_t size, size_t alignment = alignof(std::max_align_t));
 
     /// Typed allocation
-    template<typename T>
+    template <typename T>
     [[nodiscard]] T* allocate(size_t count = 1) {
         return static_cast<T*>(allocate(sizeof(T) * count, alignof(T)));
     }
 
     /// Allocate array and return as span (safer than raw pointer)
-    template<typename T>
+    template <typename T>
     [[nodiscard]] std::span<T> allocate_array(size_t count) {
         T* ptr = static_cast<T*>(allocate(sizeof(T) * count, alignof(T)));
         return {ptr, count};
     }
 
     /// Allocate and construct object
-    template<typename T, typename... Args>
+    template <typename T, typename... Args>
     [[nodiscard]] T* construct(Args&&... args) {
         void* ptr = allocate(sizeof(T), alignof(T));
         return new (ptr) T(std::forward<Args>(args)...);
@@ -99,7 +98,7 @@ private:
 
 /// Pool allocator for fixed-size objects
 /// Thread-local pool with free-list for object reuse
-template<typename T, size_t PoolSize = 128>
+template <typename T, size_t PoolSize = 128>
 class ObjectPool {
 public:
     ObjectPool() = default;
@@ -110,7 +109,7 @@ public:
     ObjectPool& operator=(const ObjectPool&) = delete;
 
     /// Acquire object from pool (constructs if needed)
-    template<typename... Args>
+    template <typename... Args>
     [[nodiscard]] T* acquire(Args&&... args) {
         if (free_list_) {
             Slot* slot = free_list_;
@@ -133,7 +132,8 @@ public:
 
     /// Release object back to pool
     void release(T* obj) noexcept {
-        if (!obj) return;
+        if (!obj)
+            return;
 
         obj->~T();
 
@@ -158,8 +158,8 @@ private:
     union Slot {
         T value;
         Slot* next;
-        Slot() {} // Trivial constructor
-        ~Slot() {} // Trivial destructor
+        Slot() {}   // Trivial constructor
+        ~Slot() {}  // Trivial destructor
     };
 
     Slot storage_[PoolSize];
@@ -167,4 +167,4 @@ private:
     size_t allocated_ = 0;
 };
 
-} // namespace titan::core
+}  // namespace titan::core

@@ -1,8 +1,8 @@
 // Prometheus Exporter Tests
 
-#include "control/prometheus.hpp"
-
 #include <catch2/catch_test_macros.hpp>
+
+#include "control/prometheus.hpp"
 
 using namespace titan::control;
 
@@ -51,7 +51,8 @@ TEST_CASE("Prometheus export basic metrics", "[control][prometheus]") {
         REQUIRE(output.find("titan_latency_microseconds_total 50000") != std::string::npos);
         REQUIRE(output.find("titan_latency_microseconds_min 100") != std::string::npos);
         REQUIRE(output.find("titan_latency_microseconds_max 5000") != std::string::npos);
-        REQUIRE(output.find("titan_latency_microseconds_avg 50") != std::string::npos);  // 50000/1000
+        REQUIRE(output.find("titan_latency_microseconds_avg 50") !=
+                std::string::npos);  // 50000/1000
     }
 
     SECTION("Contains bandwidth metrics") {
@@ -151,8 +152,8 @@ TEST_CASE("Prometheus format validation", "[control][prometheus]") {
 TEST_CASE("Prometheus export with realistic metrics", "[control][prometheus]") {
     // Simulate realistic production metrics
     MetricsSnapshot metrics;
-    metrics.total_requests = 1000000;      // 1M requests
-    metrics.total_errors = 1000;           // 0.1% error rate
+    metrics.total_requests = 1000000;  // 1M requests
+    metrics.total_errors = 1000;       // 0.1% error rate
     metrics.total_timeouts = 50;
     metrics.active_connections = 500;
     metrics.total_connections = 10000;
@@ -182,14 +183,16 @@ TEST_CASE("Prometheus export with realistic metrics", "[control][prometheus]") {
         // Latency metrics
         REQUIRE(output.find("titan_latency_microseconds_min 50") != std::string::npos);
         REQUIRE(output.find("titan_latency_microseconds_max 100000") != std::string::npos);
-        REQUIRE(output.find("titan_latency_microseconds_avg 500") != std::string::npos);  // 500000000/1000000
+        REQUIRE(output.find("titan_latency_microseconds_avg 500") !=
+                std::string::npos);  // 500000000/1000000
 
         // Bandwidth (large numbers)
         REQUIRE(output.find("titan_bytes_received_total 10737418240") != std::string::npos);
         REQUIRE(output.find("titan_bytes_sent_total 21474836480") != std::string::npos);
 
         // Status codes
-        REQUIRE(output.find("titan_http_responses_total{code=\"2xx\"} 900000") != std::string::npos);
+        REQUIRE(output.find("titan_http_responses_total{code=\"2xx\"} 900000") !=
+                std::string::npos);
 
         // Error rate
         REQUIRE(output.find("titan_error_rate 0.001") != std::string::npos);  // 1000/1000000

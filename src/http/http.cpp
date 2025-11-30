@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-
 // Titan HTTP Protocol - Implementation
 
 #include "http.hpp"
@@ -36,9 +35,8 @@ const Header* Request::find_header(std::string_view name) const noexcept {
     return nullptr;
 }
 
-std::string_view Request::get_header(
-    std::string_view name,
-    std::string_view default_value) const noexcept {
+std::string_view Request::get_header(std::string_view name,
+                                     std::string_view default_value) const noexcept {
     const Header* header = find_header(name);
     return header ? header->value : default_value;
 }
@@ -78,9 +76,8 @@ const Header* Response::find_header(std::string_view name) const noexcept {
     return nullptr;
 }
 
-std::string_view Response::get_header(
-    std::string_view name,
-    std::string_view default_value) const noexcept {
+std::string_view Response::get_header(std::string_view name,
+                                      std::string_view default_value) const noexcept {
     const Header* header = find_header(name);
     return header ? header->value : default_value;
 }
@@ -128,71 +125,120 @@ bool Response::keep_alive() const noexcept {
 
 std::string_view to_string(Method method) noexcept {
     switch (method) {
-        case Method::GET: return "GET";
-        case Method::POST: return "POST";
-        case Method::PUT: return "PUT";
-        case Method::DELETE: return "DELETE";
-        case Method::HEAD: return "HEAD";
-        case Method::OPTIONS: return "OPTIONS";
-        case Method::PATCH: return "PATCH";
-        case Method::CONNECT: return "CONNECT";
-        case Method::TRACE: return "TRACE";
-        case Method::UNKNOWN: return "UNKNOWN";
+        case Method::GET:
+            return "GET";
+        case Method::POST:
+            return "POST";
+        case Method::PUT:
+            return "PUT";
+        case Method::DELETE:
+            return "DELETE";
+        case Method::HEAD:
+            return "HEAD";
+        case Method::OPTIONS:
+            return "OPTIONS";
+        case Method::PATCH:
+            return "PATCH";
+        case Method::CONNECT:
+            return "CONNECT";
+        case Method::TRACE:
+            return "TRACE";
+        case Method::UNKNOWN:
+            return "UNKNOWN";
     }
     return "UNKNOWN";
 }
 
 Method parse_method(std::string_view str) noexcept {
-    if (str == "GET") return Method::GET;
-    if (str == "POST") return Method::POST;
-    if (str == "PUT") return Method::PUT;
-    if (str == "DELETE") return Method::DELETE;
-    if (str == "HEAD") return Method::HEAD;
-    if (str == "OPTIONS") return Method::OPTIONS;
-    if (str == "PATCH") return Method::PATCH;
-    if (str == "CONNECT") return Method::CONNECT;
-    if (str == "TRACE") return Method::TRACE;
+    if (str == "GET")
+        return Method::GET;
+    if (str == "POST")
+        return Method::POST;
+    if (str == "PUT")
+        return Method::PUT;
+    if (str == "DELETE")
+        return Method::DELETE;
+    if (str == "HEAD")
+        return Method::HEAD;
+    if (str == "OPTIONS")
+        return Method::OPTIONS;
+    if (str == "PATCH")
+        return Method::PATCH;
+    if (str == "CONNECT")
+        return Method::CONNECT;
+    if (str == "TRACE")
+        return Method::TRACE;
     return Method::UNKNOWN;
 }
 
 std::string_view to_string(Version version) noexcept {
     switch (version) {
-        case Version::HTTP_1_0: return "HTTP/1.0";
-        case Version::HTTP_1_1: return "HTTP/1.1";
-        case Version::HTTP_2_0: return "HTTP/2.0";
-        case Version::UNKNOWN: return "UNKNOWN";
+        case Version::HTTP_1_0:
+            return "HTTP/1.0";
+        case Version::HTTP_1_1:
+            return "HTTP/1.1";
+        case Version::HTTP_2_0:
+            return "HTTP/2.0";
+        case Version::UNKNOWN:
+            return "UNKNOWN";
     }
     return "UNKNOWN";
 }
 
 std::string_view to_reason_phrase(StatusCode code) noexcept {
     switch (code) {
-        case StatusCode::Continue: return "Continue";
-        case StatusCode::SwitchingProtocols: return "Switching Protocols";
-        case StatusCode::OK: return "OK";
-        case StatusCode::Created: return "Created";
-        case StatusCode::Accepted: return "Accepted";
-        case StatusCode::NoContent: return "No Content";
-        case StatusCode::MovedPermanently: return "Moved Permanently";
-        case StatusCode::Found: return "Found";
-        case StatusCode::SeeOther: return "See Other";
-        case StatusCode::NotModified: return "Not Modified";
-        case StatusCode::TemporaryRedirect: return "Temporary Redirect";
-        case StatusCode::PermanentRedirect: return "Permanent Redirect";
-        case StatusCode::BadRequest: return "Bad Request";
-        case StatusCode::Unauthorized: return "Unauthorized";
-        case StatusCode::Forbidden: return "Forbidden";
-        case StatusCode::NotFound: return "Not Found";
-        case StatusCode::MethodNotAllowed: return "Method Not Allowed";
-        case StatusCode::RequestTimeout: return "Request Timeout";
-        case StatusCode::PayloadTooLarge: return "Payload Too Large";
-        case StatusCode::URITooLong: return "URI Too Long";
-        case StatusCode::TooManyRequests: return "Too Many Requests";
-        case StatusCode::InternalServerError: return "Internal Server Error";
-        case StatusCode::NotImplemented: return "Not Implemented";
-        case StatusCode::BadGateway: return "Bad Gateway";
-        case StatusCode::ServiceUnavailable: return "Service Unavailable";
-        case StatusCode::GatewayTimeout: return "Gateway Timeout";
+        case StatusCode::Continue:
+            return "Continue";
+        case StatusCode::SwitchingProtocols:
+            return "Switching Protocols";
+        case StatusCode::OK:
+            return "OK";
+        case StatusCode::Created:
+            return "Created";
+        case StatusCode::Accepted:
+            return "Accepted";
+        case StatusCode::NoContent:
+            return "No Content";
+        case StatusCode::MovedPermanently:
+            return "Moved Permanently";
+        case StatusCode::Found:
+            return "Found";
+        case StatusCode::SeeOther:
+            return "See Other";
+        case StatusCode::NotModified:
+            return "Not Modified";
+        case StatusCode::TemporaryRedirect:
+            return "Temporary Redirect";
+        case StatusCode::PermanentRedirect:
+            return "Permanent Redirect";
+        case StatusCode::BadRequest:
+            return "Bad Request";
+        case StatusCode::Unauthorized:
+            return "Unauthorized";
+        case StatusCode::Forbidden:
+            return "Forbidden";
+        case StatusCode::NotFound:
+            return "Not Found";
+        case StatusCode::MethodNotAllowed:
+            return "Method Not Allowed";
+        case StatusCode::RequestTimeout:
+            return "Request Timeout";
+        case StatusCode::PayloadTooLarge:
+            return "Payload Too Large";
+        case StatusCode::URITooLong:
+            return "URI Too Long";
+        case StatusCode::TooManyRequests:
+            return "Too Many Requests";
+        case StatusCode::InternalServerError:
+            return "Internal Server Error";
+        case StatusCode::NotImplemented:
+            return "Not Implemented";
+        case StatusCode::BadGateway:
+            return "Bad Gateway";
+        case StatusCode::ServiceUnavailable:
+            return "Service Unavailable";
+        case StatusCode::GatewayTimeout:
+            return "Gateway Timeout";
     }
     return "Unknown";
 }
@@ -202,11 +248,10 @@ bool header_name_equals(std::string_view a, std::string_view b) noexcept {
         return false;
     }
 
-    return std::equal(a.begin(), a.end(), b.begin(),
-        [](char ca, char cb) {
-            return std::tolower(static_cast<unsigned char>(ca)) ==
-                   std::tolower(static_cast<unsigned char>(cb));
-        });
+    return std::equal(a.begin(), a.end(), b.begin(), [](char ca, char cb) {
+        return std::tolower(static_cast<unsigned char>(ca)) ==
+               std::tolower(static_cast<unsigned char>(cb));
+    });
 }
 
-} // namespace titan::http
+}  // namespace titan::http

@@ -1,14 +1,13 @@
 // Titan HTTP/2 Tests
 // Unit tests for HTTP/2 protocol detection and session management
 
-#include "../../src/http/h2.hpp"
-#include "../../src/http/http.hpp"
-
 #include <catch2/catch_test_macros.hpp>
-
 #include <cstring>
 #include <span>
 #include <vector>
+
+#include "../../src/http/h2.hpp"
+#include "../../src/http/http.hpp"
 
 using namespace titan::http;
 
@@ -233,7 +232,7 @@ TEST_CASE("H2Stream request/response data", "[http2][stream]") {
 
         REQUIRE(stream.request.body.size() == 13);
         REQUIRE(std::string(reinterpret_cast<const char*>(stream.request.body.data()),
-                           stream.request.body.size()) == "Hello, World!");
+                            stream.request.body.size()) == "Hello, World!");
     }
 
     SECTION("Response body accumulation") {
@@ -245,6 +244,6 @@ TEST_CASE("H2Stream request/response data", "[http2][stream]") {
 
         REQUIRE(stream.response.body.size() == 13);
         REQUIRE(std::string(reinterpret_cast<const char*>(stream.response.body.data()),
-                           stream.response.body.size()) == "Response body");
+                            stream.response.body.size()) == "Response body");
     }
 }

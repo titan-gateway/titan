@@ -14,14 +14,13 @@
  * limitations under the License.
  */
 
-
 // Titan TLS - Header
 // TLS/SSL utilities for secure connections with ALPN support
 
 #pragma once
 
-#include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <openssl/ssl.h>
 
 #include <memory>
 #include <optional>
@@ -36,9 +35,7 @@ namespace titan::core {
 /// TLS error category for std::error_code
 class TlsErrorCategory : public std::error_category {
 public:
-    [[nodiscard]] const char* name() const noexcept override {
-        return "tls";
-    }
+    [[nodiscard]] const char* name() const noexcept override { return "tls"; }
 
     [[nodiscard]] std::string message(int ev) const override;
 };
@@ -80,19 +77,15 @@ public:
     /// @param alpn_protocols List of ALPN protocol names (e.g., "h2", "http/1.1")
     /// @param error_out Output parameter for error code
     /// @return TlsContext or nullopt on error
-    [[nodiscard]] static std::optional<TlsContext>
-    create(std::string_view cert_path,
-           std::string_view key_path,
-           std::span<const std::string> alpn_protocols,
-           std::error_code& error_out);
+    [[nodiscard]] static std::optional<TlsContext> create(
+        std::string_view cert_path, std::string_view key_path,
+        std::span<const std::string> alpn_protocols, std::error_code& error_out);
 
     /// Create server-side SSL connection object
     [[nodiscard]] SslPtr create_ssl(int sockfd) const;
 
     /// Get underlying SSL_CTX pointer (for advanced use)
-    [[nodiscard]] SSL_CTX* native_handle() const noexcept {
-        return ctx_.get();
-    }
+    [[nodiscard]] SSL_CTX* native_handle() const noexcept { return ctx_.get(); }
 
     // Movable but not copyable
     TlsContext(TlsContext&&) = default;
@@ -110,10 +103,10 @@ private:
 
 /// TLS handshake result
 enum class TlsHandshakeResult {
-    Complete,     // Handshake completed successfully
-    WantRead,     // Need more data from socket (call again after read)
-    WantWrite,    // Need to write data to socket (call again after write)
-    Error,        // Fatal error occurred
+    Complete,   // Handshake completed successfully
+    WantRead,   // Need more data from socket (call again after read)
+    WantWrite,  // Need to write data to socket (call again after write)
+    Error,      // Fatal error occurred
 };
 
 /// Perform TLS server handshake (non-blocking)
@@ -144,4 +137,4 @@ void initialize_openssl() noexcept;
 /// Cleanup OpenSSL library (call once at shutdown)
 void cleanup_openssl() noexcept;
 
-} // namespace titan::core
+}  // namespace titan::core

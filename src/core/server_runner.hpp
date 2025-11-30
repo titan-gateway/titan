@@ -14,16 +14,15 @@
  * limitations under the License.
  */
 
-
 // Titan Server Runner - Header
 // Simple server loop for MVP
 
 #pragma once
 
-#include "server.hpp"
-#include "../control/config.hpp"
-
 #include <system_error>
+
+#include "../control/config.hpp"
+#include "server.hpp"
 
 namespace titan::core {
 
@@ -34,4 +33,4 @@ namespace titan::core {
 /// Spawns N worker threads (one per CPU core), each with its own event loop
 [[nodiscard]] std::error_code run_multi_threaded_server(const control::Config& config);
 
-} // namespace titan::core
+}  // namespace titan::core

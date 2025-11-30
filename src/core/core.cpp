@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-
 // Titan Core Engine - Implementation
 // Thread utilities for CPU affinity and core count
 
@@ -52,4 +51,4 @@ uint32_t get_cpu_count() {
     return std::thread::hardware_concurrency();
 }
 
-} // namespace titan::core
+}  // namespace titan::core

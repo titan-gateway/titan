@@ -14,22 +14,21 @@
  * limitations under the License.
  */
 
-
 // Titan Pipeline - Header
 // Middleware chain for request processing
 
 #pragma once
-
-#include "../http/http.hpp"
-#include "rate_limit.hpp"
-#include "router.hpp"
-#include "upstream.hpp"
 
 #include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+#include "../http/http.hpp"
+#include "rate_limit.hpp"
+#include "router.hpp"
+#include "upstream.hpp"
 
 namespace titan::gateway {
 
@@ -80,8 +79,8 @@ struct RequestContext {
 /// Response context (passed through response middleware chain)
 struct ResponseContext {
     // Request/Response
-    http::Request* request = nullptr;   // Original request (read-only)
-    http::Response* response = nullptr; // Backend response (modifiable)
+    http::Request* request = nullptr;    // Original request (read-only)
+    http::Response* response = nullptr;  // Backend response (modifiable)
 
     // Connection info
     std::string client_ip;
@@ -163,11 +162,11 @@ public:
         int max_age;
 
         Config()
-            : allowed_origins{"*"}
-            , allowed_methods{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
-            , allowed_headers{"*"}
-            , allow_credentials(false)
-            , max_age(86400) {}
+            : allowed_origins{"*"},
+              allowed_methods{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+              allowed_headers{"*"},
+              allow_credentials(false),
+              max_age(86400) {}
     };
 
     CorsMiddleware() : config_() {}
@@ -187,9 +186,7 @@ public:
         size_t requests_per_second;
         size_t burst_size;
 
-        Config()
-            : requests_per_second(100)
-            , burst_size(200) {}
+        Config() : requests_per_second(100), burst_size(200) {}
     };
 
     RateLimitMiddleware();
@@ -245,9 +242,7 @@ public:
     [[nodiscard]] MiddlewareResult execute_response(ResponseContext& ctx);
 
     /// Execute pipeline (legacy - delegates to execute_request)
-    [[nodiscard]] MiddlewareResult execute(RequestContext& ctx) {
-        return execute_request(ctx);
-    }
+    [[nodiscard]] MiddlewareResult execute(RequestContext& ctx) { return execute_request(ctx); }
 
     /// Get middleware count
     [[nodiscard]] size_t size() const noexcept { return middleware_.size(); }
@@ -274,9 +269,7 @@ public:
         return *this;
     }
 
-    Pipeline build() && {
-        return std::move(pipeline_);
-    }
+    Pipeline build() && { return std::move(pipeline_); }
 
 private:
     Pipeline pipeline_;
@@ -288,9 +281,7 @@ public:
     explicit FunctionMiddleware(MiddlewareFunc func, std::string name)
         : func_(std::move(func)), name_(std::move(name)) {}
 
-    MiddlewareResult process_request(RequestContext& ctx) override {
-        return func_(ctx);
-    }
+    MiddlewareResult process_request(RequestContext& ctx) override { return func_(ctx); }
 
     std::string_view name() const override { return name_; }
 
@@ -299,4 +290,4 @@ private:
     std::string name_;
 };
 
-} // namespace titan::gateway
+}  // namespace titan::gateway

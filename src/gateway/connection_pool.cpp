@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-
 // Titan Gateway - Backend Connection Pool Implementation
 
 #include "connection_pool.hpp"
@@ -27,7 +26,8 @@
 namespace titan::gateway {
 
 bool PooledConnection::is_healthy() const noexcept {
-    if (fd < 0) return false;
+    if (fd < 0)
+        return false;
 
     // Health check using MSG_PEEK to detect if remote end has closed (CLOSE-WAIT)
     // recv() with MSG_PEEK|MSG_DONTWAIT returns:
@@ -56,8 +56,7 @@ bool PooledConnection::is_healthy() const noexcept {
 }
 
 BackendConnectionPool::BackendConnectionPool(size_t max_size, std::chrono::seconds max_idle)
-    : max_size_(max_size)
-    , max_idle_(max_idle) {
+    : max_size_(max_size), max_idle_(max_idle) {
     pool_.reserve(max_size);
 }
 
@@ -93,7 +92,8 @@ int BackendConnectionPool::acquire(const std::string& host, uint16_t port) {
 }
 
 void BackendConnectionPool::release(int fd, const std::string& host, uint16_t port) {
-    if (fd < 0) return;
+    if (fd < 0)
+        return;
 
     // Check if pool is full
     if (pool_.size() >= max_size_) {
@@ -123,17 +123,15 @@ void BackendConnectionPool::cleanup_stale() {
     auto now = std::chrono::steady_clock::now();
 
     // Remove stale connections
-    pool_.erase(
-        std::remove_if(pool_.begin(), pool_.end(),
-            [this, now](const PooledConnection& conn) {
-                if (conn.is_stale(max_idle_)) {
-                    close(conn.fd);
-                    return true;  // Remove from pool
-                }
-                return false;
-            }),
-        pool_.end()
-    );
+    pool_.erase(std::remove_if(pool_.begin(), pool_.end(),
+                               [this, now](const PooledConnection& conn) {
+                                   if (conn.is_stale(max_idle_)) {
+                                       close(conn.fd);
+                                       return true;  // Remove from pool
+                                   }
+                                   return false;
+                               }),
+                pool_.end());
 }
 
 void BackendConnectionPool::clear() {
@@ -146,4 +144,4 @@ void BackendConnectionPool::clear() {
     pool_.clear();
 }
 
-} // namespace titan::gateway
+}  // namespace titan::gateway

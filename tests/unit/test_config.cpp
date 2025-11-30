@@ -1,11 +1,10 @@
 // Titan Configuration Layer Unit Tests
 
-#include "../../src/control/config.hpp"
-
 #include <catch2/catch_test_macros.hpp>
-
 #include <filesystem>
 #include <fstream>
+
+#include "../../src/control/config.hpp"
 
 using namespace titan::control;
 
@@ -18,7 +17,8 @@ TEST_CASE("Config JSON serialization", "[control][config]") {
     std::string json = ConfigLoader::to_json(config);
     REQUIRE_FALSE(json.empty());
     REQUIRE(json.find("\"version\"") != std::string::npos);
-    // nlohmann/json adds space after colon, so check for both "listen_port": 8080 or "listen_port":8080
+    // nlohmann/json adds space after colon, so check for both "listen_port": 8080 or
+    // "listen_port":8080
     REQUIRE((json.find("\"listen_port\": 8080") != std::string::npos ||
              json.find("\"listen_port\":8080") != std::string::npos));
 }

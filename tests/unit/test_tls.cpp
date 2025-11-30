@@ -1,12 +1,11 @@
 // Titan TLS Tests
 // Unit tests for TLS/SSL utilities and ALPN negotiation
 
-#include "../../src/core/tls.hpp"
-
 #include <catch2/catch_test_macros.hpp>
-
-#include <vector>
 #include <string>
+#include <vector>
+
+#include "../../src/core/tls.hpp"
 
 using namespace titan::core;
 
@@ -17,12 +16,8 @@ using namespace titan::core;
 TEST_CASE("TLS context creation with invalid certificates", "[tls][context]") {
     SECTION("Fail with non-existent certificate file") {
         std::error_code error;
-        auto ctx = TlsContext::create(
-            "/nonexistent/cert.pem",
-            "/workspace/certs/key.pem",
-            std::vector<std::string>{"h2"},
-            error
-        );
+        auto ctx = TlsContext::create("/nonexistent/cert.pem", "/workspace/certs/key.pem",
+                                      std::vector<std::string>{"h2"}, error);
 
         REQUIRE_FALSE(ctx.has_value());
         REQUIRE(error);
@@ -30,12 +25,8 @@ TEST_CASE("TLS context creation with invalid certificates", "[tls][context]") {
 
     SECTION("Fail with non-existent key file") {
         std::error_code error;
-        auto ctx = TlsContext::create(
-            "/workspace/certs/cert.pem",
-            "/nonexistent/key.pem",
-            std::vector<std::string>{"h2"},
-            error
-        );
+        auto ctx = TlsContext::create("/workspace/certs/cert.pem", "/nonexistent/key.pem",
+                                      std::vector<std::string>{"h2"}, error);
 
         REQUIRE_FALSE(ctx.has_value());
         REQUIRE(error);

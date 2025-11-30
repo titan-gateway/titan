@@ -14,32 +14,30 @@
  * limitations under the License.
  */
 
-
 // Titan Server - Header
 // HTTP server managing connections and request processing
 
 #pragma once
 
-#include "core.hpp"
-#include "socket.hpp"
-#include "tls.hpp"
-#include "../control/config.hpp"
-#include "../control/prometheus.hpp"
-#include "../gateway/pipeline.hpp"
-#include "../gateway/router.hpp"
-#include "../gateway/upstream.hpp"
-#include "../http/parser.hpp"
-#include "../http/h2.hpp"
-
-#include <openssl/ssl.h>
-
 #include <netinet/in.h>
+#include <openssl/ssl.h>
 
 #include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+#include "../control/config.hpp"
+#include "../control/prometheus.hpp"
+#include "../gateway/pipeline.hpp"
+#include "../gateway/router.hpp"
+#include "../gateway/upstream.hpp"
+#include "../http/h2.hpp"
+#include "../http/parser.hpp"
+#include "core.hpp"
+#include "socket.hpp"
+#include "tls.hpp"
 
 // Forward declaration for test access
 class ProxyTestFixture;
@@ -55,19 +53,19 @@ enum class Protocol : uint8_t {
 
 /// Backend connection state for async proxy operations
 struct BackendConnection {
-    int backend_fd = -1;           // Backend socket file descriptor
-    int client_fd = -1;            // Associated client connection
-    int32_t stream_id = -1;        // HTTP/2 stream ID (for HTTP/2 connections)
-    std::string upstream_name;     // Upstream name (for connection pooling)
-    std::string backend_host;      // Backend host (for connection pooling)
-    uint16_t backend_port = 0;     // Backend port (for connection pooling)
-    bool connect_pending = false;  // Waiting for non-blocking connect to complete
-    bool send_pending = false;     // Waiting to send request
-    bool recv_pending = false;     // Waiting to receive response
-    bool cleanup_pending = false;  // Response sent, can be cleaned up
-    std::vector<uint8_t> send_buffer;      // Request data to send
-    std::vector<uint8_t> recv_buffer;      // Response data received
-    size_t send_cursor = 0;                // How much of send_buffer has been sent
+    int backend_fd = -1;               // Backend socket file descriptor
+    int client_fd = -1;                // Associated client connection
+    int32_t stream_id = -1;            // HTTP/2 stream ID (for HTTP/2 connections)
+    std::string upstream_name;         // Upstream name (for connection pooling)
+    std::string backend_host;          // Backend host (for connection pooling)
+    uint16_t backend_port = 0;         // Backend port (for connection pooling)
+    bool connect_pending = false;      // Waiting for non-blocking connect to complete
+    bool send_pending = false;         // Waiting to send request
+    bool recv_pending = false;         // Waiting to receive response
+    bool cleanup_pending = false;      // Response sent, can be cleaned up
+    std::vector<uint8_t> send_buffer;  // Request data to send
+    std::vector<uint8_t> recv_buffer;  // Response data received
+    size_t send_cursor = 0;            // How much of send_buffer has been sent
 
     // Timing for response middleware
     std::chrono::steady_clock::time_point start_time;
@@ -84,11 +82,12 @@ struct Connection {
     std::vector<uint8_t> recv_buffer;
     size_t recv_cursor = 0;  // Current read position in recv_buffer (avoids expensive erase)
     std::vector<uint8_t> response_body;  // Owned body data for proxied responses
-    std::vector<std::pair<std::string, std::string>> response_header_storage;  // Owned header strings
+    std::vector<std::pair<std::string, std::string>>
+        response_header_storage;  // Owned header strings
 
     // TLS state
-    SSL* ssl = nullptr;                   // OpenSSL connection object (owned by unique_ptr in Server)
-    bool tls_enabled = false;             // Whether this connection uses TLS
+    SSL* ssl = nullptr;        // OpenSSL connection object (owned by unique_ptr in Server)
+    bool tls_enabled = false;  // Whether this connection uses TLS
     bool tls_handshake_complete = false;  // TLS handshake completion state
 
     // HTTP/1.1 state
@@ -125,9 +124,7 @@ public:
     /// Stop server
     void stop();
 
-    [[nodiscard]] int listen_fd() const noexcept {
-        return listen_fd_;
-    }
+    [[nodiscard]] int listen_fd() const noexcept { return listen_fd_; }
 
     /// Get upstream manager (for metrics/admin server)
     [[nodiscard]] const gateway::UpstreamManager* upstream_manager() const noexcept {
@@ -145,9 +142,7 @@ public:
 
     /// Backend event handling (dual epoll pattern)
     /// Returns backend epoll fd for worker to monitor
-    [[nodiscard]] int backend_epoll_fd() const noexcept {
-        return backend_epoll_fd_;
-    }
+    [[nodiscard]] int backend_epoll_fd() const noexcept { return backend_epoll_fd_; }
 
     /// Process backend connection event (called by worker when backend epoll fires)
     void handle_backend_event(int backend_fd, bool readable, bool writable, bool error);
@@ -211,7 +206,8 @@ private:
     std::string build_backend_request(const http::Request& request);
 
     /// Receive and parse HTTP response from backend
-    bool receive_backend_response(int backend_fd, http::Response& response, std::vector<uint8_t>& body);
+    bool receive_backend_response(int backend_fd, http::Response& response,
+                                  std::vector<uint8_t>& body);
 };
 
-} // namespace titan::core
+}  // namespace titan::core

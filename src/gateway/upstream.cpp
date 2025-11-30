@@ -14,23 +14,22 @@
  * limitations under the License.
  */
 
-
 // Titan Upstream - Implementation
 
 #include "upstream.hpp"
 
+#include <unistd.h>
+
 #include <algorithm>
 #include <random>
-#include <unistd.h>
 
 namespace titan::gateway {
 
 // Load balancer implementations
 
-Backend* RoundRobinBalancer::select(
-    const std::vector<Backend>& backends,
-    std::string_view client_ip) {
-    (void)client_ip; // Unused
+Backend* RoundRobinBalancer::select(const std::vector<Backend>& backends,
+                                    std::string_view client_ip) {
+    (void)client_ip;  // Unused
 
     if (backends.empty()) {
         return nullptr;
@@ -53,10 +52,9 @@ Backend* RoundRobinBalancer::select(
     return available[index];
 }
 
-Backend* LeastConnectionsBalancer::select(
-    const std::vector<Backend>& backends,
-    std::string_view client_ip) {
-    (void)client_ip; // Unused
+Backend* LeastConnectionsBalancer::select(const std::vector<Backend>& backends,
+                                          std::string_view client_ip) {
+    (void)client_ip;  // Unused
 
     if (backends.empty()) {
         return nullptr;
@@ -76,10 +74,8 @@ Backend* LeastConnectionsBalancer::select(
     return selected;
 }
 
-Backend* RandomBalancer::select(
-    const std::vector<Backend>& backends,
-    std::string_view client_ip) {
-    (void)client_ip; // Unused
+Backend* RandomBalancer::select(const std::vector<Backend>& backends, std::string_view client_ip) {
+    (void)client_ip;  // Unused
 
     if (backends.empty()) {
         return nullptr;
@@ -103,10 +99,9 @@ Backend* RandomBalancer::select(
     return available[dist(rng)];
 }
 
-Backend* WeightedRoundRobinBalancer::select(
-    const std::vector<Backend>& backends,
-    std::string_view client_ip) {
-    (void)client_ip; // Unused
+Backend* WeightedRoundRobinBalancer::select(const std::vector<Backend>& backends,
+                                            std::string_view client_ip) {
+    (void)client_ip;  // Unused
 
     if (backends.empty()) {
         return nullptr;
@@ -139,9 +134,9 @@ Backend* WeightedRoundRobinBalancer::select(
 // Upstream implementation
 
 Upstream::Upstream(std::string name, size_t backend_pool_size)
-    : name_(std::move(name))
-    , balancer_(std::make_unique<RoundRobinBalancer>())
-    , backend_pool_(backend_pool_size) {}
+    : name_(std::move(name)),
+      balancer_(std::make_unique<RoundRobinBalancer>()),
+      backend_pool_(backend_pool_size) {}
 
 Upstream::~Upstream() = default;
 
@@ -159,10 +154,9 @@ void Upstream::add_backend_with_circuit_breaker(Backend backend, CircuitBreakerC
 }
 
 void Upstream::remove_backend(std::string_view address) {
-    backends_.erase(
-        std::remove_if(backends_.begin(), backends_.end(),
-            [address](const Backend& b) { return b.address() == address; }),
-        backends_.end());
+    backends_.erase(std::remove_if(backends_.begin(), backends_.end(),
+                                   [address](const Backend& b) { return b.address() == address; }),
+                    backends_.end());
 }
 
 void Upstream::set_load_balancer(std::unique_ptr<LoadBalancer> balancer) {
@@ -171,7 +165,7 @@ void Upstream::set_load_balancer(std::unique_ptr<LoadBalancer> balancer) {
 
 size_t Upstream::healthy_count() const noexcept {
     return std::count_if(backends_.begin(), backends_.end(),
-        [](const Backend& b) { return b.is_available(); });
+                         [](const Backend& b) { return b.is_available(); });
 }
 
 Upstream::Stats Upstream::get_stats() const {
@@ -206,7 +200,7 @@ Upstream* UpstreamManager::get_upstream(std::string_view name) const {
 void UpstreamManager::remove_upstream(std::string_view name) {
     upstreams_.erase(
         std::remove_if(upstreams_.begin(), upstreams_.end(),
-            [name](const std::unique_ptr<Upstream>& u) { return u->name() == name; }),
+                       [name](const std::unique_ptr<Upstream>& u) { return u->name() == name; }),
         upstreams_.end());
 }
 
@@ -214,4 +208,4 @@ void UpstreamManager::clear() {
     upstreams_.clear();
 }
 
-} // namespace titan::gateway
+}  // namespace titan::gateway

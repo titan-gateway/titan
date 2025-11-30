@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-
 // Titan TLS - Implementation
 // TLS/SSL utilities for secure connections with ALPN support
 
@@ -57,12 +56,8 @@ std::error_code make_tls_error() noexcept {
 
 /// ALPN server callback
 /// This is called during TLS handshake to select the protocol
-static int alpn_select_callback(SSL* ssl,
-                                const unsigned char** out,
-                                unsigned char* outlen,
-                                const unsigned char* in,
-                                unsigned int inlen,
-                                void* arg) {
+static int alpn_select_callback(SSL* ssl, const unsigned char** out, unsigned char* outlen,
+                                const unsigned char* in, unsigned int inlen, void* arg) {
     (void)ssl;  // Unused
 
     // Get supported protocols from context user data
@@ -101,11 +96,9 @@ static int alpn_select_callback(SSL* ssl,
 // TLS Context
 // ============================
 
-std::optional<TlsContext>
-TlsContext::create(std::string_view cert_path,
-                   std::string_view key_path,
-                   std::span<const std::string> alpn_protocols,
-                   std::error_code& error_out) {
+std::optional<TlsContext> TlsContext::create(std::string_view cert_path, std::string_view key_path,
+                                             std::span<const std::string> alpn_protocols,
+                                             std::error_code& error_out) {
     // Create SSL context (TLS 1.2+)
     SslCtxPtr ctx(SSL_CTX_new(TLS_server_method()));
     if (!ctx) {
@@ -135,8 +128,8 @@ TlsContext::create(std::string_view cert_path,
     }
 
     // Store ALPN protocols (if any) with stable address
-    auto alpn_storage = std::make_unique<std::vector<std::string>>(
-        alpn_protocols.begin(), alpn_protocols.end());
+    auto alpn_storage =
+        std::make_unique<std::vector<std::string>>(alpn_protocols.begin(), alpn_protocols.end());
 
     // Configure ALPN callback if protocols specified
     if (!alpn_storage->empty()) {
@@ -231,4 +224,4 @@ void cleanup_openssl() noexcept {
     EVP_cleanup();
 }
 
-} // namespace titan::core
+}  // namespace titan::core

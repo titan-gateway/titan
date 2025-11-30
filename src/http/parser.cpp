@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-
 // Titan HTTP Parser - Implementation
 
 #include "parser.hpp"
@@ -45,9 +44,7 @@ Parser::Parser() {
 Parser::~Parser() = default;
 
 Parser::Parser(Parser&& other) noexcept
-    : parser_(other.parser_)
-    , settings_(other.settings_)
-    , ctx_(other.ctx_) {
+    : parser_(other.parser_), settings_(other.settings_), ctx_(other.ctx_) {
     parser_.data = &ctx_;
 }
 
@@ -61,10 +58,8 @@ Parser& Parser::operator=(Parser&& other) noexcept {
     return *this;
 }
 
-std::pair<ParseResult, size_t> Parser::parse_request(
-    std::span<const uint8_t> data,
-    Request& request) {
-
+std::pair<ParseResult, size_t> Parser::parse_request(std::span<const uint8_t> data,
+                                                     Request& request) {
     // Initialize parser for request if needed
     if (parser_type_ != HTTP_REQUEST) {
         llhttp_init(&parser_, HTTP_REQUEST, &settings_);
@@ -80,10 +75,8 @@ std::pair<ParseResult, size_t> Parser::parse_request(
     ctx_.error = HPE_OK;
 
     // Execute parser
-    llhttp_errno_t err = llhttp_execute(
-        &parser_,
-        reinterpret_cast<const char*>(data.data()),
-        data.size());
+    llhttp_errno_t err =
+        llhttp_execute(&parser_, reinterpret_cast<const char*>(data.data()), data.size());
 
     // Calculate bytes consumed
     size_t consumed = data.size();
@@ -92,8 +85,8 @@ std::pair<ParseResult, size_t> Parser::parse_request(
     if (err != HPE_OK && err != HPE_PAUSED_UPGRADE) {
         const char* error_pos = llhttp_get_error_pos(&parser_);
         if (error_pos) {
-            consumed = static_cast<size_t>(
-                reinterpret_cast<const uint8_t*>(error_pos) - data.data());
+            consumed =
+                static_cast<size_t>(reinterpret_cast<const uint8_t*>(error_pos) - data.data());
         }
         ctx_.error = err;
         return {ParseResult::Error, consumed};
@@ -108,10 +101,8 @@ std::pair<ParseResult, size_t> Parser::parse_request(
     return {ParseResult::Incomplete, consumed};
 }
 
-std::pair<ParseResult, size_t> Parser::parse_response(
-    std::span<const uint8_t> data,
-    Response& response) {
-
+std::pair<ParseResult, size_t> Parser::parse_response(std::span<const uint8_t> data,
+                                                      Response& response) {
     // Initialize parser for response if needed
     if (parser_type_ != HTTP_RESPONSE) {
         llhttp_init(&parser_, HTTP_RESPONSE, &settings_);
@@ -127,10 +118,8 @@ std::pair<ParseResult, size_t> Parser::parse_response(
     ctx_.error = HPE_OK;
 
     // Execute parser
-    llhttp_errno_t err = llhttp_execute(
-        &parser_,
-        reinterpret_cast<const char*>(data.data()),
-        data.size());
+    llhttp_errno_t err =
+        llhttp_execute(&parser_, reinterpret_cast<const char*>(data.data()), data.size());
 
     // Calculate bytes consumed
     size_t consumed = data.size();
@@ -139,8 +128,8 @@ std::pair<ParseResult, size_t> Parser::parse_response(
     if (err != HPE_OK && err != HPE_PAUSED_UPGRADE) {
         const char* error_pos = llhttp_get_error_pos(&parser_);
         if (error_pos) {
-            consumed = static_cast<size_t>(
-                reinterpret_cast<const uint8_t*>(error_pos) - data.data());
+            consumed =
+                static_cast<size_t>(reinterpret_cast<const uint8_t*>(error_pos) - data.data());
         }
         ctx_.error = err;
         return {ParseResult::Error, consumed};
@@ -183,7 +172,8 @@ int Parser::on_message_begin(llhttp_t* parser) {
 
 int Parser::on_url(llhttp_t* parser, const char* at, size_t length) {
     auto* ctx = static_cast<Context*>(parser->data);
-    if (!ctx->request) return -1;
+    if (!ctx->request)
+        return -1;
 
     // Store URI as view into buffer
     ctx->request->uri = std::string_view(at, length);
@@ -203,7 +193,8 @@ int Parser::on_url(llhttp_t* parser, const char* at, size_t length) {
 
 int Parser::on_status(llhttp_t* parser, const char* at, size_t length) {
     auto* ctx = static_cast<Context*>(parser->data);
-    if (!ctx->response) return 0; // Only used for response parsing
+    if (!ctx->response)
+        return 0;  // Only used for response parsing
 
     // Store status reason phrase (e.g., "OK", "Not Found")
     // We don't actually use this for now, just validate
@@ -214,7 +205,8 @@ int Parser::on_status(llhttp_t* parser, const char* at, size_t length) {
 
 int Parser::on_header_field(llhttp_t* parser, const char* at, size_t length) {
     auto* ctx = static_cast<Context*>(parser->data);
-    if (!ctx->request && !ctx->response) return -1;
+    if (!ctx->request && !ctx->response)
+        return -1;
 
     // If previous was a value, we're starting a new header
     if (!ctx->last_was_field) {
@@ -231,7 +223,8 @@ int Parser::on_header_field(llhttp_t* parser, const char* at, size_t length) {
 
 int Parser::on_header_value(llhttp_t* parser, const char* at, size_t length) {
     auto* ctx = static_cast<Context*>(parser->data);
-    if (!ctx->request && !ctx->response) return -1;
+    if (!ctx->request && !ctx->response)
+        return -1;
 
     // Add header to request or response
     Header header{ctx->current_header_field, std::string_view(at, length)};
@@ -248,7 +241,8 @@ int Parser::on_header_value(llhttp_t* parser, const char* at, size_t length) {
 
 int Parser::on_headers_complete(llhttp_t* parser) {
     auto* ctx = static_cast<Context*>(parser->data);
-    if (!ctx->request && !ctx->response) return -1;
+    if (!ctx->request && !ctx->response)
+        return -1;
 
     // Extract version (common to both request and response)
     uint8_t major = parser->http_major;
@@ -266,16 +260,36 @@ int Parser::on_headers_complete(llhttp_t* parser) {
         // Extract method for requests
         uint8_t method = llhttp_get_method(parser);
         switch (method) {
-            case HTTP_GET: ctx->request->method = Method::GET; break;
-            case HTTP_POST: ctx->request->method = Method::POST; break;
-            case HTTP_PUT: ctx->request->method = Method::PUT; break;
-            case HTTP_DELETE: ctx->request->method = Method::DELETE; break;
-            case HTTP_HEAD: ctx->request->method = Method::HEAD; break;
-            case HTTP_OPTIONS: ctx->request->method = Method::OPTIONS; break;
-            case HTTP_PATCH: ctx->request->method = Method::PATCH; break;
-            case HTTP_CONNECT: ctx->request->method = Method::CONNECT; break;
-            case HTTP_TRACE: ctx->request->method = Method::TRACE; break;
-            default: ctx->request->method = Method::UNKNOWN; break;
+            case HTTP_GET:
+                ctx->request->method = Method::GET;
+                break;
+            case HTTP_POST:
+                ctx->request->method = Method::POST;
+                break;
+            case HTTP_PUT:
+                ctx->request->method = Method::PUT;
+                break;
+            case HTTP_DELETE:
+                ctx->request->method = Method::DELETE;
+                break;
+            case HTTP_HEAD:
+                ctx->request->method = Method::HEAD;
+                break;
+            case HTTP_OPTIONS:
+                ctx->request->method = Method::OPTIONS;
+                break;
+            case HTTP_PATCH:
+                ctx->request->method = Method::PATCH;
+                break;
+            case HTTP_CONNECT:
+                ctx->request->method = Method::CONNECT;
+                break;
+            case HTTP_TRACE:
+                ctx->request->method = Method::TRACE;
+                break;
+            default:
+                ctx->request->method = Method::UNKNOWN;
+                break;
         }
         ctx->request->version = version;
     } else if (ctx->response) {
@@ -290,7 +304,8 @@ int Parser::on_headers_complete(llhttp_t* parser) {
 
 int Parser::on_body(llhttp_t* parser, const char* at, size_t length) {
     auto* ctx = static_cast<Context*>(parser->data);
-    if (!ctx->request && !ctx->response) return -1;
+    if (!ctx->request && !ctx->response)
+        return -1;
 
     // Store body as span (zero-copy view into buffer)
     const uint8_t* body_start = reinterpret_cast<const uint8_t*>(at);
@@ -328,4 +343,4 @@ std::optional<Request> parse_http_request(std::span<const uint8_t> data) {
     return std::nullopt;
 }
 
-} // namespace titan::http
+}  // namespace titan::http

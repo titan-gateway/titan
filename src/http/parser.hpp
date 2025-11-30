@@ -14,14 +14,10 @@
  * limitations under the License.
  */
 
-
 // Titan HTTP Parser - Header
 // Zero-copy wrapper around llhttp
 
 #pragma once
-
-#include "http.hpp"
-#include "../core/memory.hpp"
 
 #include <llhttp.h>
 
@@ -30,13 +26,16 @@
 #include <span>
 #include <system_error>
 
+#include "../core/memory.hpp"
+#include "http.hpp"
+
 namespace titan::http {
 
 /// Parse result
 enum class ParseResult : uint8_t {
-    Complete,      // Request fully parsed
-    Incomplete,    // Need more data
-    Error          // Parse error
+    Complete,    // Request fully parsed
+    Incomplete,  // Need more data
+    Error        // Parse error
 };
 
 /// HTTP/1.1 parser (wraps llhttp)
@@ -54,16 +53,14 @@ public:
     /// Parse HTTP request from buffer
     /// Returns ParseResult and number of bytes consumed
     /// On Complete, populates 'request' with zero-copy views into 'data'
-    [[nodiscard]] std::pair<ParseResult, size_t> parse_request(
-        std::span<const uint8_t> data,
-        Request& request);
+    [[nodiscard]] std::pair<ParseResult, size_t> parse_request(std::span<const uint8_t> data,
+                                                               Request& request);
 
     /// Parse HTTP response from buffer
     /// Returns ParseResult and number of bytes consumed
     /// On Complete, populates 'response' with zero-copy views into 'data'
-    [[nodiscard]] std::pair<ParseResult, size_t> parse_response(
-        std::span<const uint8_t> data,
-        Response& response);
+    [[nodiscard]] std::pair<ParseResult, size_t> parse_response(std::span<const uint8_t> data,
+                                                                Response& response);
 
     /// Reset parser state for next request/response
     void reset();
@@ -103,11 +100,11 @@ private:
     };
 
     Context ctx_;
-    llhttp_type_t parser_type_ = HTTP_REQUEST; // Track current parser type
+    llhttp_type_t parser_type_ = HTTP_REQUEST;  // Track current parser type
 };
 
 /// Helper: Parse entire HTTP request (convenience wrapper)
 /// Returns std::nullopt on error
 [[nodiscard]] std::optional<Request> parse_http_request(std::span<const uint8_t> data);
 
-} // namespace titan::http
+}  // namespace titan::http

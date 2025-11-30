@@ -85,7 +85,7 @@ TEST_CASE("CircuitBreaker - Opens circuit after failure threshold", "[circuit_br
 TEST_CASE("CircuitBreaker - Rejects requests in OPEN state", "[circuit_breaker]") {
     CircuitBreakerConfig config;
     config.failure_threshold = 3;
-    config.timeout_ms = 60000; // 60 seconds - won't expire during test
+    config.timeout_ms = 60000;  // 60 seconds - won't expire during test
 
     CircuitBreaker breaker(config);
 
@@ -106,7 +106,7 @@ TEST_CASE("CircuitBreaker - Rejects requests in OPEN state", "[circuit_breaker]"
 TEST_CASE("CircuitBreaker - Transitions to HALF_OPEN after timeout", "[circuit_breaker]") {
     CircuitBreakerConfig config;
     config.failure_threshold = 3;
-    config.timeout_ms = 100; // 100ms timeout for fast test
+    config.timeout_ms = 100;  // 100ms timeout for fast test
 
     CircuitBreaker breaker(config);
 
@@ -179,7 +179,7 @@ TEST_CASE("CircuitBreaker - HALF_OPEN reopens on failure", "[circuit_breaker]") 
 TEST_CASE("CircuitBreaker - Sliding window removes old failures", "[circuit_breaker]") {
     CircuitBreakerConfig config;
     config.failure_threshold = 5;
-    config.window_ms = 200; // 200ms window
+    config.window_ms = 200;  // 200ms window
 
     CircuitBreaker breaker(config);
 
@@ -196,7 +196,7 @@ TEST_CASE("CircuitBreaker - Sliding window removes old failures", "[circuit_brea
 
     // These failures should be in a new window
     breaker.record_failure();
-    REQUIRE(breaker.get_state() == CircuitState::CLOSED); // Only 1 failure in new window
+    REQUIRE(breaker.get_state() == CircuitState::CLOSED);  // Only 1 failure in new window
 }
 
 TEST_CASE("CircuitBreaker - force_open transitions to OPEN", "[circuit_breaker]") {
@@ -217,7 +217,7 @@ TEST_CASE("CircuitBreaker - force_open is idempotent", "[circuit_breaker]") {
     breaker.force_open();
     auto transitions_after = breaker.get_state_transitions();
 
-    REQUIRE(transitions_before == transitions_after); // No additional transition
+    REQUIRE(transitions_before == transitions_after);  // No additional transition
 }
 
 TEST_CASE("CircuitBreaker - Metrics tracking", "[circuit_breaker]") {
@@ -243,7 +243,7 @@ TEST_CASE("CircuitBreaker - Metrics tracking", "[circuit_breaker]") {
     breaker.record_failure();
 
     REQUIRE(breaker.get_state() == CircuitState::OPEN);
-    REQUIRE(breaker.get_state_transitions() == 1); // CLOSED → OPEN
+    REQUIRE(breaker.get_state_transitions() == 1);  // CLOSED → OPEN
 
     // Try requests (should be rejected)
     breaker.should_allow_request();
@@ -310,7 +310,7 @@ TEST_CASE("CircuitBreaker - Full state machine cycle", "[circuit_breaker]") {
 
     // Wait for timeout → OPEN → HALF_OPEN
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    REQUIRE(breaker.should_allow_request()); // Triggers transition
+    REQUIRE(breaker.should_allow_request());  // Triggers transition
     REQUIRE(breaker.get_state() == CircuitState::HALF_OPEN);
 
     // Recovery test succeeds → HALF_OPEN → CLOSED

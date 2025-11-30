@@ -14,26 +14,25 @@
  * limitations under the License.
  */
 
-
 // Titan Health Checks - Header
 // Provides health check endpoints and status reporting
 
 #pragma once
-
-#include "../gateway/upstream.hpp"
 
 #include <chrono>
 #include <cstdint>
 #include <string>
 #include <vector>
 
+#include "../gateway/upstream.hpp"
+
 namespace titan::control {
 
 /// Health status levels
 enum class HealthStatus {
-    Healthy,    // All systems operational
-    Degraded,   // Some issues but still serving traffic
-    Unhealthy   // Critical issues, should not receive traffic
+    Healthy,   // All systems operational
+    Degraded,  // Some issues but still serving traffic
+    Unhealthy  // Critical issues, should not receive traffic
 };
 
 /// Backend health information
@@ -85,26 +84,19 @@ public:
     void stop();
 
     /// Check if health checker is running
-    [[nodiscard]] bool is_running() const noexcept {
-        return running_;
-    }
+    [[nodiscard]] bool is_running() const noexcept { return running_; }
 
     /// Manually check a specific backend
     [[nodiscard]] BackendHealth check_backend(
-        std::string_view host,
-        uint16_t port,
-        std::string_view path = "/health",
+        std::string_view host, uint16_t port, std::string_view path = "/health",
         std::chrono::milliseconds timeout = std::chrono::milliseconds(5000));
 
     /// Get current server health
     [[nodiscard]] ServerHealth get_server_health() const;
 
     /// Update backend health status
-    void update_backend_health(
-        std::string_view upstream_name,
-        std::string_view host,
-        uint16_t port,
-        HealthStatus status);
+    void update_backend_health(std::string_view upstream_name, std::string_view host, uint16_t port,
+                               HealthStatus status);
 
     /// Record request
     void record_request();
@@ -117,9 +109,7 @@ public:
 
     /// Update backend health and circuit breaker state
     /// This integrates health checks with circuit breakers
-    static void update_backend_with_circuit_breaker(
-        gateway::Backend* backend,
-        HealthStatus status);
+    static void update_backend_with_circuit_breaker(gateway::Backend* backend, HealthStatus status);
 
 private:
     bool running_ = false;
@@ -144,10 +134,8 @@ private:
     std::vector<BackendState> backend_states_;
 
     /// Find or create backend state
-    BackendState* find_backend_state(
-        std::string_view upstream_name,
-        std::string_view host,
-        uint16_t port);
+    BackendState* find_backend_state(std::string_view upstream_name, std::string_view host,
+                                     uint16_t port);
 };
 
 /// Health check response builder
@@ -173,4 +161,4 @@ public:
     }
 };
 
-} // namespace titan::control
+}  // namespace titan::control

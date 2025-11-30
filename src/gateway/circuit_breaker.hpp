@@ -29,9 +29,9 @@ namespace titan::gateway {
 
 /// Circuit breaker state
 enum class CircuitState : uint8_t {
-    CLOSED,     // Normal operation, requests allowed
-    OPEN,       // Circuit protecting backend, requests rejected
-    HALF_OPEN   // Testing recovery, limited requests allowed
+    CLOSED,    // Normal operation, requests allowed
+    OPEN,      // Circuit protecting backend, requests rejected
+    HALF_OPEN  // Testing recovery, limited requests allowed
 };
 
 /// Circuit breaker configuration
@@ -46,7 +46,7 @@ struct CircuitBreakerConfig {
     uint32_t timeout_ms = 30000;  // 30 seconds
 
     /// Sliding window in milliseconds for counting failures
-    uint32_t window_ms = 10000;   // 10 seconds
+    uint32_t window_ms = 10000;  // 10 seconds
 
     /// Enable catastrophic failure detection (sets global flag to help other workers)
     bool enable_global_hints = true;
@@ -115,9 +115,7 @@ public:
     }
 
     /// Get configuration
-    [[nodiscard]] const CircuitBreakerConfig& config() const noexcept {
-        return config_;
-    }
+    [[nodiscard]] const CircuitBreakerConfig& config() const noexcept { return config_; }
 
 private:
     /// Transition to new state and update metrics
@@ -180,4 +178,4 @@ private:
     return "UNKNOWN";
 }
 
-} // namespace titan::gateway
+}  // namespace titan::gateway

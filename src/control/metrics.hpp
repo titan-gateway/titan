@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-
 // Titan Metrics - Header
 // Thread-local, lock-free metrics collection
 
@@ -59,12 +58,14 @@ struct MetricsSnapshot {
 
     // Derived metrics
     [[nodiscard]] double error_rate() const noexcept {
-        if (total_requests == 0) return 0.0;
+        if (total_requests == 0)
+            return 0.0;
         return static_cast<double>(total_errors) / static_cast<double>(total_requests);
     }
 
     [[nodiscard]] double avg_latency_us() const noexcept {
-        if (total_requests == 0) return 0.0;
+        if (total_requests == 0)
+            return 0.0;
         return static_cast<double>(total_latency_us) / static_cast<double>(total_requests);
     }
 };
@@ -82,19 +83,13 @@ public:
     ThreadMetrics& operator=(ThreadMetrics&&) = delete;
 
     /// Record a request
-    void record_request() noexcept {
-        total_requests_.fetch_add(1, std::memory_order_relaxed);
-    }
+    void record_request() noexcept { total_requests_.fetch_add(1, std::memory_order_relaxed); }
 
     /// Record an error
-    void record_error() noexcept {
-        total_errors_.fetch_add(1, std::memory_order_relaxed);
-    }
+    void record_error() noexcept { total_errors_.fetch_add(1, std::memory_order_relaxed); }
 
     /// Record a timeout
-    void record_timeout() noexcept {
-        total_timeouts_.fetch_add(1, std::memory_order_relaxed);
-    }
+    void record_timeout() noexcept { total_timeouts_.fetch_add(1, std::memory_order_relaxed); }
 
     /// Record a new connection
     void record_connection() noexcept {
@@ -122,7 +117,8 @@ public:
         uint64_t current_min = min_latency_us_.load(std::memory_order_relaxed);
         while (latency_us < current_min || current_min == 0) {
             if (min_latency_us_.compare_exchange_weak(current_min, latency_us,
-                std::memory_order_relaxed, std::memory_order_relaxed)) {
+                                                      std::memory_order_relaxed,
+                                                      std::memory_order_relaxed)) {
                 break;
             }
         }
@@ -131,7 +127,8 @@ public:
         uint64_t current_max = max_latency_us_.load(std::memory_order_relaxed);
         while (latency_us > current_max) {
             if (max_latency_us_.compare_exchange_weak(current_max, latency_us,
-                std::memory_order_relaxed, std::memory_order_relaxed)) {
+                                                      std::memory_order_relaxed,
+                                                      std::memory_order_relaxed)) {
                 break;
             }
         }
@@ -248,16 +245,15 @@ public:
     MetricsAggregator& operator=(const MetricsAggregator&) = delete;
 
     /// Register a thread's metrics
-    void register_thread_metrics(ThreadMetrics* metrics) {
-        thread_metrics_.push_back(metrics);
-    }
+    void register_thread_metrics(ThreadMetrics* metrics) { thread_metrics_.push_back(metrics); }
 
     /// Aggregate metrics from all threads
     [[nodiscard]] MetricsSnapshot aggregate() const {
         MetricsSnapshot total;
 
         for (const auto* thread_metrics : thread_metrics_) {
-            if (!thread_metrics) continue;
+            if (!thread_metrics)
+                continue;
 
             auto snap = thread_metrics->snapshot();
 
@@ -272,7 +268,8 @@ public:
             total.total_latency_us += snap.total_latency_us;
 
             // Min/max across all threads
-            if (total.min_latency_us == 0 || (snap.min_latency_us > 0 && snap.min_latency_us < total.min_latency_us)) {
+            if (total.min_latency_us == 0 ||
+                (snap.min_latency_us > 0 && snap.min_latency_us < total.min_latency_us)) {
                 total.min_latency_us = snap.min_latency_us;
             }
             if (snap.max_latency_us > total.max_latency_us) {
@@ -292,9 +289,7 @@ public:
     }
 
     /// Get number of registered threads
-    [[nodiscard]] size_t thread_count() const noexcept {
-        return thread_metrics_.size();
-    }
+    [[nodiscard]] size_t thread_count() const noexcept { return thread_metrics_.size(); }
 
 private:
     std::vector<ThreadMetrics*> thread_metrics_;
@@ -304,14 +299,14 @@ private:
 class RequestTimer {
 public:
     explicit RequestTimer(ThreadMetrics& metrics)
-        : metrics_(metrics)
-        , start_time_(std::chrono::steady_clock::now()) {
+        : metrics_(metrics), start_time_(std::chrono::steady_clock::now()) {
         metrics_.record_request();
     }
 
     ~RequestTimer() {
         auto end_time = std::chrono::steady_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time_);
+        auto duration =
+            std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time_);
         metrics_.record_latency(duration);
     }
 
@@ -320,23 +315,17 @@ public:
     RequestTimer& operator=(const RequestTimer&) = delete;
 
     /// Mark request as error
-    void mark_error() noexcept {
-        metrics_.record_error();
-    }
+    void mark_error() noexcept { metrics_.record_error(); }
 
     /// Mark request as timeout
-    void mark_timeout() noexcept {
-        metrics_.record_timeout();
-    }
+    void mark_timeout() noexcept { metrics_.record_timeout(); }
 
     /// Record status code
-    void record_status(uint16_t code) noexcept {
-        metrics_.record_status_code(code);
-    }
+    void record_status(uint16_t code) noexcept { metrics_.record_status_code(code); }
 
 private:
     ThreadMetrics& metrics_;
     std::chrono::steady_clock::time_point start_time_;
 };
 
-} // namespace titan::control
+}  // namespace titan::control

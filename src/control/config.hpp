@@ -14,29 +14,27 @@
  * limitations under the License.
  */
 
-
 // Titan Configuration - Header
 // JSON configuration schema using nlohmann/json for serialization
 
 #pragma once
 
-#include "../gateway/router.hpp"
-#include "../gateway/upstream.hpp"
-#include "../http/http.hpp"
-
-#include <nlohmann/json.hpp>
-
 #include <cstdint>
 #include <memory>
+#include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
 #include <vector>
+
+#include "../gateway/router.hpp"
+#include "../gateway/upstream.hpp"
+#include "../http/http.hpp"
 
 namespace titan::control {
 
 /// Global server configuration
 struct ServerConfig {
-    uint32_t worker_threads = 0;          // 0 = auto-detect CPU count
+    uint32_t worker_threads = 0;  // 0 = auto-detect CPU count
 
     // Network settings
     std::string listen_address = "0.0.0.0";
@@ -44,10 +42,10 @@ struct ServerConfig {
     uint32_t backlog = 128;
 
     // Timeouts (milliseconds)
-    uint32_t read_timeout = 60000;        // 60 seconds
+    uint32_t read_timeout = 60000;  // 60 seconds
     uint32_t write_timeout = 60000;
-    uint32_t idle_timeout = 300000;       // 5 minutes
-    uint32_t shutdown_timeout = 30000;    // 30 seconds
+    uint32_t idle_timeout = 300000;     // 5 minutes
+    uint32_t shutdown_timeout = 30000;  // 30 seconds
 
     // Limits
     uint32_t max_connections = 10000;
@@ -56,8 +54,8 @@ struct ServerConfig {
 
     // TLS settings
     bool tls_enabled = false;
-    std::string tls_certificate_path;     // Path to certificate file (PEM format)
-    std::string tls_private_key_path;     // Path to private key file (PEM format)
+    std::string tls_certificate_path;  // Path to certificate file (PEM format)
+    std::string tls_private_key_path;  // Path to private key file (PEM format)
     std::vector<std::string> tls_alpn_protocols = {"h2", "http/1.1"};  // ALPN protocol list
 };
 
@@ -78,27 +76,27 @@ struct BackendConfig {
 /// Circuit breaker configuration
 struct CircuitBreakerConfigSchema {
     bool enabled = true;
-    uint32_t failure_threshold = 5;      // Failures to open circuit
-    uint32_t success_threshold = 2;       // Successes to close circuit
-    uint32_t timeout_ms = 30000;          // Time before OPEN → HALF_OPEN (30s)
-    uint32_t window_ms = 10000;           // Sliding window for failures (10s)
-    bool enable_global_hints = true;      // Cross-worker catastrophic failure hints
-    uint32_t catastrophic_threshold = 20; // Failures to trigger global hint
+    uint32_t failure_threshold = 5;        // Failures to open circuit
+    uint32_t success_threshold = 2;        // Successes to close circuit
+    uint32_t timeout_ms = 30000;           // Time before OPEN → HALF_OPEN (30s)
+    uint32_t window_ms = 10000;            // Sliding window for failures (10s)
+    bool enable_global_hints = true;       // Cross-worker catastrophic failure hints
+    uint32_t catastrophic_threshold = 20;  // Failures to trigger global hint
 };
 
 /// Upstream group configuration
 struct UpstreamConfig {
     std::string name;
     std::vector<BackendConfig> backends;
-    std::string load_balancing = "round_robin"; // round_robin, least_connections, random
+    std::string load_balancing = "round_robin";  // round_robin, least_connections, random
 
     // Retry settings
     uint32_t max_retries = 2;
-    uint32_t retry_timeout = 1000;        // milliseconds
+    uint32_t retry_timeout = 1000;  // milliseconds
 
     // Connection pool settings
     uint32_t pool_size = 100;
-    uint32_t pool_idle_timeout = 60;      // seconds
+    uint32_t pool_idle_timeout = 60;  // seconds
 
     // Circuit breaker settings
     CircuitBreakerConfigSchema circuit_breaker;
@@ -107,9 +105,9 @@ struct UpstreamConfig {
 /// Route configuration
 struct RouteConfig {
     std::string path;
-    std::string method = "GET";           // GET, POST, PUT, DELETE, etc. (empty = any)
-    std::string upstream;                 // Upstream name
-    std::string handler_id;               // Optional handler identifier
+    std::string method = "GET";  // GET, POST, PUT, DELETE, etc. (empty = any)
+    std::string upstream;        // Upstream name
+    std::string handler_id;      // Optional handler identifier
     uint32_t priority = 0;
 
     // Path rewriting
@@ -137,24 +135,24 @@ struct RateLimitConfig {
     bool enabled = false;
     uint32_t requests_per_second = 100;
     uint32_t burst_size = 200;
-    std::string key = "client_ip";        // client_ip, header:X-API-Key, etc.
+    std::string key = "client_ip";  // client_ip, header:X-API-Key, etc.
 };
 
 /// Authentication configuration
 struct AuthConfig {
     bool enabled = false;
-    std::string type = "bearer";          // bearer, basic, apikey
+    std::string type = "bearer";  // bearer, basic, apikey
     std::string header = "Authorization";
     std::vector<std::string> valid_tokens;
 };
 
 /// Logging configuration
 struct LogConfig {
-    std::string level = "info";           // debug, info, warning, error
-    std::string format = "json";          // json, text
+    std::string level = "info";   // debug, info, warning, error
+    std::string format = "json";  // json, text
     bool log_requests = true;
     bool log_responses = false;
-    std::vector<std::string> exclude_paths; // Don't log these paths
+    std::vector<std::string> exclude_paths;  // Don't log these paths
 };
 
 /// Metrics configuration
@@ -186,35 +184,40 @@ struct Config {
 };
 
 // nlohmann/json serialization macros (to_json only - from_json customized below)
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ServerConfig, worker_threads, listen_address, listen_port, backlog,
-    read_timeout, write_timeout, idle_timeout, shutdown_timeout, max_connections, max_request_size,
-    max_header_size, tls_enabled, tls_certificate_path, tls_private_key_path, tls_alpn_protocols);
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ServerConfig, worker_threads, listen_address, listen_port,
+                                   backlog, read_timeout, write_timeout, idle_timeout,
+                                   shutdown_timeout, max_connections, max_request_size,
+                                   max_header_size, tls_enabled, tls_certificate_path,
+                                   tls_private_key_path, tls_alpn_protocols);
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(BackendConfig, host, port, weight, max_connections,
-    health_check_enabled, health_check_interval, health_check_timeout, health_check_path);
+                                   health_check_enabled, health_check_interval,
+                                   health_check_timeout, health_check_path);
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(CircuitBreakerConfigSchema, enabled, failure_threshold,
-    success_threshold, timeout_ms, window_ms, enable_global_hints, catastrophic_threshold);
+                                   success_threshold, timeout_ms, window_ms, enable_global_hints,
+                                   catastrophic_threshold);
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(UpstreamConfig, name, backends, load_balancing, max_retries,
-    retry_timeout, pool_size, pool_idle_timeout, circuit_breaker);
+                                   retry_timeout, pool_size, pool_idle_timeout, circuit_breaker);
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(RouteConfig, path, method, upstream, handler_id, priority,
-    rewrite_path, timeout, middleware);
+                                   rewrite_path, timeout, middleware);
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(CorsConfig, enabled, allowed_origins, allowed_methods,
-    allowed_headers, allow_credentials, max_age);
+                                   allowed_headers, allow_credentials, max_age);
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(RateLimitConfig, enabled, requests_per_second, burst_size, key);
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(AuthConfig, enabled, type, header, valid_tokens);
 
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(LogConfig, level, format, log_requests, log_responses, exclude_paths);
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(LogConfig, level, format, log_requests, log_responses,
+                                   exclude_paths);
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(MetricsConfig, enabled, port, path, format);
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Config, server, routes, upstreams, cors, rate_limit, auth,
-    logging, metrics, version, description);
+                                   logging, metrics, version, description);
 
 // Custom from_json functions to handle missing fields with defaults
 inline void from_json(const nlohmann::json& j, ServerConfig& s) {
@@ -232,7 +235,8 @@ inline void from_json(const nlohmann::json& j, ServerConfig& s) {
     s.tls_enabled = j.value("tls_enabled", false);
     s.tls_certificate_path = j.value("tls_certificate_path", std::string());
     s.tls_private_key_path = j.value("tls_private_key_path", std::string());
-    s.tls_alpn_protocols = j.value("tls_alpn_protocols", std::vector<std::string>{"h2", "http/1.1"});
+    s.tls_alpn_protocols =
+        j.value("tls_alpn_protocols", std::vector<std::string>{"h2", "http/1.1"});
 }
 
 inline void from_json(const nlohmann::json& j, BackendConfig& b) {
@@ -257,7 +261,7 @@ inline void from_json(const nlohmann::json& j, CircuitBreakerConfigSchema& c) {
 }
 
 inline void from_json(const nlohmann::json& j, UpstreamConfig& u) {
-    j.at("name").get_to(u.name);  // name is required
+    j.at("name").get_to(u.name);          // name is required
     j.at("backends").get_to(u.backends);  // backends is required
     u.load_balancing = j.value("load_balancing", std::string("round_robin"));
     u.max_retries = j.value("max_retries", 2u);
@@ -268,7 +272,7 @@ inline void from_json(const nlohmann::json& j, UpstreamConfig& u) {
 }
 
 inline void from_json(const nlohmann::json& j, RouteConfig& r) {
-    j.at("path").get_to(r.path);  // path is required
+    j.at("path").get_to(r.path);          // path is required
     j.at("upstream").get_to(r.upstream);  // upstream is required
     r.method = j.value("method", std::string("GET"));
     r.handler_id = j.value("handler_id", std::string());
@@ -281,7 +285,8 @@ inline void from_json(const nlohmann::json& j, RouteConfig& r) {
 inline void from_json(const nlohmann::json& j, CorsConfig& c) {
     c.enabled = j.value("enabled", false);
     c.allowed_origins = j.value("allowed_origins", std::vector<std::string>{"*"});
-    c.allowed_methods = j.value("allowed_methods", std::vector<std::string>{"GET", "POST", "PUT", "DELETE", "OPTIONS"});
+    c.allowed_methods = j.value(
+        "allowed_methods", std::vector<std::string>{"GET", "POST", "PUT", "DELETE", "OPTIONS"});
     c.allowed_headers = j.value("allowed_headers", std::vector<std::string>{"*"});
     c.allow_credentials = j.value("allow_credentials", false);
     c.max_age = j.value("max_age", 86400u);
@@ -340,13 +345,9 @@ struct ValidationResult {
         errors.push_back(std::move(error));
     }
 
-    void add_warning(std::string warning) {
-        warnings.push_back(std::move(warning));
-    }
+    void add_warning(std::string warning) { warnings.push_back(std::move(warning)); }
 
-    [[nodiscard]] bool has_errors() const noexcept {
-        return !valid || !errors.empty();
-    }
+    [[nodiscard]] bool has_errors() const noexcept { return !valid || !errors.empty(); }
 };
 
 /// Configuration loader
@@ -388,14 +389,10 @@ public:
     [[nodiscard]] std::shared_ptr<const Config> get() const noexcept;
 
     /// Get configuration file path
-    [[nodiscard]] std::string_view config_path() const noexcept {
-        return config_path_;
-    }
+    [[nodiscard]] std::string_view config_path() const noexcept { return config_path_; }
 
     /// Check if configuration is loaded
-    [[nodiscard]] bool is_loaded() const noexcept {
-        return current_config_ != nullptr;
-    }
+    [[nodiscard]] bool is_loaded() const noexcept { return current_config_ != nullptr; }
 
     /// Get last validation result
     [[nodiscard]] const ValidationResult& last_validation() const noexcept {
@@ -408,4 +405,4 @@ private:
     ValidationResult last_validation_;
 };
 
-} // namespace titan::control
+}  // namespace titan::control

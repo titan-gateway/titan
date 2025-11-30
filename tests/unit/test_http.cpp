@@ -1,9 +1,9 @@
 // Titan HTTP Layer Unit Tests
 
+#include <catch2/catch_test_macros.hpp>
+
 #include "../../src/http/http.hpp"
 #include "../../src/http/parser.hpp"
-
-#include <catch2/catch_test_macros.hpp>
 
 using namespace titan::http;
 
@@ -38,9 +38,8 @@ TEST_CASE("Parse simple GET request", "[http][parser]") {
         "User-Agent: test\r\n"
         "\r\n";
 
-    auto data = std::span<const uint8_t>(
-        reinterpret_cast<const uint8_t*>(raw_request),
-        std::strlen(raw_request));
+    auto data = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw_request),
+                                         std::strlen(raw_request));
 
     Parser parser;
     Request request;
@@ -62,9 +61,8 @@ TEST_CASE("Parse GET request with query string", "[http][parser]") {
         "Host: example.com\r\n"
         "\r\n";
 
-    auto data = std::span<const uint8_t>(
-        reinterpret_cast<const uint8_t*>(raw_request),
-        std::strlen(raw_request));
+    auto data = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw_request),
+                                         std::strlen(raw_request));
 
     Parser parser;
     Request request;
@@ -86,9 +84,8 @@ TEST_CASE("Parse POST request with body", "[http][parser]") {
         "\r\n"
         "{\"test\":true}";
 
-    auto data = std::span<const uint8_t>(
-        reinterpret_cast<const uint8_t*>(raw_request),
-        std::strlen(raw_request));
+    auto data = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw_request),
+                                         std::strlen(raw_request));
 
     Parser parser;
     Request request;
@@ -101,9 +98,7 @@ TEST_CASE("Parse POST request with body", "[http][parser]") {
     REQUIRE(request.content_length() == 13);
     REQUIRE(request.body.size() == 13);
 
-    std::string body_str(
-        reinterpret_cast<const char*>(request.body.data()),
-        request.body.size());
+    std::string body_str(reinterpret_cast<const char*>(request.body.data()), request.body.size());
     REQUIRE(body_str == "{\"test\":true}");
 }
 
@@ -113,9 +108,8 @@ TEST_CASE("Parse incomplete request", "[http][parser]") {
         "Host: example.com\r\n";
     // Missing final \r\n
 
-    auto data = std::span<const uint8_t>(
-        reinterpret_cast<const uint8_t*>(raw_request),
-        std::strlen(raw_request));
+    auto data = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw_request),
+                                         std::strlen(raw_request));
 
     Parser parser;
     Request request;
@@ -186,9 +180,8 @@ TEST_CASE("Parse multiple methods", "[http][parser]") {
     };
 
     for (const auto& [raw_request, expected_method] : test_cases) {
-        auto data = std::span<const uint8_t>(
-            reinterpret_cast<const uint8_t*>(raw_request),
-            std::strlen(raw_request));
+        auto data = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw_request),
+                                             std::strlen(raw_request));
 
         Parser parser;
         Request request;
@@ -204,9 +197,8 @@ TEST_CASE("Parser reset", "[http][parser]") {
     Request request1;
 
     const char* raw1 = "GET /test1 HTTP/1.1\r\n\r\n";
-    auto data1 = std::span<const uint8_t>(
-        reinterpret_cast<const uint8_t*>(raw1),
-        std::strlen(raw1));
+    auto data1 =
+        std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw1), std::strlen(raw1));
 
     auto [result1, consumed1] = parser.parse_request(data1, request1);
     REQUIRE(result1 == ParseResult::Complete);
@@ -217,9 +209,8 @@ TEST_CASE("Parser reset", "[http][parser]") {
 
     Request request2;
     const char* raw2 = "POST /test2 HTTP/1.1\r\n\r\n";
-    auto data2 = std::span<const uint8_t>(
-        reinterpret_cast<const uint8_t*>(raw2),
-        std::strlen(raw2));
+    auto data2 =
+        std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw2), std::strlen(raw2));
 
     auto [result2, consumed2] = parser.parse_request(data2, request2);
     REQUIRE(result2 == ParseResult::Complete);
@@ -229,9 +220,8 @@ TEST_CASE("Parser reset", "[http][parser]") {
 
 TEST_CASE("Convenience wrapper parse_http_request", "[http][parser]") {
     const char* raw_request = "GET /hello HTTP/1.1\r\n\r\n";
-    auto data = std::span<const uint8_t>(
-        reinterpret_cast<const uint8_t*>(raw_request),
-        std::strlen(raw_request));
+    auto data = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw_request),
+                                         std::strlen(raw_request));
 
     auto maybe_request = parse_http_request(data);
     REQUIRE(maybe_request.has_value());
@@ -249,9 +239,8 @@ TEST_CASE("HTTP/1.1 defaults to keep-alive", "[http][keepalive]") {
         "Host: example.com\r\n"
         "\r\n";
 
-    auto data = std::span<const uint8_t>(
-        reinterpret_cast<const uint8_t*>(raw_request),
-        std::strlen(raw_request));
+    auto data = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw_request),
+                                         std::strlen(raw_request));
 
     Parser parser;
     Request request;
@@ -273,9 +262,8 @@ TEST_CASE("HTTP/1.0 with Connection: keep-alive", "[http][keepalive]") {
         "Connection: keep-alive\r\n"
         "\r\n";
 
-    auto data = std::span<const uint8_t>(
-        reinterpret_cast<const uint8_t*>(raw_request),
-        std::strlen(raw_request));
+    auto data = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw_request),
+                                         std::strlen(raw_request));
 
     Parser parser;
     Request request;
@@ -295,9 +283,8 @@ TEST_CASE("Connection: close overrides HTTP/1.1 default", "[http][keepalive]") {
         "Connection: close\r\n"
         "\r\n";
 
-    auto data = std::span<const uint8_t>(
-        reinterpret_cast<const uint8_t*>(raw_request),
-        std::strlen(raw_request));
+    auto data = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw_request),
+                                         std::strlen(raw_request));
 
     Parser parser;
     Request request;
@@ -322,9 +309,8 @@ TEST_CASE("Parser reset clears state between pipelined requests", "[http][pipeli
     Parser parser;
 
     // Parse first request
-    auto data1 = std::span<const uint8_t>(
-        reinterpret_cast<const uint8_t*>(request1_raw),
-        std::strlen(request1_raw));
+    auto data1 = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(request1_raw),
+                                          std::strlen(request1_raw));
 
     Request req1;
     auto [result1, _1] = parser.parse_request(data1, req1);
@@ -334,9 +320,8 @@ TEST_CASE("Parser reset clears state between pipelined requests", "[http][pipeli
     // Reset and parse second request - should not have state from first
     parser.reset();
 
-    auto data2 = std::span<const uint8_t>(
-        reinterpret_cast<const uint8_t*>(request2_raw),
-        std::strlen(request2_raw));
+    auto data2 = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(request2_raw),
+                                          std::strlen(request2_raw));
 
     Request req2;
     auto [result2, _2] = parser.parse_request(data2, req2);

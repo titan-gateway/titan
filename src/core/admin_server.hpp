@@ -14,19 +14,18 @@
  * limitations under the License.
  */
 
-
 // Titan Admin Server - Header
 // Lightweight HTTP server for internal admin endpoints (metrics, health)
 // Runs on separate port (default 9090), NOT exposed to public internet
 
 #pragma once
 
-#include "../control/config.hpp"
-#include "../gateway/upstream.hpp"
-
 #include <atomic>
 #include <memory>
 #include <system_error>
+
+#include "../control/config.hpp"
+#include "../gateway/upstream.hpp"
 
 namespace titan::core {
 
@@ -37,7 +36,7 @@ class AdminServer {
 public:
     /// Create admin server with config and upstream manager
     explicit AdminServer(const control::Config& config,
-                        const gateway::UpstreamManager* upstream_manager);
+                         const gateway::UpstreamManager* upstream_manager);
     ~AdminServer();
 
     // Non-copyable, non-movable
@@ -78,7 +77,8 @@ private:
     [[nodiscard]] SimpleRequest parse_request(const char* data, size_t len);
 
     /// Send HTTP response
-    void send_response(int fd, int status_code, std::string_view content_type, std::string_view body);
+    void send_response(int fd, int status_code, std::string_view content_type,
+                       std::string_view body);
 };
 
-} // namespace titan::core
+}  // namespace titan::core

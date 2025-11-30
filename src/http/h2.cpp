@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-
 // Titan HTTP/2 - Implementation
 // HTTP/2 session management using nghttp2
 
@@ -51,7 +50,8 @@ H2Session::H2Session(bool is_server) : is_server_(is_server) {
     nghttp2_session_callbacks_set_on_frame_recv_callback(callbacks, on_frame_recv_callback);
     nghttp2_session_callbacks_set_on_stream_close_callback(callbacks, on_stream_close_callback);
     nghttp2_session_callbacks_set_on_header_callback(callbacks, on_header_callback);
-    nghttp2_session_callbacks_set_on_data_chunk_recv_callback(callbacks, on_data_chunk_recv_callback);
+    nghttp2_session_callbacks_set_on_data_chunk_recv_callback(callbacks,
+                                                              on_data_chunk_recv_callback);
 
     // Create session
     if (is_server_) {
@@ -64,7 +64,8 @@ H2Session::H2Session(bool is_server) : is_server_(is_server) {
 
     // Submit settings frame
     nghttp2_settings_entry settings[] = {
-        {NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, 1000},  // Increased from 100 to support heavy load
+        {NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS,
+         1000},  // Increased from 100 to support heavy load
         {NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE, 65535},
     };
     nghttp2_submit_settings(session_, NGHTTP2_FLAG_NONE, settings, 2);
@@ -122,40 +123,29 @@ std::error_code H2Session::submit_request(const Request& request, int32_t& strea
     std::string path = std::string(request.path);
     std::string scheme = "https";  // Use HTTPS for TLS connections (all HTTP/2 in production)
 
-    headers.push_back({
-        const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(":method")),
-        const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(method_str.c_str())),
-        7, method_str.size(),
-        NGHTTP2_NV_FLAG_NONE
-    });
+    headers.push_back({const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(":method")),
+                       const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(method_str.c_str())),
+                       7, method_str.size(), NGHTTP2_NV_FLAG_NONE});
 
-    headers.push_back({
-        const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(":path")),
-        const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(path.c_str())),
-        5, path.size(),
-        NGHTTP2_NV_FLAG_NONE
-    });
+    headers.push_back({const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(":path")),
+                       const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(path.c_str())), 5,
+                       path.size(), NGHTTP2_NV_FLAG_NONE});
 
-    headers.push_back({
-        const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(":scheme")),
-        const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(scheme.c_str())),
-        7, scheme.size(),
-        NGHTTP2_NV_FLAG_NONE
-    });
+    headers.push_back({const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(":scheme")),
+                       const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(scheme.c_str())), 7,
+                       scheme.size(), NGHTTP2_NV_FLAG_NONE});
 
     // Regular headers
     for (const auto& header : request.headers) {
-        headers.push_back({
-            const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(header.name.data())),
-            const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(header.value.data())),
-            header.name.size(), header.value.size(),
-            NGHTTP2_NV_FLAG_NONE
-        });
+        headers.push_back(
+            {const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(header.name.data())),
+             const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(header.value.data())),
+             header.name.size(), header.value.size(), NGHTTP2_NV_FLAG_NONE});
     }
 
     // Submit request
-    int32_t sid = nghttp2_submit_request(session_, nullptr, headers.data(),
-                                          headers.size(), nullptr, nullptr);
+    int32_t sid =
+        nghttp2_submit_request(session_, nullptr, headers.data(), headers.size(), nullptr, nullptr);
     if (sid < 0) {
         return std::make_error_code(std::errc::protocol_error);
     }
@@ -165,9 +155,9 @@ std::error_code H2Session::submit_request(const Request& request, int32_t& strea
 }
 
 // Static data read callback for nghttp2 (with body data)
-static ssize_t data_read_callback(nghttp2_session* /*session*/, int32_t /*stream_id*/,
-                                   uint8_t* buf, size_t length, uint32_t* data_flags,
-                                   nghttp2_data_source* source, void* /*user_data*/) {
+static ssize_t data_read_callback(nghttp2_session* /*session*/, int32_t /*stream_id*/, uint8_t* buf,
+                                  size_t length, uint32_t* data_flags, nghttp2_data_source* source,
+                                  void* /*user_data*/) {
     auto* stream = static_cast<http::H2Stream*>(source->ptr);
 
     if (!stream || stream->response_body.empty()) {
@@ -183,8 +173,8 @@ static ssize_t data_read_callback(nghttp2_session* /*session*/, int32_t /*stream
 
 // Static data read callback for empty body (END_STREAM only)
 static ssize_t empty_data_callback(nghttp2_session* /*session*/, int32_t /*stream_id*/,
-                                    uint8_t* /*buf*/, size_t /*length*/, uint32_t* data_flags,
-                                    nghttp2_data_source* /*source*/, void* /*user_data*/) {
+                                   uint8_t* /*buf*/, size_t /*length*/, uint32_t* data_flags,
+                                   nghttp2_data_source* /*source*/, void* /*user_data*/) {
     *data_flags |= NGHTTP2_DATA_FLAG_EOF;
     return 0;
 }
@@ -199,24 +189,19 @@ std::error_code H2Session::submit_response(int32_t stream_id, const Response& re
 
     // :status pseudo-header
     std::string status = std::to_string(static_cast<int>(response.status));
-    headers.push_back({
-        const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(":status")),
-        const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(status.c_str())),
-        7, status.size(),
-        NGHTTP2_NV_FLAG_NONE
-    });
+    headers.push_back({const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(":status")),
+                       const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(status.c_str())), 7,
+                       status.size(), NGHTTP2_NV_FLAG_NONE});
 
     // Regular headers
     for (const auto& header : response.headers) {
         if (header.name.empty() || header.value.empty()) {
             continue;  // Skip empty headers
         }
-        headers.push_back({
-            const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(header.name.data())),
-            const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(header.value.data())),
-            header.name.size(), header.value.size(),
-            NGHTTP2_NV_FLAG_NONE
-        });
+        headers.push_back(
+            {const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(header.name.data())),
+             const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(header.value.data())),
+             header.name.size(), header.value.size(), NGHTTP2_NV_FLAG_NONE});
     }
 
     // Prepare data provider if body exists
@@ -244,8 +229,8 @@ std::error_code H2Session::submit_response(int32_t stream_id, const Response& re
     }
 
     // Submit response with headers and persistent data provider
-    int rv = nghttp2_submit_response(session_, stream_id, headers.data(),
-                                      headers.size(), &stream->data_provider);
+    int rv = nghttp2_submit_response(session_, stream_id, headers.data(), headers.size(),
+                                     &stream->data_provider);
     if (rv != 0) {
         return std::make_error_code(std::errc::protocol_error);
     }
@@ -307,8 +292,8 @@ void H2Session::remove_stream(int32_t stream_id) {
 // nghttp2 Callbacks
 // ============================
 
-ssize_t H2Session::send_callback(nghttp2_session* /*session*/, const uint8_t* data,
-                                  size_t length, int /*flags*/, void* user_data) {
+ssize_t H2Session::send_callback(nghttp2_session* /*session*/, const uint8_t* data, size_t length,
+                                 int /*flags*/, void* user_data) {
     auto* self = static_cast<H2Session*>(user_data);
 
     // Append to send buffer
@@ -317,8 +302,8 @@ ssize_t H2Session::send_callback(nghttp2_session* /*session*/, const uint8_t* da
     return static_cast<ssize_t>(length);
 }
 
-int H2Session::on_frame_recv_callback(nghttp2_session* /*session*/,
-                                       const nghttp2_frame* frame, void* user_data) {
+int H2Session::on_frame_recv_callback(nghttp2_session* /*session*/, const nghttp2_frame* frame,
+                                      void* user_data) {
     auto* self = static_cast<H2Session*>(user_data);
 
     switch (frame->hd.type) {
@@ -363,7 +348,7 @@ int H2Session::on_frame_recv_callback(nghttp2_session* /*session*/,
 }
 
 int H2Session::on_stream_close_callback(nghttp2_session* /*session*/, int32_t stream_id,
-                                         uint32_t /*error_code*/, void* user_data) {
+                                        uint32_t /*error_code*/, void* user_data) {
     auto* self = static_cast<H2Session*>(user_data);
 
     auto* stream = self->get_stream(stream_id);
@@ -377,9 +362,8 @@ int H2Session::on_stream_close_callback(nghttp2_session* /*session*/, int32_t st
 }
 
 int H2Session::on_header_callback(nghttp2_session* /*session*/, const nghttp2_frame* frame,
-                                   const uint8_t* name, size_t namelen,
-                                   const uint8_t* value, size_t valuelen,
-                                   uint8_t /*flags*/, void* user_data) {
+                                  const uint8_t* name, size_t namelen, const uint8_t* value,
+                                  size_t valuelen, uint8_t /*flags*/, void* user_data) {
     auto* self = static_cast<H2Session*>(user_data);
 
     if (frame->hd.type != NGHTTP2_HEADERS) {
@@ -415,7 +399,8 @@ int H2Session::on_header_callback(nghttp2_session* /*session*/, const nghttp2_fr
             stream.response.status = static_cast<StatusCode>(status_code);
         } else if (name_sv[0] != ':') {
             // Regular header - store in owned storage first, then create views
-            stream.response_header_storage.emplace_back(std::string(name_sv), std::string(value_sv));
+            stream.response_header_storage.emplace_back(std::string(name_sv),
+                                                        std::string(value_sv));
             const auto& [owned_name, owned_value] = stream.response_header_storage.back();
             stream.response.headers.push_back(Header{owned_name, owned_value});
         }
@@ -425,8 +410,8 @@ int H2Session::on_header_callback(nghttp2_session* /*session*/, const nghttp2_fr
 }
 
 int H2Session::on_data_chunk_recv_callback(nghttp2_session* /*session*/, uint8_t /*flags*/,
-                                            int32_t stream_id, const uint8_t* data,
-                                            size_t len, void* user_data) {
+                                           int32_t stream_id, const uint8_t* data, size_t len,
+                                           void* user_data) {
     auto* self = static_cast<H2Session*>(user_data);
 
     auto* stream = self->get_stream(stream_id);
@@ -447,4 +432,4 @@ int H2Session::on_data_chunk_recv_callback(nghttp2_session* /*session*/, uint8_t
     return 0;
 }
 
-} // namespace titan::http
+}  // namespace titan::http

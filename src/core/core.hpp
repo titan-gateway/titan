@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-
 // Titan Core Engine - Header
 // Thread utilities for CPU affinity and core count
 
@@ -31,4 +30,4 @@ namespace titan::core {
 /// Get number of available CPU cores
 [[nodiscard]] uint32_t get_cpu_count();
 
-} // namespace titan::core
+}  // namespace titan::core

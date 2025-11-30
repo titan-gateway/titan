@@ -14,16 +14,16 @@
  * limitations under the License.
  */
 
-
 // Titan Server Runner - Implementation
 
 #include "server_runner.hpp"
-#include "admin_server.hpp"
-#include "socket.hpp"
 
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
+#include "admin_server.hpp"
+#include "socket.hpp"
 
 #ifdef __linux__
 #include <sys/epoll.h>
@@ -31,10 +31,10 @@
 #include <sys/event.h>
 #endif
 
-#include <vector>
 #include <atomic>
-#include <unordered_set>
 #include <thread>
+#include <unordered_set>
+#include <vector>
 
 namespace titan::core {
 
@@ -68,7 +68,8 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
 
     // Create TWO epoll instances (dual epoll pattern)
     int client_epoll_fd = epoll_create1(0);
-    if (client_epoll_fd < 0) return;
+    if (client_epoll_fd < 0)
+        return;
 
     int backend_epoll_fd = server.backend_epoll_fd();
     if (backend_epoll_fd < 0) {
@@ -102,12 +103,12 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
                 while (true) {
                     sockaddr_in client_addr{};
                     socklen_t addr_len = sizeof(client_addr);
-                    int client_fd = accept(listen_fd,
-                        reinterpret_cast<sockaddr*>(&client_addr),
-                        &addr_len);
+                    int client_fd =
+                        accept(listen_fd, reinterpret_cast<sockaddr*>(&client_addr), &addr_len);
 
                     if (client_fd < 0) {
-                        if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+                        if (errno == EAGAIN || errno == EWOULDBLOCK)
+                            break;
                         continue;
                     }
 
@@ -131,15 +132,13 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
                         server.handle_close(client_fd);
                     }
                 }
-            }
-            else {
+            } else {
                 // Handle client I/O
                 if (client_events[i].events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) {
                     epoll_ctl(client_epoll_fd, EPOLL_CTL_DEL, fd, nullptr);
                     active_client_fds.erase(fd);
                     server.handle_close(fd);
-                }
-                else if (client_events[i].events & EPOLLIN) {
+                } else if (client_events[i].events & EPOLLIN) {
                     server.handle_read(fd);
                 }
             }
@@ -167,8 +166,8 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
         constexpr int POLL_INTERVAL_MS = 100;
         int elapsed_ms = 0;
 
-        printf("Worker %d: Draining %zu active connections (timeout: %ds)...\n",
-               worker_id, active_client_fds.size(), SHUTDOWN_TIMEOUT_MS / 1000);
+        printf("Worker %d: Draining %zu active connections (timeout: %ds)...\n", worker_id,
+               active_client_fds.size(), SHUTDOWN_TIMEOUT_MS / 1000);
 
         // Remove listen socket from epoll (stop accepting new connections)
         epoll_ctl(client_epoll_fd, EPOLL_CTL_DEL, listen_fd, nullptr);
@@ -184,8 +183,7 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
                     epoll_ctl(client_epoll_fd, EPOLL_CTL_DEL, fd, nullptr);
                     active_client_fds.erase(fd);
                     server.handle_close(fd);
-                }
-                else if (client_events[i].events & EPOLLIN) {
+                } else if (client_events[i].events & EPOLLIN) {
                     server.handle_read(fd);
                 }
             }
@@ -207,8 +205,10 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
         if (active_client_fds.empty()) {
             printf("Worker %d: All connections drained successfully.\n", worker_id);
         } else {
-            printf("Worker %d: Shutdown timeout reached, %zu connections still active. Forcing close.\n",
-                   worker_id, active_client_fds.size());
+            printf(
+                "Worker %d: Shutdown timeout reached, %zu connections still active. Forcing "
+                "close.\n",
+                worker_id, active_client_fds.size());
         }
     }
 
@@ -242,7 +242,8 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
 
     // Create TWO kqueue instances (dual kqueue pattern)
     int client_kq = kqueue();
-    if (client_kq < 0) return;
+    if (client_kq < 0)
+        return;
 
     // Backend kqueue is managed by Server class
     int backend_kq = server.backend_epoll_fd();
@@ -278,12 +279,12 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
                 while (true) {
                     sockaddr_in client_addr{};
                     socklen_t addr_len = sizeof(client_addr);
-                    int client_fd = accept(listen_fd,
-                        reinterpret_cast<sockaddr*>(&client_addr),
-                        &addr_len);
+                    int client_fd =
+                        accept(listen_fd, reinterpret_cast<sockaddr*>(&client_addr), &addr_len);
 
                     if (client_fd < 0) {
-                        if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+                        if (errno == EAGAIN || errno == EWOULDBLOCK)
+                            break;
                         continue;
                     }
 
@@ -306,14 +307,12 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
                         server.handle_close(client_fd);
                     }
                 }
-            }
-            else {
+            } else {
                 // Handle client I/O
                 if (client_events[i].flags & EV_EOF) {
                     active_client_fds.erase(fd);
                     server.handle_close(fd);
-                }
-                else if (client_events[i].filter == EVFILT_READ) {
+                } else if (client_events[i].filter == EVFILT_READ) {
                     server.handle_read(fd);
                 }
             }
@@ -341,8 +340,8 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
         constexpr int POLL_INTERVAL_MS = 100;
         int elapsed_ms = 0;
 
-        printf("Worker %d: Draining %zu active connections (timeout: %ds)...\n",
-               worker_id, active_client_fds.size(), SHUTDOWN_TIMEOUT_MS / 1000);
+        printf("Worker %d: Draining %zu active connections (timeout: %ds)...\n", worker_id,
+               active_client_fds.size(), SHUTDOWN_TIMEOUT_MS / 1000);
 
         // Remove listen socket from kqueue (stop accepting new connections)
         struct kevent change;
@@ -360,8 +359,7 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
                 if (client_events[i].flags & EV_EOF) {
                     active_client_fds.erase(fd);
                     server.handle_close(fd);
-                }
-                else if (client_events[i].filter == EVFILT_READ) {
+                } else if (client_events[i].filter == EVFILT_READ) {
                     server.handle_read(fd);
                 }
             }
@@ -383,8 +381,10 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
         if (active_client_fds.empty()) {
             printf("Worker %d: All connections drained successfully.\n", worker_id);
         } else {
-            printf("Worker %d: Shutdown timeout reached, %zu connections still active. Forcing close.\n",
-                   worker_id, active_client_fds.size());
+            printf(
+                "Worker %d: Shutdown timeout reached, %zu connections still active. Forcing "
+                "close.\n",
+                worker_id, active_client_fds.size());
         }
     }
 
@@ -446,7 +446,8 @@ std::error_code run_simple_server(const control::Config& config) {
         int n_events = epoll_wait(epoll_fd, events, MAX_EVENTS, 1000);
 
         if (n_events < 0) {
-            if (errno == EINTR) continue;
+            if (errno == EINTR)
+                continue;
             close(epoll_fd);
             return std::error_code(errno, std::system_category());
         }
@@ -460,9 +461,8 @@ std::error_code run_simple_server(const control::Config& config) {
                     sockaddr_in client_addr{};
                     socklen_t addr_len = sizeof(client_addr);
 
-                    int client_fd = accept(listen_fd,
-                        reinterpret_cast<sockaddr*>(&client_addr),
-                        &addr_len);
+                    int client_fd =
+                        accept(listen_fd, reinterpret_cast<sockaddr*>(&client_addr), &addr_len);
 
                     if (client_fd < 0) {
                         if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -500,8 +500,7 @@ std::error_code run_simple_server(const control::Config& config) {
                     epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, nullptr);
                     active_fds.erase(fd);
                     server.handle_close(fd);
-                }
-                else if (events[i].events & EPOLLIN) {
+                } else if (events[i].events & EPOLLIN) {
                     // Data available to read
                     server.handle_read(fd);
                 }
@@ -575,14 +574,15 @@ std::error_code run_simple_server(const control::Config& config) {
     constexpr int MAX_EVENTS = 4096;
     struct kevent events[MAX_EVENTS];
     struct kevent backend_events[MAX_EVENTS];
-    struct timespec timeout{1, 0};  // 1 second timeout
+    struct timespec timeout{1, 0};                // 1 second timeout
     struct timespec backend_timeout{0, 1000000};  // 1ms timeout
 
     while (g_server_running) {
         int n_events = kevent(kq, nullptr, 0, events, MAX_EVENTS, &timeout);
 
         if (n_events < 0) {
-            if (errno == EINTR) continue;
+            if (errno == EINTR)
+                continue;
             close(kq);
             return std::error_code(errno, std::system_category());
         }
@@ -596,9 +596,8 @@ std::error_code run_simple_server(const control::Config& config) {
                     sockaddr_in client_addr{};
                     socklen_t addr_len = sizeof(client_addr);
 
-                    int client_fd = accept(listen_fd,
-                        reinterpret_cast<sockaddr*>(&client_addr),
-                        &addr_len);
+                    int client_fd =
+                        accept(listen_fd, reinterpret_cast<sockaddr*>(&client_addr), &addr_len);
 
                     if (client_fd < 0) {
                         if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -634,8 +633,7 @@ std::error_code run_simple_server(const control::Config& config) {
                     // Connection closed
                     active_fds.erase(fd);
                     server.handle_close(fd);
-                }
-                else if (events[i].filter == EVFILT_READ) {
+                } else if (events[i].filter == EVFILT_READ) {
                     // Data available
                     server.handle_read(fd);
                 }
@@ -643,7 +641,8 @@ std::error_code run_simple_server(const control::Config& config) {
         }
 
         // Process backend events (with 1ms timeout)
-        int n_backend = kevent(backend_kq, nullptr, 0, backend_events, MAX_EVENTS, &backend_timeout);
+        int n_backend =
+            kevent(backend_kq, nullptr, 0, backend_events, MAX_EVENTS, &backend_timeout);
 
         for (int i = 0; i < n_backend; ++i) {
             int backend_fd = static_cast<int>(backend_events[i].ident);
@@ -691,16 +690,14 @@ std::error_code run_multi_threaded_server(const control::Config& config) {
         auto err = admin_server->start();
         if (err) {
             std::fprintf(stderr, "Failed to start admin server on port %u: %s\n",
-                        config.metrics.port, err.message().c_str());
+                         config.metrics.port, err.message().c_str());
             // Continue anyway - metrics are optional
         } else {
             std::printf("Admin server listening on 127.0.0.1:%u (metrics, health)\n",
-                       config.metrics.port);
+                        config.metrics.port);
 
             // Run admin server in separate thread
-            admin_thread = std::thread([&admin_server]() {
-                admin_server->run();
-            });
+            admin_thread = std::thread([&admin_server]() { admin_server->run(); });
         }
     }
 
@@ -709,9 +706,7 @@ std::error_code run_multi_threaded_server(const control::Config& config) {
     workers.reserve(num_workers);
 
     for (uint32_t i = 0; i < num_workers; ++i) {
-        workers.emplace_back([&config, i]() {
-            run_worker_thread(config, i);
-        });
+        workers.emplace_back([&config, i]() { run_worker_thread(config, i); });
     }
 
     // Wait for all workers to finish
@@ -732,4 +727,4 @@ std::error_code run_multi_threaded_server(const control::Config& config) {
     return {};
 }
 
-} // namespace titan::core
+}  // namespace titan::core
