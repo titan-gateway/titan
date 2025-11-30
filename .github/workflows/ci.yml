@@ -31,7 +31,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Cache clang-format-21
+        id: cache-clang-format
+        uses: actions/cache@v4
+        with:
+          path: /usr/bin/clang-format-21
+          key: clang-format-21-${{ runner.os }}
+
       - name: Install clang-format-21
+        if: steps.cache-clang-format.outputs.cache-hit != 'true'
         run: |
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
