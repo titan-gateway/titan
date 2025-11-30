@@ -59,9 +59,17 @@ jobs:
           fi
 
   build-test:
-    name: Build & Test
-    runs-on: ubuntu-24.04
+    name: Build & Test (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
     needs: [validate-branch, code-quality]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm64
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -91,9 +99,9 @@ jobs:
           path: |
             /opt/vcpkg
             ~/.cache/vcpkg
-          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('vcpkg.json') }}
           restore-keys: |
-            vcpkg-${{ runner.os }}-
+            vcpkg-${{ runner.os }}-${{ matrix.arch }}-
 
       - name: Setup vcpkg
         run: |
@@ -109,9 +117,9 @@ jobs:
           path: |
             build/dev
             ~/.cache/ccache
-          key: build-${{ runner.os }}-${{ github.sha }}
+          key: build-${{ runner.os }}-${{ matrix.arch }}-${{ github.sha }}
           restore-keys: |
-            build-${{ runner.os }}-
+            build-${{ runner.os }}-${{ matrix.arch }}-
 
       - name: Build and Test (with coverage)
         run: make test-coverage
@@ -130,14 +138,22 @@ jobs:
       - name: Upload titan binary
         uses: actions/upload-artifact@v4
         with:
-          name: titan-binary
+          name: titan-binary-${{ matrix.arch }}
           path: build/dev/src/titan
           retention-days: 1
 
   integration-test:
-    name: Integration Tests
-    runs-on: ubuntu-24.04
+    name: Integration Tests (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
     needs: build-test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm64
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -145,7 +161,7 @@ jobs:
       - name: Download titan binary
         uses: actions/download-artifact@v4
         with:
-          name: titan-binary
+          name: titan-binary-${{ matrix.arch }}
           path: build/dev/src
 
       - name: Make binary executable
