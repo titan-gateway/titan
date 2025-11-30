@@ -47,23 +47,28 @@ benchmark: ## Run benchmarks
 
 ##@ Code Quality
 
-format: ## Format all C++ source files with clang-format
+# Detect clang-format version (prefer 21, fallback to default)
+CLANG_FORMAT := $(shell command -v clang-format-21 2>/dev/null || command -v clang-format 2>/dev/null)
+
+format: ## Format all C++ source files with clang-format-21
 	@echo "Formatting C++ files..."
-	@if ! command -v clang-format >/dev/null 2>&1; then \
+	@if [ -z "$(CLANG_FORMAT)" ]; then \
 		echo "Error: clang-format not found"; \
-		echo "Install: brew install clang-format (macOS) or apt install clang-format (Linux)"; \
+		echo "Install: brew install clang-format (macOS) or see Dockerfile (Linux)"; \
 		exit 1; \
 	fi
-	@find src tests -type f \( -name "*.cpp" -o -name "*.hpp" \) -exec clang-format -i {} \;
+	@echo "Using: $(CLANG_FORMAT)"
+	@find src tests -type f \( -name "*.cpp" -o -name "*.hpp" \) -exec $(CLANG_FORMAT) -i {} \;
 	@echo "✅ All C++ files formatted"
 
 format-check: ## Check if files are properly formatted (CI)
 	@echo "Checking code formatting..."
-	@if ! command -v clang-format >/dev/null 2>&1; then \
+	@if [ -z "$(CLANG_FORMAT)" ]; then \
 		echo "Error: clang-format not found"; \
 		exit 1; \
 	fi
-	@find src tests -type f \( -name "*.cpp" -o -name "*.hpp" \) -exec clang-format --dry-run --Werror {} \;
+	@echo "Using: $(CLANG_FORMAT)"
+	@find src tests -type f \( -name "*.cpp" -o -name "*.hpp" \) -exec $(CLANG_FORMAT) --dry-run --Werror {} \;
 	@echo "✅ All files are properly formatted"
 
 lint: ## Run all linting checks
