@@ -62,6 +62,9 @@ jobs:
     name: Build & Test (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     needs: [validate-branch, code-quality]
+    # Skip ARM64 on PRs to speed up feedback (ARM64 runners are slow to provision)
+    # ARM64 tests run on main branch and release tags
+    if: matrix.arch == 'x86_64' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
     strategy:
       fail-fast: false
       matrix:
@@ -146,6 +149,9 @@ jobs:
     name: Integration Tests (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     needs: build-test
+    # Skip ARM64 on PRs to speed up feedback (ARM64 runners are slow to provision)
+    # ARM64 tests run on main branch and release tags
+    if: matrix.arch == 'x86_64' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
     strategy:
       fail-fast: false
       matrix:
