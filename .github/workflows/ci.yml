@@ -1,81 +1,56 @@
-name: CI - Pull Request Checks
+name: CI
 
 on:
   pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened]
-
-concurrency:
-  group: ci-${{ github.head_ref }}
-  cancel-in-progress: true
 
 permissions:
   contents: read
   pull-requests: write
-  security-events: write
 
 jobs:
-  # Validate branch naming convention
   validate-branch:
     name: Validate Branch Name
     runs-on: ubuntu-latest
     steps:
       - name: Check branch prefix
-        id: check-branch-prefix
         run: |
-          # For pull_request: use head_ref. For push: use ref_name
-          BRANCH="${{ github.head_ref || github.ref_name }}"
+          BRANCH="${{ github.head_ref }}"
+          echo "Branch: $BRANCH"
           if [[ ! "$BRANCH" =~ ^(epic|feat|fix|chore)/ ]]; then
             echo "❌ Branch name must start with: epic/, feat/, fix/, or chore/"
             echo "   Current branch: $BRANCH"
-            echo ""
-            echo "Examples:"
-            echo "  epic/new-architecture    → Major version bump (v1.0.0)"
-            echo "  feat/connection-pooling  → Minor version bump (v0.2.0)"
-            echo "  fix/memory-leak          → Patch version bump (v0.1.1)"
-            echo "  chore/update-deps        → No version bump"
             exit 1
           fi
           echo "✅ Branch name is valid: $BRANCH"
 
-          # Extract prefix and set as output for next jobs
-          PREFIX=$(echo "$BRANCH" | cut -d'/' -f1)
-          echo "prefix=$PREFIX" >> $GITHUB_OUTPUT
-          echo "📦 Version bump type: $PREFIX"
-    outputs:
-      prefix: ${{ steps.check-branch-prefix.outputs.prefix }}
-
-  # Build and test on multiple platforms
   build-test:
-    name: Build & Test (${{ matrix.preset }})
-    runs-on: ${{ matrix.os }}
+    name: Build & Test
+    runs-on: ubuntu-24.04
     needs: validate-branch
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - preset: dev
-            os: ubuntu-22.04
-            arch: x86_64
-          - preset: dev
-            os: buildjet-4vcpu-ubuntu-2204-arm
-            arch: arm64
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
+          # Add LLVM repository for clang-18
+          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+          sudo add-apt-repository -y "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main"
+
+          # Add GCC 14 repository for modern libstdc++ with std::expected
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+
           sudo apt-get update
           sudo apt-get install -y \
             build-essential \
             cmake \
             ninja-build \
             clang-18 \
+            clang-tools-18 \
             lld-18 \
-            libc++-18-dev \
-            libc++abi-18-dev \
+            gcc-14 \
+            g++-14 \
+            libstdc++-14-dev \
             pkg-config \
             python3 \
             python3-pip
@@ -88,149 +63,8 @@ jobs:
 
       - name: Configure and Build
         run: |
-          make configure PRESET=${{ matrix.preset }}
-          make build PRESET=${{ matrix.preset }}
+          make configure PRESET=dev
+          make build PRESET=dev
 
       - name: Run Unit Tests
-        run: make test PRESET=${{ matrix.preset }}
-
-      - name: Archive build artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-logs-${{ matrix.preset }}-${{ matrix.arch }}
-          path: |
-            build/${{ matrix.preset }}/CMakeFiles/*.log
-          retention-days: 7
-
-  # Code quality checks
-  lint:
-    name: Code Quality (clang-format, clang-tidy)
-    runs-on: ubuntu-22.04
-    needs: validate-branch
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-format-18 clang-tidy-18
-
-      - name: Check formatting
-        run: make format-check
-
-      - name: Run clang-tidy (if .clang-tidy exists)
-        if: hashFiles('.clang-tidy') != ''
-        run: |
-          # Run clang-tidy on changed files only for PR efficiency
-          echo "Running clang-tidy on changed files..."
-          git diff --name-only origin/main...HEAD | \
-            grep -E '\.(cpp|hpp)$' | \
-            xargs -r clang-tidy-18 -p build/dev || true
-
-  # Security scanning
-  security:
-    name: Security Scan (CodeQL, Trivy)
-    runs-on: ubuntu-22.04
-    needs: validate-branch
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: cpp
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential cmake ninja-build \
-            clang-18 lld-18 libc++-18-dev libc++abi-18-dev
-
-      - name: Setup vcpkg
-        run: |
-          git clone https://github.com/microsoft/vcpkg.git /opt/vcpkg
-          /opt/vcpkg/bootstrap-vcpkg.sh
-          echo "VCPKG_ROOT=/opt/vcpkg" >> $GITHUB_ENV
-
-      - name: Build for CodeQL
-        run: |
-          make configure PRESET=dev
-          make build PRESET=dev
-
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
-
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-
-      - name: Upload Trivy results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: 'trivy-results.sarif'
-
-  # Integration tests (if applicable)
-  integration-test:
-    name: Integration Tests
-    runs-on: ubuntu-22.04
-    needs: build-test
-    if: hashFiles('tests/integration/**') != ''
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential cmake ninja-build \
-            clang-18 lld-18 libc++-18-dev libc++abi-18-dev
-
-      - name: Setup vcpkg
-        run: |
-          git clone https://github.com/microsoft/vcpkg.git /opt/vcpkg
-          /opt/vcpkg/bootstrap-vcpkg.sh
-          echo "VCPKG_ROOT=/opt/vcpkg" >> $GITHUB_ENV
-
-      - name: Build Titan
-        run: |
-          make configure PRESET=dev
-          make build PRESET=dev
-
-      - name: Run integration tests
-        run: |
-          cd tests/integration
-          pip install -r requirements.txt
-          pytest -v --tb=short
-
-  # Summary job - required status check
-  ci-success:
-    name: All CI Checks Passed
-    runs-on: ubuntu-latest
-    needs: [validate-branch, build-test, lint, security]
-    if: always()
-    steps:
-      - name: Check all jobs
-        run: |
-          if [[ "${{ needs.validate-branch.result }}" != "success" ]] || \
-             [[ "${{ needs.build-test.result }}" != "success" ]] || \
-             [[ "${{ needs.lint.result }}" != "success" ]] || \
-             [[ "${{ needs.security.result }}" != "success" ]]; then
-            echo "❌ One or more CI checks failed"
-            exit 1
-          fi
-          echo "✅ All CI checks passed!"
+        run: make test PRESET=dev

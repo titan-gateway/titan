@@ -16,7 +16,7 @@
 
 
 // Titan Configuration - Header
-// JSON configuration schema using Glaze for serialization
+// JSON configuration schema using nlohmann/json for serialization
 
 #pragma once
 
@@ -24,7 +24,7 @@
 #include "../gateway/upstream.hpp"
 #include "../http/http.hpp"
 
-#include <glaze/glaze.hpp>
+#include <nlohmann/json.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -185,6 +185,150 @@ struct Config {
     std::optional<std::string> description;
 };
 
+// nlohmann/json serialization macros (to_json only - from_json customized below)
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ServerConfig, worker_threads, listen_address, listen_port, backlog,
+    read_timeout, write_timeout, idle_timeout, shutdown_timeout, max_connections, max_request_size,
+    max_header_size, tls_enabled, tls_certificate_path, tls_private_key_path, tls_alpn_protocols);
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(BackendConfig, host, port, weight, max_connections,
+    health_check_enabled, health_check_interval, health_check_timeout, health_check_path);
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(CircuitBreakerConfigSchema, enabled, failure_threshold,
+    success_threshold, timeout_ms, window_ms, enable_global_hints, catastrophic_threshold);
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(UpstreamConfig, name, backends, load_balancing, max_retries,
+    retry_timeout, pool_size, pool_idle_timeout, circuit_breaker);
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(RouteConfig, path, method, upstream, handler_id, priority,
+    rewrite_path, timeout, middleware);
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(CorsConfig, enabled, allowed_origins, allowed_methods,
+    allowed_headers, allow_credentials, max_age);
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(RateLimitConfig, enabled, requests_per_second, burst_size, key);
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(AuthConfig, enabled, type, header, valid_tokens);
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(LogConfig, level, format, log_requests, log_responses, exclude_paths);
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(MetricsConfig, enabled, port, path, format);
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Config, server, routes, upstreams, cors, rate_limit, auth,
+    logging, metrics, version, description);
+
+// Custom from_json functions to handle missing fields with defaults
+inline void from_json(const nlohmann::json& j, ServerConfig& s) {
+    s.worker_threads = j.value("worker_threads", 0u);
+    s.listen_address = j.value("listen_address", std::string("0.0.0.0"));
+    s.listen_port = j.value("listen_port", uint16_t(8080));
+    s.backlog = j.value("backlog", 128u);
+    s.read_timeout = j.value("read_timeout", 60000u);
+    s.write_timeout = j.value("write_timeout", 60000u);
+    s.idle_timeout = j.value("idle_timeout", 300000u);
+    s.shutdown_timeout = j.value("shutdown_timeout", 30000u);
+    s.max_connections = j.value("max_connections", 10000u);
+    s.max_request_size = j.value("max_request_size", 1048576u);
+    s.max_header_size = j.value("max_header_size", 8192u);
+    s.tls_enabled = j.value("tls_enabled", false);
+    s.tls_certificate_path = j.value("tls_certificate_path", std::string());
+    s.tls_private_key_path = j.value("tls_private_key_path", std::string());
+    s.tls_alpn_protocols = j.value("tls_alpn_protocols", std::vector<std::string>{"h2", "http/1.1"});
+}
+
+inline void from_json(const nlohmann::json& j, BackendConfig& b) {
+    j.at("host").get_to(b.host);  // host is required
+    b.port = j.value("port", uint16_t(80));
+    b.weight = j.value("weight", 1u);
+    b.max_connections = j.value("max_connections", 1000u);
+    b.health_check_enabled = j.value("health_check_enabled", true);
+    b.health_check_interval = j.value("health_check_interval", 30u);
+    b.health_check_timeout = j.value("health_check_timeout", 5u);
+    b.health_check_path = j.value("health_check_path", std::string("/health"));
+}
+
+inline void from_json(const nlohmann::json& j, CircuitBreakerConfigSchema& c) {
+    c.enabled = j.value("enabled", true);
+    c.failure_threshold = j.value("failure_threshold", 5u);
+    c.success_threshold = j.value("success_threshold", 2u);
+    c.timeout_ms = j.value("timeout_ms", 30000u);
+    c.window_ms = j.value("window_ms", 10000u);
+    c.enable_global_hints = j.value("enable_global_hints", true);
+    c.catastrophic_threshold = j.value("catastrophic_threshold", 20u);
+}
+
+inline void from_json(const nlohmann::json& j, UpstreamConfig& u) {
+    j.at("name").get_to(u.name);  // name is required
+    j.at("backends").get_to(u.backends);  // backends is required
+    u.load_balancing = j.value("load_balancing", std::string("round_robin"));
+    u.max_retries = j.value("max_retries", 2u);
+    u.retry_timeout = j.value("retry_timeout", 1000u);
+    u.pool_size = j.value("pool_size", 100u);
+    u.pool_idle_timeout = j.value("pool_idle_timeout", 60u);
+    u.circuit_breaker = j.value("circuit_breaker", CircuitBreakerConfigSchema{});
+}
+
+inline void from_json(const nlohmann::json& j, RouteConfig& r) {
+    j.at("path").get_to(r.path);  // path is required
+    j.at("upstream").get_to(r.upstream);  // upstream is required
+    r.method = j.value("method", std::string("GET"));
+    r.handler_id = j.value("handler_id", std::string());
+    r.priority = j.value("priority", 0u);
+    r.rewrite_path = j.value("rewrite_path", std::optional<std::string>());
+    r.timeout = j.value("timeout", std::optional<uint32_t>());
+    r.middleware = j.value("middleware", std::vector<std::string>());
+}
+
+inline void from_json(const nlohmann::json& j, CorsConfig& c) {
+    c.enabled = j.value("enabled", false);
+    c.allowed_origins = j.value("allowed_origins", std::vector<std::string>{"*"});
+    c.allowed_methods = j.value("allowed_methods", std::vector<std::string>{"GET", "POST", "PUT", "DELETE", "OPTIONS"});
+    c.allowed_headers = j.value("allowed_headers", std::vector<std::string>{"*"});
+    c.allow_credentials = j.value("allow_credentials", false);
+    c.max_age = j.value("max_age", 86400u);
+}
+
+inline void from_json(const nlohmann::json& j, RateLimitConfig& r) {
+    r.enabled = j.value("enabled", false);
+    r.requests_per_second = j.value("requests_per_second", 100u);
+    r.burst_size = j.value("burst_size", 200u);
+    r.key = j.value("key", std::string("client_ip"));
+}
+
+inline void from_json(const nlohmann::json& j, AuthConfig& a) {
+    a.enabled = j.value("enabled", false);
+    a.type = j.value("type", std::string("bearer"));
+    a.header = j.value("header", std::string("Authorization"));
+    a.valid_tokens = j.value("valid_tokens", std::vector<std::string>());
+}
+
+inline void from_json(const nlohmann::json& j, LogConfig& l) {
+    l.level = j.value("level", std::string("info"));
+    l.format = j.value("format", std::string("json"));
+    l.log_requests = j.value("log_requests", true);
+    l.log_responses = j.value("log_responses", false);
+    l.exclude_paths = j.value("exclude_paths", std::vector<std::string>());
+}
+
+inline void from_json(const nlohmann::json& j, MetricsConfig& m) {
+    m.enabled = j.value("enabled", true);
+    m.port = j.value("port", uint16_t(9090));
+    m.path = j.value("path", std::string("/metrics"));
+    m.format = j.value("format", std::string("prometheus"));
+}
+
+inline void from_json(const nlohmann::json& j, Config& c) {
+    c.server = j.value("server", ServerConfig{});
+    c.routes = j.value("routes", std::vector<RouteConfig>());
+    c.upstreams = j.value("upstreams", std::vector<UpstreamConfig>());
+    c.cors = j.value("cors", CorsConfig{});
+    c.rate_limit = j.value("rate_limit", RateLimitConfig{});
+    c.auth = j.value("auth", AuthConfig{});
+    c.logging = j.value("logging", LogConfig{});
+    c.metrics = j.value("metrics", MetricsConfig{});
+    c.version = j.value("version", std::string("1.0"));
+    c.description = j.value("description", std::optional<std::string>());
+}
+
 /// Configuration validation result
 struct ValidationResult {
     bool valid = true;
@@ -265,162 +409,3 @@ private:
 };
 
 } // namespace titan::control
-
-// Glaze reflection metadata
-namespace glz {
-    template <>
-    struct meta<titan::control::ServerConfig> {
-        using T = titan::control::ServerConfig;
-        static constexpr auto value = object(
-            "worker_threads", &T::worker_threads,
-            "listen_address", &T::listen_address,
-            "listen_port", &T::listen_port,
-            "backlog", &T::backlog,
-            "read_timeout", &T::read_timeout,
-            "write_timeout", &T::write_timeout,
-            "idle_timeout", &T::idle_timeout,
-            "shutdown_timeout", &T::shutdown_timeout,
-            "max_connections", &T::max_connections,
-            "max_request_size", &T::max_request_size,
-            "max_header_size", &T::max_header_size,
-            "tls_enabled", &T::tls_enabled,
-            "tls_certificate_path", &T::tls_certificate_path,
-            "tls_private_key_path", &T::tls_private_key_path,
-            "tls_alpn_protocols", &T::tls_alpn_protocols
-        );
-    };
-
-    template <>
-    struct meta<titan::control::BackendConfig> {
-        using T = titan::control::BackendConfig;
-        static constexpr auto value = object(
-            "host", &T::host,
-            "port", &T::port,
-            "weight", &T::weight,
-            "max_connections", &T::max_connections,
-            "health_check_enabled", &T::health_check_enabled,
-            "health_check_interval", &T::health_check_interval,
-            "health_check_timeout", &T::health_check_timeout,
-            "health_check_path", &T::health_check_path
-        );
-    };
-
-    template <>
-    struct meta<titan::control::CircuitBreakerConfigSchema> {
-        using T = titan::control::CircuitBreakerConfigSchema;
-        static constexpr auto value = object(
-            "enabled", &T::enabled,
-            "failure_threshold", &T::failure_threshold,
-            "success_threshold", &T::success_threshold,
-            "timeout_ms", &T::timeout_ms,
-            "window_ms", &T::window_ms,
-            "enable_global_hints", &T::enable_global_hints,
-            "catastrophic_threshold", &T::catastrophic_threshold
-        );
-    };
-
-    template <>
-    struct meta<titan::control::UpstreamConfig> {
-        using T = titan::control::UpstreamConfig;
-        static constexpr auto value = object(
-            "name", &T::name,
-            "backends", &T::backends,
-            "load_balancing", &T::load_balancing,
-            "max_retries", &T::max_retries,
-            "retry_timeout", &T::retry_timeout,
-            "pool_size", &T::pool_size,
-            "pool_idle_timeout", &T::pool_idle_timeout,
-            "circuit_breaker", &T::circuit_breaker
-        );
-    };
-
-    template <>
-    struct meta<titan::control::RouteConfig> {
-        using T = titan::control::RouteConfig;
-        static constexpr auto value = object(
-            "path", &T::path,
-            "method", &T::method,
-            "upstream", &T::upstream,
-            "handler_id", &T::handler_id,
-            "priority", &T::priority,
-            "rewrite_path", &T::rewrite_path,
-            "timeout", &T::timeout,
-            "middleware", &T::middleware
-        );
-    };
-
-    template <>
-    struct meta<titan::control::CorsConfig> {
-        using T = titan::control::CorsConfig;
-        static constexpr auto value = object(
-            "enabled", &T::enabled,
-            "allowed_origins", &T::allowed_origins,
-            "allowed_methods", &T::allowed_methods,
-            "allowed_headers", &T::allowed_headers,
-            "allow_credentials", &T::allow_credentials,
-            "max_age", &T::max_age
-        );
-    };
-
-    template <>
-    struct meta<titan::control::RateLimitConfig> {
-        using T = titan::control::RateLimitConfig;
-        static constexpr auto value = object(
-            "enabled", &T::enabled,
-            "requests_per_second", &T::requests_per_second,
-            "burst_size", &T::burst_size,
-            "key", &T::key
-        );
-    };
-
-    template <>
-    struct meta<titan::control::AuthConfig> {
-        using T = titan::control::AuthConfig;
-        static constexpr auto value = object(
-            "enabled", &T::enabled,
-            "type", &T::type,
-            "header", &T::header,
-            "valid_tokens", &T::valid_tokens
-        );
-    };
-
-    template <>
-    struct meta<titan::control::LogConfig> {
-        using T = titan::control::LogConfig;
-        static constexpr auto value = object(
-            "level", &T::level,
-            "format", &T::format,
-            "log_requests", &T::log_requests,
-            "log_responses", &T::log_responses,
-            "exclude_paths", &T::exclude_paths
-        );
-    };
-
-    template <>
-    struct meta<titan::control::MetricsConfig> {
-        using T = titan::control::MetricsConfig;
-        static constexpr auto value = object(
-            "enabled", &T::enabled,
-            "port", &T::port,
-            "path", &T::path,
-            "format", &T::format
-        );
-    };
-
-    template <>
-    struct meta<titan::control::Config> {
-        using T = titan::control::Config;
-        static constexpr auto value = object(
-            "server", &T::server,
-            "routes", &T::routes,
-            "upstreams", &T::upstreams,
-            "cors", &T::cors,
-            "rate_limit", &T::rate_limit,
-            "auth", &T::auth,
-            "logging", &T::logging,
-            "metrics", &T::metrics,
-            "version", &T::version,
-            "description", &T::description
-        );
-    };
-}

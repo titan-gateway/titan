@@ -19,7 +19,7 @@
 
 #include "config.hpp"
 
-#include <glaze/glaze.hpp>
+#include <nlohmann/json.hpp>
 
 #include <atomic>
 #include <fstream>
@@ -47,8 +47,10 @@ std::optional<Config> ConfigLoader::load_from_file(std::string_view path) {
 std::optional<Config> ConfigLoader::load_from_json(std::string_view json) {
     Config config;
 
-    auto error = glz::read_json(config, json);
-    if (error) {
+    try {
+        auto j = nlohmann::json::parse(json);
+        config = j.get<Config>();
+    } catch (const nlohmann::json::exception& e) {
         // Parse error
         return std::nullopt;
     }
@@ -187,12 +189,12 @@ bool ConfigLoader::save_to_file(const Config& config, std::string_view path) {
 }
 
 std::string ConfigLoader::to_json(const Config& config) {
-    std::string json;
-    auto error = glz::write_json(config, json);
-    if (error) {
+    try {
+        nlohmann::json j = config;
+        return j.dump(2);  // 2-space indentation
+    } catch (const nlohmann::json::exception& e) {
         return "";
     }
-    return json;
 }
 
 // ConfigManager implementation

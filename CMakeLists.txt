@@ -33,7 +33,7 @@ set(Threads_FOUND TRUE)
 find_package(mimalloc CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(Catch2 3 CONFIG REQUIRED)
-find_package(glaze CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 find_package(fmt CONFIG REQUIRED)
 find_package(llhttp CONFIG REQUIRED)
 
@@ -48,8 +48,11 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     -Wextra
     -Wpedantic
     -Wno-unused-parameter
-    -stdlib=libc++
   )
+
+  # Use libstdc++ (GCC's standard library) to match vcpkg dependencies
+  # Note: libstdc++ from GCC 13+ has std::expected support
+  message(STATUS "Using libstdc++ (GCC C++ standard library)")
 
   # Release optimizations
   if(CMAKE_BUILD_TYPE STREQUAL "Release")
@@ -67,8 +70,9 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   endif()
 endif()
 
-# Static binary build option
+# Build options
 option(BUILD_STATIC "Build fully static binary" OFF)
+option(BUILD_BENCHMARKS "Build benchmark executables" OFF)
 
 if(BUILD_STATIC)
   message(STATUS "Building static binary - linking libstdc++ and OpenSSL statically")
@@ -92,5 +96,7 @@ add_subdirectory(src)
 enable_testing()
 add_subdirectory(tests)
 
-# Benchmarks
-add_subdirectory(benchmarks)
+# Benchmarks (optional)
+if(BUILD_BENCHMARKS)
+  add_subdirectory(benchmarks)
+endif()

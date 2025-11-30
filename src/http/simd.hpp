@@ -28,6 +28,16 @@
 #include <cstdint>
 #include <cstring>
 
+// Platform-specific SIMD headers (must be included before namespace)
+#if defined(__x86_64__) || defined(_M_X64)
+    #include <emmintrin.h>  // SSE2
+    #if defined(__AVX2__)
+        #include <immintrin.h>  // AVX2
+    #endif
+#elif defined(__aarch64__) || defined(_M_ARM64)
+    #include <arm_neon.h>
+#endif
+
 namespace titan::http::simd {
 
 // ============================================================================
@@ -71,13 +81,10 @@ private:
         // x86_64 always has SSE2
         result = result | SIMDFeature::SSE2;
 
-        // Check for AVX2 using CPUID
-#if defined(__GNUC__) || defined(__clang__)
-        unsigned int eax, ebx, ecx, edx;
-        if (__get_cpuid_count(7, 0, &eax, &ebx, &ecx, &edx)) {
-            if (ebx & (1 << 5)) {  // AVX2 bit
-                result = result | SIMDFeature::AVX2;
-            }
+        // Check for AVX2 using Clang built-in (no headers needed!)
+#if defined(__clang__)
+        if (__builtin_cpu_supports("avx2")) {
+            result = result | SIMDFeature::AVX2;
         }
 #endif
 
@@ -91,19 +98,6 @@ private:
 
     SIMDFeature features_;
 };
-
-// ============================================================================
-// Platform-specific SIMD Headers
-// ============================================================================
-
-#if defined(__x86_64__) || defined(_M_X64)
-    #include <emmintrin.h>  // SSE2
-    #if defined(__AVX2__)
-        #include <immintrin.h>  // AVX2
-    #endif
-#elif defined(__aarch64__) || defined(_M_ARM64)
-    #include <arm_neon.h>
-#endif
 
 // ============================================================================
 // SIMD String Operations

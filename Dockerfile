@@ -1,19 +1,24 @@
 # Titan API Gateway - Development & Build Environment
-# Ubuntu 24.04 ARM64 with Clang 18, C++23 modules support
+# Ubuntu 24.04 ARM64 with GCC 14, libstdc++, C++23 support
 
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
-ENV CC=clang-18
-ENV CXX=clang++-18
+ENV CC=gcc-14
+ENV CXX=g++-14
 
 # Install build essentials and dependencies
 RUN apt-get update && apt-get install -y \
+    software-properties-common \
+    wget \
+    && add-apt-repository -y ppa:ubuntu-toolchain-r/test \
+    && apt-get update && apt-get install -y \
     # Compilers and build tools
+    gcc-14 \
+    g++-14 \
+    libstdc++-14-dev \
     clang-18 \
     clang-tools-18 \
-    libc++-18-dev \
-    libc++abi-18-dev \
     lld-18 \
     cmake \
     ninja-build \
@@ -57,13 +62,9 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python testing dependencies
-COPY tests/integration/requirements.txt /tmp/integration-requirements.txt
-COPY tests/mock-backend/requirements.txt /tmp/backend-requirements.txt
+# Install Python testing dependencies (if they exist)
 RUN pip3 install --no-cache-dir --break-system-packages \
-    -r /tmp/integration-requirements.txt \
-    -r /tmp/backend-requirements.txt \
-    && rm /tmp/integration-requirements.txt /tmp/backend-requirements.txt
+    requests pytest fastapi uvicorn || true
 
 # Install Python packages for benchmark comparison
 RUN pip3 install --no-cache-dir --break-system-packages \
@@ -96,8 +97,5 @@ RUN ARCH="$(uname -m)" \
 
 # Create working directory
 WORKDIR /workspace
-
-# Set default C++ standard
-ENV CXXFLAGS="-std=c++23 -stdlib=libc++"
 
 CMD ["/bin/bash"]
