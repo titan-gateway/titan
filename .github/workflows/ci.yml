@@ -163,8 +163,8 @@ jobs:
 
       - name: Build for CodeQL analysis
         run: |
-          make configure PRESET=dev
-          make build PRESET=dev
+          cmake --preset=dev
+          cmake --build --preset=dev --target titan
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
