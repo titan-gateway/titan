@@ -58,8 +58,8 @@ jobs:
             echo "✅ No TODO/FIXME comments found"
           fi
 
-  build-test:
-    name: Build & Test
+  build-test-x86:
+    name: Build & Test (x86_64)
     runs-on: ubuntu-24.04
     needs: [validate-branch, code-quality]
     steps:
@@ -91,9 +91,9 @@ jobs:
           path: |
             /opt/vcpkg
             ~/.cache/vcpkg
-          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-${{ runner.os }}-x86_64-${{ hashFiles('vcpkg.json') }}
           restore-keys: |
-            vcpkg-${{ runner.os }}-
+            vcpkg-${{ runner.os }}-x86_64-
 
       - name: Setup vcpkg
         run: |
@@ -109,9 +109,9 @@ jobs:
           path: |
             build/dev
             ~/.cache/ccache
-          key: build-${{ runner.os }}-${{ github.sha }}
+          key: build-${{ runner.os }}-x86_64-${{ github.sha }}
           restore-keys: |
-            build-${{ runner.os }}-
+            build-${{ runner.os }}-x86_64-
 
       - name: Build and Test (with coverage)
         run: make test-coverage
@@ -130,14 +130,93 @@ jobs:
       - name: Upload titan binary
         uses: actions/upload-artifact@v4
         with:
-          name: titan-binary
+          name: titan-binary-x86_64
           path: build/dev/src/titan
           retention-days: 1
 
-  integration-test:
-    name: Integration Tests
+  build-test-arm64:
+    name: Build & Test (arm64)
+    runs-on: ubuntu-24.04-arm64
+    needs: [validate-branch, code-quality]
+    # Skip ARM64 on PRs to speed up feedback (ARM64 runners are slow to provision)
+    # ARM64 tests run on main branch and release tags
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          # Add GCC 14 repository
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            gcc-14 \
+            g++-14 \
+            libstdc++-14-dev \
+            binutils \
+            pkg-config \
+            python3 \
+            python3-pip \
+            lcov
+
+      - name: Setup vcpkg cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /opt/vcpkg
+            ~/.cache/vcpkg
+          key: vcpkg-${{ runner.os }}-arm64-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-arm64-
+
+      - name: Setup vcpkg
+        run: |
+          if [ ! -d "/opt/vcpkg" ]; then
+            git clone https://github.com/microsoft/vcpkg.git /opt/vcpkg
+            /opt/vcpkg/bootstrap-vcpkg.sh
+          fi
+          echo "VCPKG_ROOT=/opt/vcpkg" >> $GITHUB_ENV
+
+      - name: Setup build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/dev
+            ~/.cache/ccache
+          key: build-${{ runner.os }}-arm64-${{ github.sha }}
+          restore-keys: |
+            build-${{ runner.os }}-arm64-
+
+      - name: Build and Test (with coverage)
+        run: make test-coverage
+
+      - name: Upload Coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.info
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        continue-on-error: true
+
+      - name: Upload titan binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: titan-binary-arm64
+          path: build/dev/src/titan
+          retention-days: 1
+
+  integration-test-x86:
+    name: Integration Tests (x86_64)
     runs-on: ubuntu-24.04
-    needs: build-test
+    needs: build-test-x86
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -145,7 +224,39 @@ jobs:
       - name: Download titan binary
         uses: actions/download-artifact@v4
         with:
-          name: titan-binary
+          name: titan-binary-x86_64
+          path: build/dev/src
+
+      - name: Make binary executable
+        run: chmod +x build/dev/src/titan
+
+      - name: Install Python test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3 python3-pip
+          pip3 install --break-system-packages -r tests/integration/requirements.txt
+          pip3 install --break-system-packages -r tests/mock-backend/requirements.txt
+
+      - name: Run Integration Tests
+        run: |
+          cd tests/integration
+          pytest -v --tb=short
+
+  integration-test-arm64:
+    name: Integration Tests (arm64)
+    runs-on: ubuntu-24.04-arm64
+    needs: build-test-arm64
+    # Skip ARM64 on PRs to speed up feedback (ARM64 runners are slow to provision)
+    # ARM64 tests run on main branch and release tags
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download titan binary
+        uses: actions/download-artifact@v4
+        with:
+          name: titan-binary-arm64
           path: build/dev/src
 
       - name: Make binary executable
@@ -166,7 +277,7 @@ jobs:
   security-scan:
     name: Security Scanning
     runs-on: ubuntu-24.04
-    needs: integration-test
+    needs: integration-test-x86
     permissions:
       security-events: write
       actions: read
