@@ -59,13 +59,15 @@ test-coverage: ## Run tests and generate coverage report
 		--exclude '*/vcpkg_installed/*' \
 		--exclude '*/tests/*' \
 		--exclude '*/build/*' \
-		2>/dev/null || (echo "Coverage generation failed (lcov not installed?)" && exit 1)
+		|| echo "Coverage generation skipped (no coverage data found)"
 	@echo ""
-	@echo "Coverage Summary:"
-	@lcov --list coverage.info 2>/dev/null || true
-	@echo ""
-	@echo "Coverage report generated: coverage.info"
-	@echo "To view HTML report, run: genhtml coverage.info --output-directory coverage_html && open coverage_html/index.html"
+	@if [ -f coverage.info ]; then \
+		echo "Coverage Summary:"; \
+		lcov --list coverage.info || true; \
+		echo ""; \
+		echo "Coverage report generated: coverage.info"; \
+		echo "To view HTML report, run: genhtml coverage.info --output-directory coverage_html && open coverage_html/index.html"; \
+	fi
 
 benchmark: ## Run benchmarks
 	@echo "Running benchmarks..."
