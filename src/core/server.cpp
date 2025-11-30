@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-
 // Titan Server - Implementation
 
 #include "server.hpp"
@@ -25,6 +24,7 @@
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
 #include <cerrno>
 #include <cstring>
 #include <iostream>
@@ -39,28 +39,27 @@ namespace titan::core {
 
 // Backend proxy performance tuning constants
 namespace {
-    // Buffer sizes optimized for typical API responses
-    constexpr size_t kBackendResponseBufferSize = 65536;  // 64KB - most API responses fit
-    constexpr size_t kBackendReadChunkSize = 8192;        // 8KB - fewer syscalls
-    constexpr size_t kBackendMaxResponseSize = 100 * 1024 * 1024;  // 100MB safety limit
+// Buffer sizes optimized for typical API responses
+constexpr size_t kBackendResponseBufferSize = 65536;           // 64KB - most API responses fit
+constexpr size_t kBackendReadChunkSize = 8192;                 // 8KB - fewer syscalls
+constexpr size_t kBackendMaxResponseSize = 100 * 1024 * 1024;  // 100MB safety limit
 
-    // Request building size estimates
-    constexpr size_t kRequestLineBaseSize = 50;      // "METHOD /path HTTP/1.1\r\n"
-    constexpr size_t kRequestHeaderMargin = 50;      // Extra for Connection, Host headers
-    constexpr size_t kHeaderSeparatorSize = 4;       // ": \r\n"
-    constexpr size_t kQuerySeparatorSize = 1;        // "?"
+// Request building size estimates
+constexpr size_t kRequestLineBaseSize = 50;  // "METHOD /path HTTP/1.1\r\n"
+constexpr size_t kRequestHeaderMargin = 50;  // Extra for Connection, Host headers
+constexpr size_t kHeaderSeparatorSize = 4;   // ": \r\n"
+constexpr size_t kQuerySeparatorSize = 1;    // "?"
 
-    // Connection staleness check threshold
-    // Only perform expensive MSG_PEEK validation if connection idle > 5s
-    constexpr auto kConnectionStaleThreshold = std::chrono::seconds(5);
-} // anonymous namespace
+// Connection staleness check threshold
+// Only perform expensive MSG_PEEK validation if connection idle > 5s
+constexpr auto kConnectionStaleThreshold = std::chrono::seconds(5);
+}  // anonymous namespace
 
 Server::Server(const control::Config& config)
-    : config_(config)
-    , router_(std::make_unique<gateway::Router>())
-    , upstream_manager_(std::make_unique<gateway::UpstreamManager>())
-    , pipeline_(std::make_unique<gateway::Pipeline>()) {
-
+    : config_(config),
+      router_(std::make_unique<gateway::Router>()),
+      upstream_manager_(std::make_unique<gateway::UpstreamManager>()),
+      pipeline_(std::make_unique<gateway::Pipeline>()) {
     // Build router from config
     for (const auto& route_config : config_.routes) {
         gateway::Route route;
@@ -71,26 +70,34 @@ Server::Server(const control::Config& config)
             const auto& method_str = route_config.method;
             switch (method_str[0]) {
                 case 'G':
-                    if (method_str == "GET") route.method = http::Method::GET;
+                    if (method_str == "GET")
+                        route.method = http::Method::GET;
                     break;
                 case 'P':
-                    if (method_str == "POST") route.method = http::Method::POST;
-                    else if (method_str == "PUT") route.method = http::Method::PUT;
-                    else if (method_str == "PATCH") route.method = http::Method::PATCH;
+                    if (method_str == "POST")
+                        route.method = http::Method::POST;
+                    else if (method_str == "PUT")
+                        route.method = http::Method::PUT;
+                    else if (method_str == "PATCH")
+                        route.method = http::Method::PATCH;
                     break;
                 case 'D':
-                    if (method_str == "DELETE") route.method = http::Method::DELETE;
+                    if (method_str == "DELETE")
+                        route.method = http::Method::DELETE;
                     break;
                 case 'H':
-                    if (method_str == "HEAD") route.method = http::Method::HEAD;
+                    if (method_str == "HEAD")
+                        route.method = http::Method::HEAD;
                     break;
                 case 'O':
-                    if (method_str == "OPTIONS") route.method = http::Method::OPTIONS;
+                    if (method_str == "OPTIONS")
+                        route.method = http::Method::OPTIONS;
                     break;
             }
         }
 
-        route.handler_id = route_config.handler_id.empty() ? route_config.path : route_config.handler_id;
+        route.handler_id =
+            route_config.handler_id.empty() ? route_config.path : route_config.handler_id;
         route.upstream_name = route_config.upstream;
         route.priority = route_config.priority;
 
@@ -100,7 +107,7 @@ Server::Server(const control::Config& config)
     // Build upstreams from config
     for (const auto& upstream_config : config_.upstreams) {
         // Calculate pool size as max of all backend max_connections
-        size_t pool_size = 64; // Default
+        size_t pool_size = 64;  // Default
         for (const auto& backend_config : upstream_config.backends) {
             pool_size = std::max(pool_size, static_cast<size_t>(backend_config.max_connections));
         }
@@ -122,7 +129,8 @@ Server::Server(const control::Config& config)
                 cb_config.timeout_ms = upstream_config.circuit_breaker.timeout_ms;
                 cb_config.window_ms = upstream_config.circuit_breaker.window_ms;
                 cb_config.enable_global_hints = upstream_config.circuit_breaker.enable_global_hints;
-                cb_config.catastrophic_threshold = upstream_config.circuit_breaker.catastrophic_threshold;
+                cb_config.catastrophic_threshold =
+                    upstream_config.circuit_breaker.catastrophic_threshold;
 
                 upstream->add_backend_with_circuit_breaker(std::move(backend), cb_config);
             } else {
@@ -161,12 +169,9 @@ Server::Server(const control::Config& config)
     // Initialize TLS if enabled
     if (config_.server.tls_enabled) {
         std::error_code error;
-        auto result = TlsContext::create(
-            config_.server.tls_certificate_path,
-            config_.server.tls_private_key_path,
-            config_.server.tls_alpn_protocols,
-            error
-        );
+        auto result = TlsContext::create(config_.server.tls_certificate_path,
+                                         config_.server.tls_private_key_path,
+                                         config_.server.tls_alpn_protocols, error);
 
         if (result) {
             tls_context_ = std::move(*result);
@@ -216,11 +221,8 @@ std::error_code Server::start() {
         // In production, this should be set via systemd LimitNOFILE or ulimit
     }
 
-    listen_fd_ = create_listening_socket(
-        config_.server.listen_address,
-        config_.server.listen_port,
-        config_.server.backlog
-    );
+    listen_fd_ = create_listening_socket(config_.server.listen_address, config_.server.listen_port,
+                                         config_.server.backlog);
 
     if (listen_fd_ < 0) {
         return std::error_code(errno, std::system_category());
@@ -299,7 +301,8 @@ void Server::handle_read(int client_fd) {
                 // Default to HTTP/1.1 (even if ALPN selected "http/1.1" or no ALPN)
                 conn.protocol = Protocol::HTTP_1_1;
             }
-        } else if (result == TlsHandshakeResult::WantRead || result == TlsHandshakeResult::WantWrite) {
+        } else if (result == TlsHandshakeResult::WantRead ||
+                   result == TlsHandshakeResult::WantWrite) {
             // Handshake in progress - wait for more data
             return;
         } else {
@@ -370,10 +373,8 @@ void Server::handle_http1(Connection& conn) {
         conn.response_body.clear();
 
         // Get remaining data from cursor position
-        auto remaining_data = std::span<const uint8_t>(
-            conn.recv_buffer.data() + conn.recv_cursor,
-            conn.recv_buffer.size() - conn.recv_cursor
-        );
+        auto remaining_data = std::span<const uint8_t>(conn.recv_buffer.data() + conn.recv_cursor,
+                                                       conn.recv_buffer.size() - conn.recv_cursor);
 
         // Try to parse HTTP/1.1 request
         auto [result, consumed] = conn.parser.parse_request(remaining_data, conn.request);
@@ -392,7 +393,8 @@ void Server::handle_http1(Connection& conn) {
 
             // Compact buffer periodically to avoid unbounded growth
             if (conn.recv_cursor > 4096 && conn.recv_cursor > conn.recv_buffer.size() / 2) {
-                conn.recv_buffer.erase(conn.recv_buffer.begin(), conn.recv_buffer.begin() + conn.recv_cursor);
+                conn.recv_buffer.erase(conn.recv_buffer.begin(),
+                                       conn.recv_buffer.begin() + conn.recv_cursor);
                 conn.recv_cursor = 0;
             }
 
@@ -637,7 +639,7 @@ bool Server::process_request(Connection& conn) {
     // Determine if client wants keep-alive (HTTP/1.1 defaults to keep-alive)
     bool client_wants_keepalive = true;
     if (conn.request.version == http::Version::HTTP_1_0) {
-        client_wants_keepalive = false; // HTTP/1.0 defaults to close
+        client_wants_keepalive = false;  // HTTP/1.0 defaults to close
     }
 
     // Check Connection header
@@ -707,7 +709,7 @@ void Server::send_response(Connection& conn, bool keep_alive) {
     size_t body_size = conn.response.body.empty() ? 0 : conn.response.body.size();
     size_t estimated_size = 200 + body_size;
     for (const auto& header : conn.response.headers) {
-        estimated_size += header.name.size() + header.value.size() + 4; // ": \r\n"
+        estimated_size += header.name.size() + header.value.size() + 4;  // ": \r\n"
     }
     response_str.reserve(estimated_size);
 
@@ -746,16 +748,16 @@ void Server::send_response(Connection& conn, bool keep_alive) {
 
     // Add body if present
     if (!conn.response.body.empty()) {
-        response_str.append(
-            reinterpret_cast<const char*>(conn.response.body.data()),
-            conn.response.body.size());
+        response_str.append(reinterpret_cast<const char*>(conn.response.body.data()),
+                            conn.response.body.size());
     }
 
     // Send (use TLS if enabled)
     if (conn.tls_enabled) {
-        (void)ssl_write_nonblocking(conn.ssl, std::span<const uint8_t>(
-            reinterpret_cast<const uint8_t*>(response_str.data()),
-            response_str.size()));
+        (void)ssl_write_nonblocking(
+            conn.ssl,
+            std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(response_str.data()),
+                                     response_str.size()));
     } else {
         send(conn.fd, response_str.data(), response_str.size(), 0);
     }
@@ -1041,7 +1043,8 @@ std::string Server::build_backend_request(const http::Request& request) {
     return req;
 }
 
-bool Server::receive_backend_response(int backend_fd, http::Response& response, std::vector<uint8_t>& buffer) {
+bool Server::receive_backend_response(int backend_fd, http::Response& response,
+                                      std::vector<uint8_t>& buffer) {
     buffer.clear();
 
     // Pre-reserve larger buffer to avoid multiple reallocations
@@ -1110,8 +1113,8 @@ bool Server::receive_backend_response(int backend_fd, http::Response& response, 
         // Reset parser and re-parse the entire buffer from scratch
         // Parser maintains state, so we must reset before re-parsing accumulated data
         parser.reset();
-        auto [new_result, new_consumed] = parser.parse_response(
-            std::span<const uint8_t>(buffer), response);
+        auto [new_result, new_consumed] =
+            parser.parse_response(std::span<const uint8_t>(buffer), response);
         result = new_result;
 
         if (result == http::ParseResult::Complete) {
@@ -1207,7 +1210,8 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
             auto* upstream = upstream_manager_->get_upstream(backend_conn->upstream_name);
             if (upstream) {
                 for (auto& backend : upstream->backends()) {
-                    if (backend.host == backend_conn->backend_host && backend.port == backend_conn->backend_port) {
+                    if (backend.host == backend_conn->backend_host &&
+                        backend.port == backend_conn->backend_port) {
                         if (backend.circuit_breaker) {
                             backend.circuit_breaker->record_failure();
                         }
@@ -1229,7 +1233,8 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
 
             client_conn.response.status = http::StatusCode::BadGateway;
             client_conn.response.reason_phrase = "Bad Gateway";
-                client_conn.response.headers.clear();  // Clear any residual headers from middleware                client_conn.response_body.clear();
+            client_conn.response.headers.clear();  // Clear any residual headers from middleware
+                                                   // client_conn.response_body.clear();
             send_response(client_conn, false);
             return;
         }
@@ -1241,7 +1246,8 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
             auto* upstream = upstream_manager_->get_upstream(backend_conn->upstream_name);
             if (upstream) {
                 for (auto& backend : upstream->backends()) {
-                    if (backend.host == backend_conn->backend_host && backend.port == backend_conn->backend_port) {
+                    if (backend.host == backend_conn->backend_host &&
+                        backend.port == backend_conn->backend_port) {
                         if (backend.circuit_breaker) {
                             backend.circuit_breaker->record_failure();
                         }
@@ -1263,7 +1269,8 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
 
             client_conn.response.status = http::StatusCode::BadGateway;
             client_conn.response.reason_phrase = "Bad Gateway";
-                client_conn.response.headers.clear();  // Clear any residual headers from middleware                client_conn.response_body.clear();
+            client_conn.response.headers.clear();  // Clear any residual headers from middleware
+                                                   // client_conn.response_body.clear();
             send_response(client_conn, false);
             return;
         }
@@ -1275,10 +1282,9 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
 
     // Handle writable (can send request to backend)
     if (writable && !backend_conn->connect_pending && backend_conn->send_pending) {
-        ssize_t sent = send(backend_fd,
-            backend_conn->send_buffer.data() + backend_conn->send_cursor,
-            backend_conn->send_buffer.size() - backend_conn->send_cursor,
-            MSG_NOSIGNAL);
+        ssize_t sent =
+            send(backend_fd, backend_conn->send_buffer.data() + backend_conn->send_cursor,
+                 backend_conn->send_buffer.size() - backend_conn->send_cursor, MSG_NOSIGNAL);
 
         if (sent > 0) {
             backend_conn->send_cursor += sent;
@@ -1294,7 +1300,8 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
             auto* upstream = upstream_manager_->get_upstream(backend_conn->upstream_name);
             if (upstream) {
                 for (auto& backend : upstream->backends()) {
-                    if (backend.host == backend_conn->backend_host && backend.port == backend_conn->backend_port) {
+                    if (backend.host == backend_conn->backend_host &&
+                        backend.port == backend_conn->backend_port) {
                         if (backend.circuit_breaker) {
                             backend.circuit_breaker->record_failure();
                         }
@@ -1316,7 +1323,8 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
 
             client_conn.response.status = http::StatusCode::BadGateway;
             client_conn.response.reason_phrase = "Bad Gateway";
-                client_conn.response.headers.clear();  // Clear any residual headers from middleware                client_conn.response_body.clear();
+            client_conn.response.headers.clear();  // Clear any residual headers from middleware
+                                                   // client_conn.response_body.clear();
             send_response(client_conn, false);
         }
     }
@@ -1347,7 +1355,8 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
                 client_conn.response_header_storage.clear();
                 client_conn.response_header_storage.reserve(response.headers.size());
                 for (const auto& h : response.headers) {
-                    client_conn.response_header_storage.emplace_back(std::string(h.name), std::string(h.value));
+                    client_conn.response_header_storage.emplace_back(std::string(h.name),
+                                                                     std::string(h.value));
                 }
 
                 // Now create Headers with string_views pointing to our owned storage
@@ -1375,7 +1384,8 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
                 if (upstream) {
                     // Find the backend by host:port
                     for (auto& backend : upstream->backends()) {
-                        if (backend.host == backend_conn->backend_host && backend.port == backend_conn->backend_port) {
+                        if (backend.host == backend_conn->backend_host &&
+                            backend.port == backend_conn->backend_port) {
                             resp_ctx.backend = const_cast<gateway::Backend*>(&backend);
                             break;
                         }
@@ -1407,8 +1417,7 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
                         close(backend_fd);
                     } else {
                         // Safe to return to pool for reuse
-                        upstream->backend_pool().release(backend_fd,
-                                                         backend_conn->backend_host,
+                        upstream->backend_pool().release(backend_fd, backend_conn->backend_host,
                                                          backend_conn->backend_port);
                     }
                 } else {
@@ -1435,17 +1444,20 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
                     if (client_conn.h2_session && stream_id >= 0) {
                         auto* stream = client_conn.h2_session->get_stream(stream_id);
                         if (stream) {
-                            // Copy response (headers contain string_views that must be converted to owned strings)
+                            // Copy response (headers contain string_views that must be converted to
+                            // owned strings)
                             stream->response.status = client_conn.response.status;
                             stream->response.reason_phrase = client_conn.response.reason_phrase;
 
                             // Store headers in persistent storage, then create views to them
                             stream->response_header_storage.clear();
-                            stream->response_header_storage.reserve(client_conn.response.headers.size());  // Prevent reallocation
+                            stream->response_header_storage.reserve(
+                                client_conn.response.headers.size());  // Prevent reallocation
                             stream->response.headers.clear();
                             stream->response.headers.reserve(client_conn.response.headers.size());
                             for (const auto& h : client_conn.response.headers) {
-                                stream->response_header_storage.emplace_back(std::string(h.name), std::string(h.value));
+                                stream->response_header_storage.emplace_back(std::string(h.name),
+                                                                             std::string(h.value));
                                 const auto& stored = stream->response_header_storage.back();
                                 stream->response.headers.push_back({stored.first, stored.second});
                             }
@@ -1456,28 +1468,31 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
                             stream->response_complete = true;
 
                             // Filter out HTTP/1.1-specific headers forbidden in HTTP/2
-                            // Per RFC 7540 Section 8.1.2: connection-specific headers must not be included
-                            // Also filter out empty headers
+                            // Per RFC 7540 Section 8.1.2: connection-specific headers must not be
+                            // included Also filter out empty headers
                             auto& headers = stream->response.headers;
                             headers.erase(
                                 std::remove_if(headers.begin(), headers.end(),
-                                    [](const http::Header& h) {
-                                        // Remove empty headers
-                                        if (h.name.empty() || h.value.empty()) {
-                                            return true;
-                                        }
-                                        std::string name_lower(h.name);
-                                        std::transform(name_lower.begin(), name_lower.end(), name_lower.begin(), ::tolower);
-                                        return name_lower == "connection" ||
-                                               name_lower == "keep-alive" ||
-                                               name_lower == "proxy-connection" ||
-                                               name_lower == "transfer-encoding" ||
-                                               name_lower == "upgrade";
-                                    }),
+                                               [](const http::Header& h) {
+                                                   // Remove empty headers
+                                                   if (h.name.empty() || h.value.empty()) {
+                                                       return true;
+                                                   }
+                                                   std::string name_lower(h.name);
+                                                   std::transform(name_lower.begin(),
+                                                                  name_lower.end(),
+                                                                  name_lower.begin(), ::tolower);
+                                                   return name_lower == "connection" ||
+                                                          name_lower == "keep-alive" ||
+                                                          name_lower == "proxy-connection" ||
+                                                          name_lower == "transfer-encoding" ||
+                                                          name_lower == "upgrade";
+                                               }),
                                 headers.end());
 
                             // Submit response to HTTP/2 session
-                            auto ec = client_conn.h2_session->submit_response(stream_id, stream->response);
+                            auto ec = client_conn.h2_session->submit_response(stream_id,
+                                                                              stream->response);
                             (void)ec;  // Suppress unused variable warning
 
                             // Serialize and send HTTP/2 frames
@@ -1493,8 +1508,7 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
                     // HTTP/1.1 - use existing send_response
                     send_response(client_conn, client_conn.keep_alive);
                 }
-            }
-            else if (result == http::ParseResult::Error) {
+            } else if (result == http::ParseResult::Error) {
                 // Parse error
                 backend_connections_.erase(it);
                 close(backend_fd);
@@ -1507,8 +1521,7 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
                 send_response(client_conn, false);
             }
             // else: Incomplete - keep waiting for more data
-        }
-        else if (n == 0) {
+        } else if (n == 0) {
             // Backend closed connection
             backend_connections_.erase(it);
             close(backend_fd);
@@ -1516,10 +1529,10 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
 
             client_conn.response.status = http::StatusCode::BadGateway;
             client_conn.response.reason_phrase = "Bad Gateway";
-                client_conn.response.headers.clear();  // Clear any residual headers from middleware                client_conn.response_body.clear();
+            client_conn.response.headers.clear();  // Clear any residual headers from middleware
+                                                   // client_conn.response_body.clear();
             send_response(client_conn, false);
-        }
-        else if (errno != EAGAIN && errno != EWOULDBLOCK) {
+        } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
             // Recv failed
             backend_connections_.erase(it);
             close(backend_fd);
@@ -1527,7 +1540,8 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
 
             client_conn.response.status = http::StatusCode::BadGateway;
             client_conn.response.reason_phrase = "Bad Gateway";
-                client_conn.response.headers.clear();  // Clear any residual headers from middleware                client_conn.response_body.clear();
+            client_conn.response.headers.clear();  // Clear any residual headers from middleware
+                                                   // client_conn.response_body.clear();
             send_response(client_conn, false);
         }
     }
@@ -1551,10 +1565,12 @@ bool Server::add_backend_to_epoll(int backend_fd, uint32_t events) {
     int nchanges = 0;
 
     if (events & EPOLLIN) {
-        EV_SET(&kevs[nchanges++], backend_fd, EVFILT_READ, EV_ADD | EV_ENABLE | EV_CLEAR, 0, 0, nullptr);
+        EV_SET(&kevs[nchanges++], backend_fd, EVFILT_READ, EV_ADD | EV_ENABLE | EV_CLEAR, 0, 0,
+               nullptr);
     }
     if (events & EPOLLOUT) {
-        EV_SET(&kevs[nchanges++], backend_fd, EVFILT_WRITE, EV_ADD | EV_ENABLE | EV_CLEAR, 0, 0, nullptr);
+        EV_SET(&kevs[nchanges++], backend_fd, EVFILT_WRITE, EV_ADD | EV_ENABLE | EV_CLEAR, 0, 0,
+               nullptr);
     }
 
     if (nchanges > 0) {
@@ -1584,4 +1600,4 @@ bool Server::remove_backend_from_epoll(int backend_fd) {
 #endif
 }
 
-} // namespace titan::core
+}  // namespace titan::core

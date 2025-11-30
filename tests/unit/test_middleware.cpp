@@ -1,14 +1,14 @@
 // Titan Two-Phase Middleware Unit Tests
 
-#include "../../src/gateway/pipeline.hpp"
-#include "../../src/gateway/upstream.hpp"
-#include "../../src/http/http.hpp"
-
 #include <catch2/catch_test_macros.hpp>
+#include <chrono>
 #include <iostream>
 #include <sstream>
 #include <thread>
-#include <chrono>
+
+#include "../../src/gateway/pipeline.hpp"
+#include "../../src/gateway/upstream.hpp"
+#include "../../src/http/http.hpp"
 
 using namespace titan::gateway;
 using namespace titan::http;
@@ -529,12 +529,10 @@ TEST_CASE("CorsMiddleware - Custom configuration", "[middleware][cors]") {
     bool found_credentials = false;
 
     for (const auto& header : res.headers) {
-        if (header.name == "Access-Control-Allow-Origin" &&
-            header.value == "https://example.com") {
+        if (header.name == "Access-Control-Allow-Origin" && header.value == "https://example.com") {
             found_origin = true;
         }
-        if (header.name == "Access-Control-Allow-Credentials" &&
-            header.value == "true") {
+        if (header.name == "Access-Control-Allow-Credentials" && header.value == "true") {
             found_credentials = true;
         }
     }

@@ -1,8 +1,8 @@
 // Metrics Tests
 
-#include "control/metrics.hpp"
-
 #include <catch2/catch_test_macros.hpp>
+
+#include "control/metrics.hpp"
 
 using namespace titan::control;
 

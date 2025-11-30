@@ -1,11 +1,11 @@
 // Rate Limiting Tests
 
-#include "gateway/rate_limit.hpp"
-#include "gateway/pipeline.hpp"
-#include "http/http.hpp"
-
 #include <catch2/catch_test_macros.hpp>
 #include <thread>
+
+#include "gateway/pipeline.hpp"
+#include "gateway/rate_limit.hpp"
+#include "http/http.hpp"
 
 using namespace titan::gateway;
 using namespace titan::http;
@@ -32,8 +32,8 @@ TEST_CASE("TokenBucket basic operations", "[gateway][rate_limit]") {
     SECTION("Insufficient tokens") {
         TokenBucket bucket(10, 1);
 
-        REQUIRE(bucket.consume(5));   // 10 -> 5
-        REQUIRE(bucket.consume(3));   // 5 -> 2
+        REQUIRE(bucket.consume(5));        // 10 -> 5
+        REQUIRE(bucket.consume(3));        // 5 -> 2
         REQUIRE_FALSE(bucket.consume(5));  // Not enough tokens (need 5, have 2)
         REQUIRE(bucket.available() == 2);  // Still 2 (consumption failed)
     }
@@ -68,8 +68,8 @@ TEST_CASE("TokenBucket refill over time", "[gateway][rate_limit]") {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
         // Trigger refill by trying to consume
-        bucket.consume(0);  // No-op consume to trigger refill
-        REQUIRE(bucket.available() >= 60);  // At least 10 tokens refilled
+        bucket.consume(0);                   // No-op consume to trigger refill
+        REQUIRE(bucket.available() >= 60);   // At least 10 tokens refilled
         REQUIRE(bucket.available() <= 100);  // Capped at capacity
     }
 
@@ -81,7 +81,7 @@ TEST_CASE("TokenBucket refill over time", "[gateway][rate_limit]") {
         // Sleep longer than needed to refill
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
-        bucket.consume(0);  // Trigger refill
+        bucket.consume(0);                  // Trigger refill
         REQUIRE(bucket.available() == 10);  // Capped at capacity, not more
     }
 }

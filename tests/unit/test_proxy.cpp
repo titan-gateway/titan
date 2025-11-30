@@ -1,18 +1,18 @@
 // Titan Proxy Functions Unit Tests
 // Tests for backend connection, request building, and response parsing
 
-#include "../../src/core/server.hpp"
-#include "../../src/http/http.hpp"
-
-#include <catch2/catch_test_macros.hpp>
-
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#include <thread>
+
+#include <catch2/catch_test_macros.hpp>
 #include <chrono>
 #include <cstring>
+#include <thread>
+
+#include "../../src/core/server.hpp"
+#include "../../src/http/http.hpp"
 
 using namespace titan;
 using namespace titan::core;
@@ -21,10 +21,7 @@ using namespace titan::http;
 // Test fixture with access to private methods via friend declaration
 class ProxyTestFixture {
 public:
-    ProxyTestFixture()
-        : config_(create_test_config())
-        , server_(config_) {
-    }
+    ProxyTestFixture() : config_(create_test_config()), server_(config_) {}
 
     // Wrapper methods to access private Server methods
     std::string test_build_backend_request(const Request& req) {
@@ -205,9 +202,7 @@ public:
     int get_client_fd() const { return sockets_[0]; }
 
     // Write response data to the backend side
-    void write_response(const std::string& data) {
-        send(sockets_[1], data.data(), data.size(), 0);
-    }
+    void write_response(const std::string& data) { send(sockets_[1], data.data(), data.size(), 0); }
 
     // Write response in chunks with delays (simulate slow backend)
     void write_response_chunked(const std::vector<std::string>& chunks, int delay_ms = 10) {
@@ -262,7 +257,9 @@ TEST_CASE("receive_backend_response - JSON response", "[proxy][receive_response]
     std::string response_str =
         "HTTP/1.1 200 OK\r\n"
         "Content-Type: application/json\r\n"
-        "Content-Length: " + std::to_string(json_body.size()) + "\r\n"
+        "Content-Length: " +
+        std::to_string(json_body.size()) +
+        "\r\n"
         "\r\n" +
         json_body;
 
@@ -357,7 +354,9 @@ TEST_CASE("receive_backend_response - Large response (multi-read)", "[proxy][rec
     std::string response_str =
         "HTTP/1.1 200 OK\r\n"
         "Content-Type: text/plain\r\n"
-        "Content-Length: " + std::to_string(large_body.size()) + "\r\n"
+        "Content-Length: " +
+        std::to_string(large_body.size()) +
+        "\r\n"
         "\r\n" +
         large_body;
 
@@ -374,7 +373,8 @@ TEST_CASE("receive_backend_response - Large response (multi-read)", "[proxy][rec
     REQUIRE(resp.body[resp.body.size() - 1] == 'X');
 }
 
-TEST_CASE("receive_backend_response - Response split across multiple recv()", "[proxy][receive_response]") {
+TEST_CASE("receive_backend_response - Response split across multiple recv()",
+          "[proxy][receive_response]") {
     ProxyTestFixture fixture;
     MockBackend backend;
 
@@ -485,7 +485,8 @@ TEST_CASE("connect_to_backend - Connect to localhost by IP", "[proxy][connect]")
     // Accept connection on server side to verify
     struct sockaddr_in client_addr{};
     socklen_t client_len = sizeof(client_addr);
-    int accepted = accept(listen_sock, reinterpret_cast<struct sockaddr*>(&client_addr), &client_len);
+    int accepted =
+        accept(listen_sock, reinterpret_cast<struct sockaddr*>(&client_addr), &client_len);
     REQUIRE(accepted >= 0);
 
     close(client_fd);
@@ -521,7 +522,8 @@ TEST_CASE("connect_to_backend - Connect to localhost by hostname", "[proxy][conn
 
     struct sockaddr_in client_addr{};
     socklen_t client_len = sizeof(client_addr);
-    int accepted = accept(listen_sock, reinterpret_cast<struct sockaddr*>(&client_addr), &client_len);
+    int accepted =
+        accept(listen_sock, reinterpret_cast<struct sockaddr*>(&client_addr), &client_len);
     REQUIRE(accepted >= 0);
 
     close(client_fd);
@@ -533,7 +535,8 @@ TEST_CASE("connect_to_backend - Connection refused", "[proxy][connect]") {
     ProxyTestFixture fixture;
 
     // Try to connect to a port that's not listening
-    int client_fd = fixture.test_connect_to_backend("127.0.0.1", 1);  // Port 1 (typically privileged)
+    int client_fd =
+        fixture.test_connect_to_backend("127.0.0.1", 1);  // Port 1 (typically privileged)
 
     // Should fail (return -1)
     REQUIRE(client_fd == -1);

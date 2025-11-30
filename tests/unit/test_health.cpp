@@ -1,8 +1,8 @@
 // Health Check Tests
 
-#include "control/health.hpp"
-
 #include <catch2/catch_test_macros.hpp>
+
+#include "control/health.hpp"
 
 using namespace titan::control;
 

@@ -14,15 +14,13 @@
  * limitations under the License.
  */
 
-
 // Titan Configuration - Implementation
 
 #include "config.hpp"
 
-#include <nlohmann/json.hpp>
-
 #include <atomic>
 #include <fstream>
+#include <nlohmann/json.hpp>
 #include <sstream>
 
 namespace titan::control {
@@ -96,7 +94,8 @@ ValidationResult ConfigLoader::validate(const Config& config) {
 
         for (const auto& backend : upstream.backends) {
             if (backend.host.empty()) {
-                result.add_error("Backend host cannot be empty in upstream '" + upstream.name + "'");
+                result.add_error("Backend host cannot be empty in upstream '" + upstream.name +
+                                 "'");
             }
 
             if (backend.port == 0) {
@@ -104,16 +103,17 @@ ValidationResult ConfigLoader::validate(const Config& config) {
             }
 
             if (backend.weight == 0) {
-                result.add_warning("Backend weight is 0 in upstream '" + upstream.name + "' (will not receive traffic)");
+                result.add_warning("Backend weight is 0 in upstream '" + upstream.name +
+                                   "' (will not receive traffic)");
             }
         }
 
         // Validate load balancing strategy
         if (upstream.load_balancing != "round_robin" &&
-            upstream.load_balancing != "least_connections" &&
-            upstream.load_balancing != "random" &&
+            upstream.load_balancing != "least_connections" && upstream.load_balancing != "random" &&
             upstream.load_balancing != "weighted_round_robin") {
-            result.add_error("Unknown load_balancing strategy '" + upstream.load_balancing + "' in upstream '" + upstream.name + "'");
+            result.add_error("Unknown load_balancing strategy '" + upstream.load_balancing +
+                             "' in upstream '" + upstream.name + "'");
         }
     }
 
@@ -141,26 +141,24 @@ ValidationResult ConfigLoader::validate(const Config& config) {
         }
 
         if (!upstream_found) {
-            result.add_error("Route '" + route.path + "' references non-existent upstream '" + route.upstream + "'");
+            result.add_error("Route '" + route.path + "' references non-existent upstream '" +
+                             route.upstream + "'");
         }
 
         // Validate HTTP method
         if (!route.method.empty()) {
-            if (route.method != "GET" && route.method != "POST" &&
-                route.method != "PUT" && route.method != "DELETE" &&
-                route.method != "HEAD" && route.method != "OPTIONS" &&
-                route.method != "PATCH" && route.method != "CONNECT" &&
-                route.method != "TRACE") {
-                result.add_error("Unknown HTTP method '" + route.method + "' in route '" + route.path + "'");
+            if (route.method != "GET" && route.method != "POST" && route.method != "PUT" &&
+                route.method != "DELETE" && route.method != "HEAD" && route.method != "OPTIONS" &&
+                route.method != "PATCH" && route.method != "CONNECT" && route.method != "TRACE") {
+                result.add_error("Unknown HTTP method '" + route.method + "' in route '" +
+                                 route.path + "'");
             }
         }
     }
 
     // Validate logging level
-    if (config.logging.level != "debug" &&
-        config.logging.level != "info" &&
-        config.logging.level != "warning" &&
-        config.logging.level != "error") {
+    if (config.logging.level != "debug" && config.logging.level != "info" &&
+        config.logging.level != "warning" && config.logging.level != "error") {
         result.add_error("Unknown logging level '" + config.logging.level + "'");
     }
 
@@ -250,4 +248,4 @@ std::shared_ptr<const Config> ConfigManager::get() const noexcept {
     return std::atomic_load(&current_config_);
 }
 
-} // namespace titan::control
+}  // namespace titan::control

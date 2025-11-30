@@ -1,9 +1,9 @@
 // Titan Load Balancing & Backend Unit Tests
 
+#include <catch2/catch_test_macros.hpp>
+
 #include "../../src/gateway/upstream.hpp"
 #include "../../src/http/http.hpp"
-
-#include <catch2/catch_test_macros.hpp>
 
 using namespace titan::gateway;
 using namespace titan::http;
@@ -53,14 +53,14 @@ TEST_CASE("LeastConnectionsBalancer - Selects least loaded", "[keepalive][loadba
         b.host = "backend" + std::to_string(i);
         b.port = 3000 + i;
         b.max_connections = 100;
-        b.active_connections = i * 10; // 0, 10, 20
+        b.active_connections = i * 10;  // 0, 10, 20
         backends.push_back(std::move(b));
     }
 
     Backend* selected = balancer.select(backends, "");
 
     REQUIRE(selected != nullptr);
-    REQUIRE(selected->active_connections == 0); // First backend has least
+    REQUIRE(selected->active_connections == 0);  // First backend has least
 }
 
 // ============================================================================

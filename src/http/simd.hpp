@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-
 // Titan SIMD Accelerated String Operations
 // Platform-agnostic SIMD primitives for HTTP parsing
 //
@@ -30,12 +29,12 @@
 
 // Platform-specific SIMD headers (must be included before namespace)
 #if defined(__x86_64__) || defined(_M_X64)
-    #include <emmintrin.h>  // SSE2
-    #if defined(__AVX2__)
-        #include <immintrin.h>  // AVX2
-    #endif
+#include <emmintrin.h>  // SSE2
+#if defined(__AVX2__)
+#include <immintrin.h>  // AVX2
+#endif
 #elif defined(__aarch64__) || defined(_M_ARM64)
-    #include <arm_neon.h>
+#include <arm_neon.h>
 #endif
 
 namespace titan::http::simd {
@@ -46,9 +45,9 @@ namespace titan::http::simd {
 
 enum class SIMDFeature {
     None = 0,
-    SSE2 = 1 << 0,   // x86: 128-bit (16 bytes)
-    AVX2 = 1 << 1,   // x86: 256-bit (32 bytes)
-    NEON = 1 << 2,   // ARM: 128-bit (16 bytes)
+    SSE2 = 1 << 0,  // x86: 128-bit (16 bytes)
+    AVX2 = 1 << 1,  // x86: 256-bit (32 bytes)
+    NEON = 1 << 2,  // ARM: 128-bit (16 bytes)
 };
 
 inline SIMDFeature operator|(SIMDFeature a, SIMDFeature b) {
@@ -158,7 +157,8 @@ inline const char* find_char(const char* data, size_t len, char ch) noexcept {
             if (vgetq_lane_u64(cmp64, 0) != 0 || vgetq_lane_u64(cmp64, 1) != 0) {
                 // Found match - scan to find exact position
                 for (int i = 0; i < 16; i++) {
-                    if (ptr[i] == ch) return ptr + i;
+                    if (ptr[i] == ch)
+                        return ptr + i;
                 }
             }
             ptr += 16;
@@ -168,7 +168,8 @@ inline const char* find_char(const char* data, size_t len, char ch) noexcept {
 
     // Scalar fallback for remaining bytes
     while (ptr < end) {
-        if (*ptr == ch) return ptr;
+        if (*ptr == ch)
+            return ptr;
         ptr++;
     }
 
@@ -178,7 +179,8 @@ inline const char* find_char(const char* data, size_t len, char ch) noexcept {
 // Find CRLF (\r\n) sequence in buffer
 // Returns pointer to \r or nullptr if not found
 inline const char* find_crlf(const char* data, size_t len) noexcept {
-    if (len < 2) return nullptr;
+    if (len < 2)
+        return nullptr;
 
     const char* ptr = data;
     const char* end = data + len - 1;  // -1 because we need space for \n
@@ -277,17 +279,15 @@ inline int memcmp_case_insensitive(const char* a, const char* b, size_t len) noe
             __m256i chunk_b = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(pb));
 
             // Convert to lowercase: set bit 5 for A-Z
-            __m256i is_upper_a = _mm256_and_si256(
-                _mm256_cmpgt_epi8(chunk_a, lower_a),
-                _mm256_cmpgt_epi8(upper_z, chunk_a)
-            );
-            __m256i lower_chunk_a = _mm256_or_si256(chunk_a, _mm256_and_si256(is_upper_a, a_z_mask));
+            __m256i is_upper_a = _mm256_and_si256(_mm256_cmpgt_epi8(chunk_a, lower_a),
+                                                  _mm256_cmpgt_epi8(upper_z, chunk_a));
+            __m256i lower_chunk_a =
+                _mm256_or_si256(chunk_a, _mm256_and_si256(is_upper_a, a_z_mask));
 
-            __m256i is_upper_b = _mm256_and_si256(
-                _mm256_cmpgt_epi8(chunk_b, lower_a),
-                _mm256_cmpgt_epi8(upper_z, chunk_b)
-            );
-            __m256i lower_chunk_b = _mm256_or_si256(chunk_b, _mm256_and_si256(is_upper_b, a_z_mask));
+            __m256i is_upper_b = _mm256_and_si256(_mm256_cmpgt_epi8(chunk_b, lower_a),
+                                                  _mm256_cmpgt_epi8(upper_z, chunk_b));
+            __m256i lower_chunk_b =
+                _mm256_or_si256(chunk_b, _mm256_and_si256(is_upper_b, a_z_mask));
 
             // Compare
             __m256i cmp = _mm256_cmpeq_epi8(lower_chunk_a, lower_chunk_b);
@@ -298,7 +298,8 @@ inline int memcmp_case_insensitive(const char* a, const char* b, size_t len) noe
                 for (size_t i = 0; i < 32; i++) {
                     char ca = to_lower(pa[i]);
                     char cb = to_lower(pb[i]);
-                    if (ca != cb) return ca - cb;
+                    if (ca != cb)
+                        return ca - cb;
                 }
             }
 
@@ -316,16 +317,12 @@ inline int memcmp_case_insensitive(const char* a, const char* b, size_t len) noe
             __m128i chunk_a = _mm_loadu_si128(reinterpret_cast<const __m128i*>(pa));
             __m128i chunk_b = _mm_loadu_si128(reinterpret_cast<const __m128i*>(pb));
 
-            __m128i is_upper_a = _mm_and_si128(
-                _mm_cmpgt_epi8(chunk_a, lower_a),
-                _mm_cmpgt_epi8(upper_z, chunk_a)
-            );
+            __m128i is_upper_a =
+                _mm_and_si128(_mm_cmpgt_epi8(chunk_a, lower_a), _mm_cmpgt_epi8(upper_z, chunk_a));
             __m128i lower_chunk_a = _mm_or_si128(chunk_a, _mm_and_si128(is_upper_a, a_z_mask));
 
-            __m128i is_upper_b = _mm_and_si128(
-                _mm_cmpgt_epi8(chunk_b, lower_a),
-                _mm_cmpgt_epi8(upper_z, chunk_b)
-            );
+            __m128i is_upper_b =
+                _mm_and_si128(_mm_cmpgt_epi8(chunk_b, lower_a), _mm_cmpgt_epi8(upper_z, chunk_b));
             __m128i lower_chunk_b = _mm_or_si128(chunk_b, _mm_and_si128(is_upper_b, a_z_mask));
 
             __m128i cmp = _mm_cmpeq_epi8(lower_chunk_a, lower_chunk_b);
@@ -335,7 +332,8 @@ inline int memcmp_case_insensitive(const char* a, const char* b, size_t len) noe
                 for (size_t i = 0; i < 16; i++) {
                     char ca = to_lower(pa[i]);
                     char cb = to_lower(pb[i]);
-                    if (ca != cb) return ca - cb;
+                    if (ca != cb)
+                        return ca - cb;
                 }
             }
 
@@ -349,7 +347,8 @@ inline int memcmp_case_insensitive(const char* a, const char* b, size_t len) noe
     while (pa < end) {
         char ca = to_lower(*pa);
         char cb = to_lower(*pb);
-        if (ca != cb) return ca - cb;
+        if (ca != cb)
+            return ca - cb;
         pa++;
         pb++;
     }
@@ -448,4 +447,4 @@ inline size_t common_prefix_length(const char* a, const char* b, size_t len) noe
     return i;
 }
 
-} // namespace titan::http::simd
+}  // namespace titan::http::simd

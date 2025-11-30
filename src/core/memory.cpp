@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-
 // Titan Memory Management - Implementation
 // Monotonic arena allocator implementation
 
@@ -127,4 +126,4 @@ void Arena::grow(size_t min_size) {
     capacity_ = new_capacity;
 }
 
-} // namespace titan::core
+}  // namespace titan::core

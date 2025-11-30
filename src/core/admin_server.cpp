@@ -14,19 +14,19 @@
  * limitations under the License.
  */
 
-
 // Titan Admin Server - Implementation
 // Lightweight HTTP server for internal admin endpoints
 
 #include "admin_server.hpp"
-#include "socket.hpp"
-#include "../control/prometheus.hpp"
 
 #include <atomic>
 
+#include "../control/prometheus.hpp"
+#include "socket.hpp"
+
 // Forward declare global for metrics
 namespace titan::core {
-    extern std::atomic<const gateway::UpstreamManager*> g_upstream_manager_for_metrics;
+extern std::atomic<const gateway::UpstreamManager*> g_upstream_manager_for_metrics;
 }
 
 #include <arpa/inet.h>
@@ -42,9 +42,7 @@ namespace titan::core {
 
 AdminServer::AdminServer(const control::Config& config,
                          const gateway::UpstreamManager* upstream_manager)
-    : config_(config)
-    , upstream_manager_(upstream_manager) {
-}
+    : config_(config), upstream_manager_(upstream_manager) {}
 
 AdminServer::~AdminServer() {
     stop();
@@ -159,10 +157,7 @@ void AdminServer::handle_connection(int client_fd) {
                 titan::core::g_upstream_manager_for_metrics.load(std::memory_order_acquire);
 
             std::string body = control::PrometheusExporter::export_circuit_breaker_metrics(
-                upstream_mgr,
-                worker_id_,
-                "titan"
-            );
+                upstream_mgr, worker_id_, "titan");
             send_response(client_fd, 200, "text/plain; version=0.0.4", body);
             return;
         }
@@ -200,17 +195,28 @@ AdminServer::SimpleRequest AdminServer::parse_request(const char* data, size_t l
     return req;
 }
 
-void AdminServer::send_response(int fd, int status_code, std::string_view content_type, std::string_view body) {
+void AdminServer::send_response(int fd, int status_code, std::string_view content_type,
+                                std::string_view body) {
     std::ostringstream response;
 
     // Status line
     response << "HTTP/1.1 " << status_code << " ";
     switch (status_code) {
-        case 200: response << "OK"; break;
-        case 400: response << "Bad Request"; break;
-        case 404: response << "Not Found"; break;
-        case 500: response << "Internal Server Error"; break;
-        default: response << "Unknown"; break;
+        case 200:
+            response << "OK";
+            break;
+        case 400:
+            response << "Bad Request";
+            break;
+        case 404:
+            response << "Not Found";
+            break;
+        case 500:
+            response << "Internal Server Error";
+            break;
+        default:
+            response << "Unknown";
+            break;
     }
     response << "\r\n";
 
@@ -229,4 +235,4 @@ void AdminServer::send_response(int fd, int status_code, std::string_view conten
     send(fd, response_str.data(), response_str.size(), 0);
 }
 
-} // namespace titan::core
+}  // namespace titan::core

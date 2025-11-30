@@ -14,27 +14,26 @@
  * limitations under the License.
  */
 
-
 // Titan Prometheus Exporter - Header
 // Formats metrics in Prometheus text exposition format
 
 #pragma once
 
-#include "../gateway/upstream.hpp"
-#include "metrics.hpp"
-
 #include <sstream>
 #include <string>
 #include <string_view>
+
+#include "../gateway/upstream.hpp"
+#include "metrics.hpp"
 
 namespace titan::control {
 
 /// Prometheus metric types
 enum class PrometheusType {
-    Counter,   // Monotonically increasing counter
-    Gauge,     // Value that can go up or down
-    Histogram, // Observations in buckets
-    Summary    // Quantile summaries
+    Counter,    // Monotonically increasing counter
+    Gauge,      // Value that can go up or down
+    Histogram,  // Observations in buckets
+    Summary     // Quantile summaries
 };
 
 /// Prometheus exporter
@@ -49,114 +48,84 @@ public:
 
     /// Export metrics in Prometheus text format
     [[nodiscard]] static std::string export_metrics(const MetricsSnapshot& metrics,
-                                                     std::string_view namespace_prefix = "titan") {
+                                                    std::string_view namespace_prefix = "titan") {
         std::ostringstream out;
 
         // Request metrics (counters)
-        write_metric(out, namespace_prefix, "requests_total",
-            "Total number of HTTP requests",
-            PrometheusType::Counter,
-            metrics.total_requests);
+        write_metric(out, namespace_prefix, "requests_total", "Total number of HTTP requests",
+                     PrometheusType::Counter, metrics.total_requests);
 
-        write_metric(out, namespace_prefix, "errors_total",
-            "Total number of errors",
-            PrometheusType::Counter,
-            metrics.total_errors);
+        write_metric(out, namespace_prefix, "errors_total", "Total number of errors",
+                     PrometheusType::Counter, metrics.total_errors);
 
-        write_metric(out, namespace_prefix, "timeouts_total",
-            "Total number of timeouts",
-            PrometheusType::Counter,
-            metrics.total_timeouts);
+        write_metric(out, namespace_prefix, "timeouts_total", "Total number of timeouts",
+                     PrometheusType::Counter, metrics.total_timeouts);
 
         // Connection metrics
         write_metric(out, namespace_prefix, "connections_active",
-            "Current number of active connections",
-            PrometheusType::Gauge,
-            metrics.active_connections);
+                     "Current number of active connections", PrometheusType::Gauge,
+                     metrics.active_connections);
 
-        write_metric(out, namespace_prefix, "connections_total",
-            "Total number of connections",
-            PrometheusType::Counter,
-            metrics.total_connections);
+        write_metric(out, namespace_prefix, "connections_total", "Total number of connections",
+                     PrometheusType::Counter, metrics.total_connections);
 
         write_metric(out, namespace_prefix, "connections_rejected_total",
-            "Total number of rejected connections",
-            PrometheusType::Counter,
-            metrics.rejected_connections);
+                     "Total number of rejected connections", PrometheusType::Counter,
+                     metrics.rejected_connections);
 
         // Latency metrics (microseconds)
         write_metric(out, namespace_prefix, "latency_microseconds_total",
-            "Total latency in microseconds",
-            PrometheusType::Counter,
-            metrics.total_latency_us);
+                     "Total latency in microseconds", PrometheusType::Counter,
+                     metrics.total_latency_us);
 
         write_metric(out, namespace_prefix, "latency_microseconds_min",
-            "Minimum latency in microseconds",
-            PrometheusType::Gauge,
-            metrics.min_latency_us);
+                     "Minimum latency in microseconds", PrometheusType::Gauge,
+                     metrics.min_latency_us);
 
         write_metric(out, namespace_prefix, "latency_microseconds_max",
-            "Maximum latency in microseconds",
-            PrometheusType::Gauge,
-            metrics.max_latency_us);
+                     "Maximum latency in microseconds", PrometheusType::Gauge,
+                     metrics.max_latency_us);
 
         // Average latency (derived)
         write_metric(out, namespace_prefix, "latency_microseconds_avg",
-            "Average latency in microseconds",
-            PrometheusType::Gauge,
-            metrics.avg_latency_us());
+                     "Average latency in microseconds", PrometheusType::Gauge,
+                     metrics.avg_latency_us());
 
         // Bandwidth metrics
-        write_metric(out, namespace_prefix, "bytes_received_total",
-            "Total bytes received",
-            PrometheusType::Counter,
-            metrics.bytes_received);
+        write_metric(out, namespace_prefix, "bytes_received_total", "Total bytes received",
+                     PrometheusType::Counter, metrics.bytes_received);
 
-        write_metric(out, namespace_prefix, "bytes_sent_total",
-            "Total bytes sent",
-            PrometheusType::Counter,
-            metrics.bytes_sent);
+        write_metric(out, namespace_prefix, "bytes_sent_total", "Total bytes sent",
+                     PrometheusType::Counter, metrics.bytes_sent);
 
         // HTTP status code metrics
         write_metric(out, namespace_prefix, "http_responses_total",
-            "Total HTTP responses by status class",
-            PrometheusType::Counter,
-            metrics.status_2xx,
-            {{"code", "2xx"}});
+                     "Total HTTP responses by status class", PrometheusType::Counter,
+                     metrics.status_2xx, {{"code", "2xx"}});
 
         write_metric(out, namespace_prefix, "http_responses_total",
-            "Total HTTP responses by status class",
-            PrometheusType::Counter,
-            metrics.status_3xx,
-            {{"code", "3xx"}});
+                     "Total HTTP responses by status class", PrometheusType::Counter,
+                     metrics.status_3xx, {{"code", "3xx"}});
 
         write_metric(out, namespace_prefix, "http_responses_total",
-            "Total HTTP responses by status class",
-            PrometheusType::Counter,
-            metrics.status_4xx,
-            {{"code", "4xx"}});
+                     "Total HTTP responses by status class", PrometheusType::Counter,
+                     metrics.status_4xx, {{"code", "4xx"}});
 
         write_metric(out, namespace_prefix, "http_responses_total",
-            "Total HTTP responses by status class",
-            PrometheusType::Counter,
-            metrics.status_5xx,
-            {{"code", "5xx"}});
+                     "Total HTTP responses by status class", PrometheusType::Counter,
+                     metrics.status_5xx, {{"code", "5xx"}});
 
         // Error rate (derived)
-        write_metric(out, namespace_prefix, "error_rate",
-            "Error rate (errors/requests)",
-            PrometheusType::Gauge,
-            metrics.error_rate());
+        write_metric(out, namespace_prefix, "error_rate", "Error rate (errors/requests)",
+                     PrometheusType::Gauge, metrics.error_rate());
 
         return out.str();
     }
 
     /// Export circuit breaker metrics for all upstreams
     [[nodiscard]] static std::string export_circuit_breaker_metrics(
-        const gateway::UpstreamManager* upstream_manager,
-        uint32_t worker_id = 0,
+        const gateway::UpstreamManager* upstream_manager, uint32_t worker_id = 0,
         std::string_view namespace_prefix = "titan") {
-
         if (!upstream_manager) {
             return "";
         }
@@ -169,54 +138,44 @@ public:
             const auto& upstream = *upstream_ptr;
             for (const auto& backend : upstream.backends()) {
                 if (!backend.circuit_breaker) {
-                    continue; // Skip backends without circuit breaker
+                    continue;  // Skip backends without circuit breaker
                 }
 
-                std::vector<Label> labels = {
-                    {"backend", backend.address()},
-                    {"upstream", std::string(upstream.name())},
-                    {"worker", std::to_string(worker_id)}
-                };
+                std::vector<Label> labels = {{"backend", backend.address()},
+                                             {"upstream", std::string(upstream.name())},
+                                             {"worker", std::to_string(worker_id)}};
 
                 // Circuit breaker state (0=CLOSED, 1=OPEN, 2=HALF_OPEN)
                 auto state = backend.circuit_breaker->get_state();
                 uint64_t state_value = 0;
-                if (state == gateway::CircuitState::OPEN) state_value = 1;
-                else if (state == gateway::CircuitState::HALF_OPEN) state_value = 2;
+                if (state == gateway::CircuitState::OPEN)
+                    state_value = 1;
+                else if (state == gateway::CircuitState::HALF_OPEN)
+                    state_value = 2;
 
                 write_metric(out, namespace_prefix, "circuit_breaker_state",
-                    "Circuit breaker state (0=CLOSED, 1=OPEN, 2=HALF_OPEN)",
-                    PrometheusType::Gauge,
-                    state_value,
-                    labels);
+                             "Circuit breaker state (0=CLOSED, 1=OPEN, 2=HALF_OPEN)",
+                             PrometheusType::Gauge, state_value, labels);
 
                 // Total failures
                 write_metric(out, namespace_prefix, "circuit_breaker_failures_total",
-                    "Total failures recorded by circuit breaker",
-                    PrometheusType::Counter,
-                    backend.circuit_breaker->get_total_failures(),
-                    labels);
+                             "Total failures recorded by circuit breaker", PrometheusType::Counter,
+                             backend.circuit_breaker->get_total_failures(), labels);
 
                 // Total successes
                 write_metric(out, namespace_prefix, "circuit_breaker_successes_total",
-                    "Total successes recorded by circuit breaker",
-                    PrometheusType::Counter,
-                    backend.circuit_breaker->get_total_successes(),
-                    labels);
+                             "Total successes recorded by circuit breaker", PrometheusType::Counter,
+                             backend.circuit_breaker->get_total_successes(), labels);
 
                 // Rejected requests
                 write_metric(out, namespace_prefix, "circuit_breaker_rejected_total",
-                    "Total requests rejected by circuit breaker",
-                    PrometheusType::Counter,
-                    backend.circuit_breaker->get_rejected_requests(),
-                    labels);
+                             "Total requests rejected by circuit breaker", PrometheusType::Counter,
+                             backend.circuit_breaker->get_rejected_requests(), labels);
 
                 // State transitions
                 write_metric(out, namespace_prefix, "circuit_breaker_transitions_total",
-                    "Total circuit breaker state transitions",
-                    PrometheusType::Counter,
-                    backend.circuit_breaker->get_state_transitions(),
-                    labels);
+                             "Total circuit breaker state transitions", PrometheusType::Counter,
+                             backend.circuit_breaker->get_state_transitions(), labels);
             }
         }
 
@@ -231,11 +190,9 @@ private:
     };
 
     /// Write HELP and TYPE lines
-    static void write_header(std::ostringstream& out,
-                            std::string_view namespace_prefix,
-                            std::string_view metric_name,
-                            std::string_view help,
-                            PrometheusType type) {
+    static void write_header(std::ostringstream& out, std::string_view namespace_prefix,
+                             std::string_view metric_name, std::string_view help,
+                             PrometheusType type) {
         // HELP line
         out << "# HELP " << namespace_prefix << "_" << metric_name << " " << help << "\n";
 
@@ -259,13 +216,10 @@ private:
     }
 
     /// Write metric with uint64_t value
-    static void write_metric(std::ostringstream& out,
-                           std::string_view namespace_prefix,
-                           std::string_view metric_name,
-                           std::string_view help,
-                           PrometheusType type,
-                           uint64_t value,
-                           const std::vector<Label>& labels = {}) {
+    static void write_metric(std::ostringstream& out, std::string_view namespace_prefix,
+                             std::string_view metric_name, std::string_view help,
+                             PrometheusType type, uint64_t value,
+                             const std::vector<Label>& labels = {}) {
         static std::string last_metric;
         std::string full_name = std::string(namespace_prefix) + "_" + std::string(metric_name);
 
@@ -294,13 +248,10 @@ private:
     }
 
     /// Write metric with double value
-    static void write_metric(std::ostringstream& out,
-                           std::string_view namespace_prefix,
-                           std::string_view metric_name,
-                           std::string_view help,
-                           PrometheusType type,
-                           double value,
-                           const std::vector<Label>& labels = {}) {
+    static void write_metric(std::ostringstream& out, std::string_view namespace_prefix,
+                             std::string_view metric_name, std::string_view help,
+                             PrometheusType type, double value,
+                             const std::vector<Label>& labels = {}) {
         static std::string last_metric;
         std::string full_name = std::string(namespace_prefix) + "_" + std::string(metric_name);
 
@@ -329,4 +280,4 @@ private:
     }
 };
 
-} // namespace titan::control
+}  // namespace titan::control

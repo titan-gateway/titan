@@ -14,12 +14,7 @@
  * limitations under the License.
  */
 
-
 // Titan API Gateway - Main Entry Point
-#include "core/server_runner.hpp"
-#include "core/tls.hpp"
-#include "control/config.hpp"
-
 #include <atomic>
 #include <csignal>
 #include <cstdio>
@@ -27,17 +22,21 @@
 #include <memory>
 #include <string>
 
+#include "control/config.hpp"
+#include "core/server_runner.hpp"
+#include "core/tls.hpp"
+
 namespace titan::core {
-    std::atomic<bool> g_server_running{true};
-    std::atomic<bool> g_graceful_shutdown{false};
-    // Global upstream manager pointer for metrics (set by worker 0)
-    std::atomic<const gateway::UpstreamManager*> g_upstream_manager_for_metrics{nullptr};
-}
+std::atomic<bool> g_server_running{true};
+std::atomic<bool> g_graceful_shutdown{false};
+// Global upstream manager pointer for metrics (set by worker 0)
+std::atomic<const gateway::UpstreamManager*> g_upstream_manager_for_metrics{nullptr};
+}  // namespace titan::core
 
 namespace {
-    // Global ConfigManager for hot-reload support
-    std::unique_ptr<titan::control::ConfigManager> g_config_manager;
-}
+// Global ConfigManager for hot-reload support
+std::unique_ptr<titan::control::ConfigManager> g_config_manager;
+}  // namespace
 
 void signal_handler(int signal) {
     if (signal == SIGINT || signal == SIGTERM) {
@@ -134,9 +133,7 @@ int main(int argc, char* argv[]) {
 
     const titan::control::Config& config = *config_ptr;
 
-    printf("Listening on %s:%u\n",
-           config.server.listen_address.c_str(),
-           config.server.listen_port);
+    printf("Listening on %s:%u\n", config.server.listen_address.c_str(), config.server.listen_port);
 
     // Install signal handlers for graceful shutdown and config reload
     std::signal(SIGINT, signal_handler);   // Ctrl+C

@@ -14,13 +14,13 @@
  * limitations under the License.
  */
 
-
 // Titan Health Checks - Implementation
 
 #include "health.hpp"
 
-#include <algorithm>
 #include <fmt/core.h>
+
+#include <algorithm>
 #include <sstream>
 
 namespace titan::control {
@@ -34,12 +34,9 @@ void HealthChecker::stop() {
     running_ = false;
 }
 
-BackendHealth HealthChecker::check_backend(
-    std::string_view host,
-    uint16_t port,
-    std::string_view path,
-    std::chrono::milliseconds timeout) {
-
+BackendHealth HealthChecker::check_backend(std::string_view host, uint16_t port,
+                                           std::string_view path,
+                                           std::chrono::milliseconds timeout) {
     BackendHealth health;
     health.host = host;
     health.port = port;
@@ -72,7 +69,8 @@ ServerHealth HealthChecker::get_server_health() const {
 
     // Determine overall status
     if (total_errors_ > 0 && total_requests_ > 0) {
-        double error_rate = static_cast<double>(total_errors_) / static_cast<double>(total_requests_);
+        double error_rate =
+            static_cast<double>(total_errors_) / static_cast<double>(total_requests_);
         if (error_rate >= 0.5) {
             health.status = HealthStatus::Unhealthy;
         } else if (error_rate >= 0.1) {
@@ -87,7 +85,8 @@ ServerHealth HealthChecker::get_server_health() const {
     // Group backends by upstream
     std::vector<std::string> upstream_names;
     for (const auto& backend : backend_states_) {
-        if (std::find(upstream_names.begin(), upstream_names.end(), backend.upstream_name) == upstream_names.end()) {
+        if (std::find(upstream_names.begin(), upstream_names.end(), backend.upstream_name) ==
+            upstream_names.end()) {
             upstream_names.push_back(backend.upstream_name);
         }
     }
@@ -136,12 +135,8 @@ ServerHealth HealthChecker::get_server_health() const {
     return health;
 }
 
-void HealthChecker::update_backend_health(
-    std::string_view upstream_name,
-    std::string_view host,
-    uint16_t port,
-    HealthStatus status) {
-
+void HealthChecker::update_backend_health(std::string_view upstream_name, std::string_view host,
+                                          uint16_t port, HealthStatus status) {
     BackendState* state = find_backend_state(upstream_name, host, port);
     if (!state) {
         // Create new backend state
@@ -181,10 +176,8 @@ void HealthChecker::update_active_connections(uint64_t count) {
     active_connections_ = count;
 }
 
-void HealthChecker::update_backend_with_circuit_breaker(
-    gateway::Backend* backend,
-    HealthStatus status) {
-
+void HealthChecker::update_backend_with_circuit_breaker(gateway::Backend* backend,
+                                                        HealthStatus status) {
     if (!backend) {
         return;
     }
@@ -192,21 +185,21 @@ void HealthChecker::update_backend_with_circuit_breaker(
     // Update backend status based on health check
     if (status == HealthStatus::Healthy) {
         if (backend->status != gateway::BackendStatus::Healthy) {
-            fmt::print("[INFO] Health check: Backend {}:{} recovered → Healthy\n",
-                      backend->host, backend->port);
+            fmt::print("[INFO] Health check: Backend {}:{} recovered → Healthy\n", backend->host,
+                       backend->port);
         }
         backend->status = gateway::BackendStatus::Healthy;
         backend->consecutive_failures = 0;
     } else if (status == HealthStatus::Degraded) {
         if (backend->status != gateway::BackendStatus::Degraded) {
-            fmt::print("[WARN] Health check: Backend {}:{} degraded\n",
-                      backend->host, backend->port);
+            fmt::print("[WARN] Health check: Backend {}:{} degraded\n", backend->host,
+                       backend->port);
         }
         backend->status = gateway::BackendStatus::Degraded;
     } else if (status == HealthStatus::Unhealthy) {
         if (backend->status != gateway::BackendStatus::Unhealthy) {
-            fmt::print("[ERROR] Health check: Backend {}:{} unhealthy\n",
-                      backend->host, backend->port);
+            fmt::print("[ERROR] Health check: Backend {}:{} unhealthy\n", backend->host,
+                       backend->port);
         }
         backend->status = gateway::BackendStatus::Unhealthy;
         backend->consecutive_failures++;
@@ -219,15 +212,11 @@ void HealthChecker::update_backend_with_circuit_breaker(
     }
 }
 
-HealthChecker::BackendState* HealthChecker::find_backend_state(
-    std::string_view upstream_name,
-    std::string_view host,
-    uint16_t port) {
-
+HealthChecker::BackendState* HealthChecker::find_backend_state(std::string_view upstream_name,
+                                                               std::string_view host,
+                                                               uint16_t port) {
     for (auto& state : backend_states_) {
-        if (state.upstream_name == upstream_name &&
-            state.host == host &&
-            state.port == port) {
+        if (state.upstream_name == upstream_name && state.host == host && state.port == port) {
             return &state;
         }
     }
@@ -265,7 +254,8 @@ std::string HealthResponse::to_json(const ServerHealth& health) {
 
     // Error rate
     if (health.total_requests > 0) {
-        double error_rate = static_cast<double>(health.total_errors) / static_cast<double>(health.total_requests);
+        double error_rate =
+            static_cast<double>(health.total_errors) / static_cast<double>(health.total_requests);
         json << "  \"error_rate\": " << error_rate << ",\n";
     } else {
         json << "  \"error_rate\": 0.0,\n";
@@ -365,4 +355,4 @@ std::string HealthResponse::to_text(const ServerHealth& health) {
     return text.str();
 }
 
-} // namespace titan::control
+}  // namespace titan::control

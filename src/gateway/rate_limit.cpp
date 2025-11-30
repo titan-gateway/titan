@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-
 // Titan Rate Limiting - Implementation
 
 #include "rate_limit.hpp"
@@ -26,16 +25,16 @@ namespace titan::gateway {
 // TokenBucket implementation
 
 TokenBucket::TokenBucket(uint64_t capacity, uint64_t refill_rate)
-    : capacity_(capacity)
-    , refill_rate_(refill_rate)
-    , tokens_(capacity)
-    , last_refill_(std::chrono::steady_clock::now()) {}
+    : capacity_(capacity),
+      refill_rate_(refill_rate),
+      tokens_(capacity),
+      last_refill_(std::chrono::steady_clock::now()) {}
 
 TokenBucket::TokenBucket(TokenBucket&& other) noexcept
-    : capacity_(other.capacity_)
-    , refill_rate_(other.refill_rate_)
-    , tokens_(other.tokens_)
-    , last_refill_(other.last_refill_) {}
+    : capacity_(other.capacity_),
+      refill_rate_(other.refill_rate_),
+      tokens_(other.tokens_),
+      last_refill_(other.last_refill_) {}
 
 TokenBucket& TokenBucket::operator=(TokenBucket&& other) noexcept {
     if (this != &other) {
@@ -89,8 +88,7 @@ void TokenBucket::refill() {
 // ThreadLocalRateLimiter implementation
 
 ThreadLocalRateLimiter::ThreadLocalRateLimiter(uint64_t capacity, uint64_t refill_rate)
-    : capacity_(capacity)
-    , refill_rate_(refill_rate) {}
+    : capacity_(capacity), refill_rate_(refill_rate) {}
 
 bool ThreadLocalRateLimiter::allow(std::string_view key, uint64_t tokens) {
     std::string key_str{key};
@@ -130,4 +128,4 @@ uint64_t ThreadLocalRateLimiter::available(std::string_view key) const {
     return it->second.available();
 }
 
-} // namespace titan::gateway
+}  // namespace titan::gateway

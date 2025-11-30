@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-
 // Titan Socket Utilities - Implementation
 
 #include "socket.hpp"
@@ -112,4 +111,4 @@ void close_fd(int fd) {
     }
 }
 
-} // namespace titan::core
+}  // namespace titan::core

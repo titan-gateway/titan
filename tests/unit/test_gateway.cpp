@@ -1,12 +1,11 @@
 // Titan Gateway Layer Unit Tests
 
+#include <catch2/catch_test_macros.hpp>
+#include <map>
+
+#include "../../src/gateway/pipeline.hpp"
 #include "../../src/gateway/router.hpp"
 #include "../../src/gateway/upstream.hpp"
-#include "../../src/gateway/pipeline.hpp"
-
-#include <catch2/catch_test_macros.hpp>
-
-#include <map>
 
 using namespace titan::gateway;
 using namespace titan::http;
@@ -208,7 +207,7 @@ TEST_CASE("Least connections load balancer", "[gateway][upstream]") {
         b.host = "backend" + std::to_string(i);
         b.port = 8080 + i;
         b.status = BackendStatus::Healthy;
-        b.active_connections = i * 5; // 0, 5, 10
+        b.active_connections = i * 5;  // 0, 5, 10
         backends.push_back(std::move(b));
     }
 
@@ -216,7 +215,7 @@ TEST_CASE("Least connections load balancer", "[gateway][upstream]") {
 
     Backend* selected = balancer.select(backends, "");
     REQUIRE(selected != nullptr);
-    REQUIRE(selected->host == "backend0"); // Has 0 connections
+    REQUIRE(selected->host == "backend0");  // Has 0 connections
 }
 
 TEST_CASE("Weighted round-robin load balancer", "[gateway][upstream]") {
@@ -308,15 +307,19 @@ TEST_CASE("Pipeline execution", "[gateway][pipeline]") {
     bool middleware1_called = false;
     bool middleware2_called = false;
 
-    pipeline.use([&](RequestContext& ctx) {
-        middleware1_called = true;
-        return MiddlewareResult::Continue;
-    }, "middleware1");
+    pipeline.use(
+        [&](RequestContext& ctx) {
+            middleware1_called = true;
+            return MiddlewareResult::Continue;
+        },
+        "middleware1");
 
-    pipeline.use([&](RequestContext& ctx) {
-        middleware2_called = true;
-        return MiddlewareResult::Continue;
-    }, "middleware2");
+    pipeline.use(
+        [&](RequestContext& ctx) {
+            middleware2_called = true;
+            return MiddlewareResult::Continue;
+        },
+        "middleware2");
 
     RequestContext ctx;
     auto result = pipeline.execute(ctx);
@@ -332,15 +335,19 @@ TEST_CASE("Pipeline early stop", "[gateway][pipeline]") {
     bool middleware1_called = false;
     bool middleware2_called = false;
 
-    pipeline.use([&](RequestContext& ctx) {
-        middleware1_called = true;
-        return MiddlewareResult::Stop;
-    }, "middleware1");
+    pipeline.use(
+        [&](RequestContext& ctx) {
+            middleware1_called = true;
+            return MiddlewareResult::Stop;
+        },
+        "middleware1");
 
-    pipeline.use([&](RequestContext& ctx) {
-        middleware2_called = true;
-        return MiddlewareResult::Continue;
-    }, "middleware2");
+    pipeline.use(
+        [&](RequestContext& ctx) {
+            middleware2_called = true;
+            return MiddlewareResult::Continue;
+        },
+        "middleware2");
 
     RequestContext ctx;
     auto result = pipeline.execute(ctx);

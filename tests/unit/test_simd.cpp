@@ -1,13 +1,12 @@
 // Titan SIMD Tests
 // Unit tests for SIMD-accelerated string operations
 
-#include "../../src/http/simd.hpp"
-
-#include <catch2/catch_test_macros.hpp>
 #include <catch2/benchmark/catch_benchmark.hpp>
-
+#include <catch2/catch_test_macros.hpp>
 #include <cstring>
 #include <string>
+
+#include "../../src/http/simd.hpp"
 
 using namespace titan::http::simd;
 
@@ -301,12 +300,7 @@ TEST_CASE("SIMD operations - HTTP parsing scenarios", "[simd][http]") {
     }
 
     SECTION("Case-insensitive header matching") {
-        const char* headers[] = {
-            "content-type",
-            "Content-Type",
-            "CONTENT-TYPE",
-            "CoNtEnT-TyPe"
-        };
+        const char* headers[] = {"content-type", "Content-Type", "CONTENT-TYPE", "CoNtEnT-TyPe"};
 
         for (const char* header : headers) {
             REQUIRE(strcasecmp_eq(header, "content-type", 12));

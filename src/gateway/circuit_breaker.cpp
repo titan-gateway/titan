@@ -28,8 +28,7 @@ namespace titan::gateway {
 std::atomic<bool> CircuitBreaker::global_backend_down_[CircuitBreaker::MAX_BACKENDS];
 
 CircuitBreaker::CircuitBreaker(CircuitBreakerConfig config)
-    : config_(config)
-    , state_transition_time_(std::chrono::steady_clock::now()) {
+    : config_(config), state_transition_time_(std::chrono::steady_clock::now()) {
     // Initialize global flags to false (could be done at static init, but explicit is better)
     for (size_t i = 0; i < MAX_BACKENDS; ++i) {
         global_backend_down_[i].store(false, std::memory_order_relaxed);
@@ -37,16 +36,16 @@ CircuitBreaker::CircuitBreaker(CircuitBreakerConfig config)
 }
 
 CircuitBreaker::CircuitBreaker(CircuitBreaker&& other) noexcept
-    : config_(other.config_)
-    , state_(other.state_.load(std::memory_order_acquire))
-    , failure_timestamps_(std::move(other.failure_timestamps_))
-    , consecutive_successes_(other.consecutive_successes_)
-    , state_transition_time_(other.state_transition_time_)
-    , total_failures_(other.total_failures_.load(std::memory_order_relaxed))
-    , total_successes_(other.total_successes_.load(std::memory_order_relaxed))
-    , rejected_requests_(other.rejected_requests_.load(std::memory_order_relaxed))
-    , state_transitions_(other.state_transitions_.load(std::memory_order_relaxed))
-    , backend_id_(other.backend_id_) {}
+    : config_(other.config_),
+      state_(other.state_.load(std::memory_order_acquire)),
+      failure_timestamps_(std::move(other.failure_timestamps_)),
+      consecutive_successes_(other.consecutive_successes_),
+      state_transition_time_(other.state_transition_time_),
+      total_failures_(other.total_failures_.load(std::memory_order_relaxed)),
+      total_successes_(other.total_successes_.load(std::memory_order_relaxed)),
+      rejected_requests_(other.rejected_requests_.load(std::memory_order_relaxed)),
+      state_transitions_(other.state_transitions_.load(std::memory_order_relaxed)),
+      backend_id_(other.backend_id_) {}
 
 CircuitBreaker& CircuitBreaker::operator=(CircuitBreaker&& other) noexcept {
     if (this != &other) {
@@ -91,7 +90,7 @@ bool CircuitBreaker::should_allow_request() {
             return true;
     }
 
-    return false; // Unreachable, but satisfies compiler
+    return false;  // Unreachable, but satisfies compiler
 }
 
 void CircuitBreaker::record_success() {
@@ -144,10 +143,8 @@ void CircuitBreaker::record_failure() {
         // Check if we've hit failure threshold
         if (failure_timestamps_.size() >= config_.failure_threshold) {
             transition_to(CircuitState::OPEN);
-            fmt::print(
-                "[INFO] Circuit breaker CLOSED → OPEN ({} failures in {}ms window)\n",
-                failure_timestamps_.size(),
-                config_.window_ms);
+            fmt::print("[INFO] Circuit breaker CLOSED → OPEN ({} failures in {}ms window)\n",
+                       failure_timestamps_.size(), config_.window_ms);
         }
 
         // Check for catastrophic failure rate (help other workers)
@@ -203,14 +200,14 @@ bool CircuitBreaker::try_half_open() {
     if (time_in_open >= timeout) {
         // Timeout expired, try transitioning to HALF_OPEN
         auto expected = CircuitState::OPEN;
-        if (state_.compare_exchange_strong(
-                expected, CircuitState::HALF_OPEN, std::memory_order_acq_rel)) {
+        if (state_.compare_exchange_strong(expected, CircuitState::HALF_OPEN,
+                                           std::memory_order_acq_rel)) {
             state_transition_time_ = now;
             state_transitions_.fetch_add(1, std::memory_order_relaxed);
             consecutive_successes_ = 0;
             fmt::print(
                 "[INFO] Circuit breaker OPEN → HALF_OPEN (timeout expired, testing recovery)\n");
-            return true; // Allow this request through as recovery test
+            return true;  // Allow this request through as recovery test
         }
     }
 
@@ -231,4 +228,4 @@ void CircuitBreaker::clear_global_catastrophic_failure() {
     global_backend_down_[backend_id_].store(false, std::memory_order_release);
 }
 
-} // namespace titan::gateway
+}  // namespace titan::gateway

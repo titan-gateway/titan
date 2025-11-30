@@ -14,13 +14,10 @@
  * limitations under the License.
  */
 
-
 // Titan Router - Header
 // Radix tree for fast path matching with parameters and wildcards
 
 #pragma once
-
-#include "../http/http.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -29,6 +26,8 @@
 #include <string_view>
 #include <unordered_map>
 #include <vector>
+
+#include "../http/http.hpp"
 
 namespace titan::gateway {
 
@@ -40,14 +39,12 @@ struct RouteParam {
 
 /// Match result from router
 struct RouteMatch {
-    std::string_view handler_id;           // Unique identifier for matched route
-    std::vector<RouteParam> params;        // Extracted path parameters
-    std::string_view wildcard;             // Wildcard match (if any)
-    std::string_view upstream_name;        // Upstream name for this route
+    std::string_view handler_id;     // Unique identifier for matched route
+    std::vector<RouteParam> params;  // Extracted path parameters
+    std::string_view wildcard;       // Wildcard match (if any)
+    std::string_view upstream_name;  // Upstream name for this route
 
-    [[nodiscard]] bool matched() const noexcept {
-        return !handler_id.empty();
-    }
+    [[nodiscard]] bool matched() const noexcept { return !handler_id.empty(); }
 
     // Helper: Get parameter value by name
     [[nodiscard]] std::optional<std::string_view> get_param(std::string_view name) const noexcept;
@@ -55,14 +52,14 @@ struct RouteMatch {
 
 /// Route definition
 struct Route {
-    std::string path;                      // Path pattern (e.g., "/users/:id")
-    http::Method method;                   // HTTP method (or UNKNOWN for any)
-    std::string handler_id;                // Unique handler identifier
-    uint32_t priority = 0;                 // Higher priority = checked first
+    std::string path;        // Path pattern (e.g., "/users/:id")
+    http::Method method;     // HTTP method (or UNKNOWN for any)
+    std::string handler_id;  // Unique handler identifier
+    uint32_t priority = 0;   // Higher priority = checked first
 
     // Backend configuration (for proxy routes)
-    std::string upstream_name;             // Name of upstream group
-    std::string rewrite_path;              // Optional path rewriting
+    std::string upstream_name;  // Name of upstream group
+    std::string rewrite_path;   // Optional path rewriting
 };
 
 /// Radix tree node (internal)
@@ -77,13 +74,13 @@ public:
     RadixNode(RadixNode&&) noexcept = default;
     RadixNode& operator=(RadixNode&&) noexcept = default;
 
-    std::string prefix;                    // Path prefix for this node
-    std::unordered_map<http::Method, Route> handlers; // Method -> Route mapping
-    std::vector<std::unique_ptr<RadixNode>> children; // Child nodes
+    std::string prefix;                                // Path prefix for this node
+    std::unordered_map<http::Method, Route> handlers;  // Method -> Route mapping
+    std::vector<std::unique_ptr<RadixNode>> children;  // Child nodes
 
-    bool is_param = false;                 // True if this is a :param node
-    bool is_wildcard = false;              // True if this is a * wildcard node
-    std::string param_name;                // Parameter name (if is_param)
+    bool is_param = false;     // True if this is a :param node
+    bool is_wildcard = false;  // True if this is a * wildcard node
+    std::string param_name;    // Parameter name (if is_param)
 };
 
 /// Router with Radix tree for path matching
@@ -105,9 +102,7 @@ public:
     [[nodiscard]] RouteMatch match(http::Method method, std::string_view path) const;
 
     /// Get all registered routes
-    [[nodiscard]] const std::vector<Route>& routes() const noexcept {
-        return routes_;
-    }
+    [[nodiscard]] const std::vector<Route>& routes() const noexcept { return routes_; }
 
     /// Clear all routes
     void clear();
@@ -125,12 +120,8 @@ private:
     void insert_route(const Route& route);
 
     // Search radix tree for match
-    RouteMatch search(
-        RadixNode* node,
-        std::string_view path,
-        http::Method method,
-        std::vector<RouteParam>& params,
-        size_t depth = 0) const;
+    RouteMatch search(RadixNode* node, std::string_view path, http::Method method,
+                      std::vector<RouteParam>& params, size_t depth = 0) const;
 
     // Find common prefix length between two strings
     static size_t common_prefix_length(std::string_view a, std::string_view b);
@@ -178,9 +169,7 @@ public:
         return *this;
     }
 
-    Route build() && {
-        return std::move(route_);
-    }
+    Route build() && { return std::move(route_); }
 
 private:
     Route route_;
@@ -201,4 +190,4 @@ private:
     return segment == "*";
 }
 
-} // namespace titan::gateway
+}  // namespace titan::gateway

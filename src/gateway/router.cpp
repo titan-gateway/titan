@@ -14,14 +14,14 @@
  * limitations under the License.
  */
 
-
 // Titan Router - Implementation
 
 #include "router.hpp"
-#include "../http/simd.hpp"
 
 #include <algorithm>
 #include <sstream>
+
+#include "../http/simd.hpp"
 
 namespace titan::gateway {
 
@@ -89,11 +89,8 @@ void Router::insert_route(const Route& route) {
         size_t slash_pos = std::string_view::npos;
         if (remaining_path.size() >= 16) {
             // Use SIMD find for longer paths
-            const char* slash_ptr = http::simd::find_char(
-                remaining_path.data(),
-                remaining_path.size(),
-                '/'
-            );
+            const char* slash_ptr =
+                http::simd::find_char(remaining_path.data(), remaining_path.size(), '/');
             if (slash_ptr) {
                 slash_pos = slash_ptr - remaining_path.data();
             }
@@ -144,7 +141,7 @@ void Router::insert_route(const Route& route) {
             auto new_node = std::make_unique<RadixNode>();
             if (is_param) {
                 new_node->is_param = true;
-                new_node->param_name = std::string(segment.substr(1)); // Remove :
+                new_node->param_name = std::string(segment.substr(1));  // Remove :
             } else if (is_wildcard) {
                 new_node->is_wildcard = true;
             } else {
@@ -176,13 +173,8 @@ void Router::insert_route(const Route& route) {
     }
 }
 
-RouteMatch Router::search(
-    RadixNode* node,
-    std::string_view path,
-    http::Method method,
-    std::vector<RouteParam>& params,
-    size_t depth) const {
-
+RouteMatch Router::search(RadixNode* node, std::string_view path, http::Method method,
+                          std::vector<RouteParam>& params, size_t depth) const {
     if (!node) {
         return {};
     }
@@ -230,9 +222,8 @@ RouteMatch Router::search(
         slash_pos = path.find('/');
     }
     std::string_view segment = path.substr(0, slash_pos);
-    std::string_view remaining = (slash_pos != std::string_view::npos)
-        ? path.substr(slash_pos)
-        : std::string_view{};
+    std::string_view remaining =
+        (slash_pos != std::string_view::npos) ? path.substr(slash_pos) : std::string_view{};
 
     // Try matching children
     for (const auto& child : node->children) {
@@ -257,7 +248,7 @@ RouteMatch Router::search(
             if (result.matched()) {
                 return result;
             }
-            params.pop_back(); // Backtrack
+            params.pop_back();  // Backtrack
         } else if (segment.starts_with(child->prefix)) {
             // Prefix match
             std::string_view next_path = path;
@@ -292,7 +283,8 @@ RadixNode* Router::split_node(RadixNode* node, size_t pos) {
 }
 
 void Router::calculate_stats(const RadixNode* node, Stats& stats, size_t depth) const {
-    if (!node) return;
+    if (!node)
+        return;
 
     stats.total_nodes++;
     stats.max_depth = std::max(stats.max_depth, depth);
@@ -355,4 +347,4 @@ std::vector<std::string> extract_param_names(std::string_view pattern) {
     return params;
 }
 
-} // namespace titan::gateway
+}  // namespace titan::gateway

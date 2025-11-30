@@ -14,14 +14,10 @@
  * limitations under the License.
  */
 
-
 // Titan Upstream - Header
 // Connection pooling and load balancing for backend servers
 
 #pragma once
-
-#include "circuit_breaker.hpp"
-#include "connection_pool.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -31,6 +27,9 @@
 #include <string_view>
 #include <vector>
 
+#include "circuit_breaker.hpp"
+#include "connection_pool.hpp"
+
 namespace titan::gateway {
 
 /// Backend server status
@@ -38,14 +37,14 @@ enum class BackendStatus : uint8_t {
     Healthy,
     Degraded,
     Unhealthy,
-    Draining    // Graceful shutdown
+    Draining  // Graceful shutdown
 };
 
 /// Backend server definition
 struct Backend {
     std::string host;
     uint16_t port = 80;
-    uint32_t weight = 1;                   // For weighted load balancing
+    uint32_t weight = 1;  // For weighted load balancing
     BackendStatus status = BackendStatus::Healthy;
 
     // Connection limits
@@ -68,19 +67,19 @@ struct Backend {
     // Make Backend movable by handling atomics
     Backend() = default;
     Backend(Backend&& other) noexcept
-        : host(std::move(other.host))
-        , port(other.port)
-        , weight(other.weight)
-        , status(other.status)
-        , max_connections(other.max_connections)
-        , active_connections(other.active_connections)
-        , last_health_check(other.last_health_check)
-        , consecutive_failures(other.consecutive_failures)
-        , circuit_breaker(std::move(other.circuit_breaker))
-        , total_requests(other.total_requests.load())
-        , total_failures(other.total_failures.load())
-        , total_bytes_sent(other.total_bytes_sent.load())
-        , total_bytes_received(other.total_bytes_received.load()) {}
+        : host(std::move(other.host)),
+          port(other.port),
+          weight(other.weight),
+          status(other.status),
+          max_connections(other.max_connections),
+          active_connections(other.active_connections),
+          last_health_check(other.last_health_check),
+          consecutive_failures(other.consecutive_failures),
+          circuit_breaker(std::move(other.circuit_breaker)),
+          total_requests(other.total_requests.load()),
+          total_failures(other.total_failures.load()),
+          total_bytes_sent(other.total_bytes_sent.load()),
+          total_bytes_received(other.total_bytes_received.load()) {}
 
     Backend& operator=(Backend&& other) noexcept {
         if (this != &other) {
@@ -118,7 +117,8 @@ struct Backend {
         // Gate 2: Circuit breaker state (real-time failure tracking)
         // Note: const_cast is safe here since should_allow_request() only reads state
         // for CLOSED/OPEN decision (mutations happen in record_failure/success)
-        if (circuit_breaker && !const_cast<CircuitBreaker*>(circuit_breaker.get())->should_allow_request()) {
+        if (circuit_breaker &&
+            !const_cast<CircuitBreaker*>(circuit_breaker.get())->should_allow_request()) {
             return false;  // Too many recent failures, circuit is OPEN
         }
 
@@ -130,18 +130,16 @@ struct Backend {
         return true;
     }
 
-    [[nodiscard]] std::string address() const {
-        return host + ":" + std::to_string(port);
-    }
+    [[nodiscard]] std::string address() const { return host + ":" + std::to_string(port); }
 };
 
 /// Load balancing strategy
 enum class LoadBalancingStrategy : uint8_t {
-    RoundRobin,         // Simple round-robin
-    LeastConnections,   // Pick backend with fewest connections
-    Random,             // Random selection
-    WeightedRoundRobin, // Round-robin with weights
-    IPHash              // Hash based on client IP (sticky sessions)
+    RoundRobin,          // Simple round-robin
+    LeastConnections,    // Pick backend with fewest connections
+    Random,              // Random selection
+    WeightedRoundRobin,  // Round-robin with weights
+    IPHash               // Hash based on client IP (sticky sessions)
 };
 
 /// Load balancer interface
@@ -150,9 +148,8 @@ public:
     virtual ~LoadBalancer() = default;
 
     /// Select backend for new request
-    [[nodiscard]] virtual Backend* select(
-        const std::vector<Backend>& backends,
-        std::string_view client_ip = {}) = 0;
+    [[nodiscard]] virtual Backend* select(const std::vector<Backend>& backends,
+                                          std::string_view client_ip = {}) = 0;
 
     /// Notify balancer of successful request
     virtual void on_success(Backend* backend) {}
@@ -238,13 +235,15 @@ public:
 
     /// Get backend connection pool
     [[nodiscard]] BackendConnectionPool& backend_pool() noexcept { return backend_pool_; }
-    [[nodiscard]] const BackendConnectionPool& backend_pool() const noexcept { return backend_pool_; }
+    [[nodiscard]] const BackendConnectionPool& backend_pool() const noexcept {
+        return backend_pool_;
+    }
 
 private:
     std::string name_;
     std::vector<Backend> backends_;
     std::unique_ptr<LoadBalancer> balancer_;
-    BackendConnectionPool backend_pool_; // Simple FD-based pool for async backend
+    BackendConnectionPool backend_pool_;  // Simple FD-based pool for async backend
 };
 
 /// Upstream manager (registry of all upstreams)
@@ -278,4 +277,4 @@ private:
     std::vector<std::unique_ptr<Upstream>> upstreams_;
 };
 
-} // namespace titan::gateway
+}  // namespace titan::gateway

@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-
 // Titan Gateway - Backend Connection Pool
 // Per-worker, per-upstream connection pool for reusing backend connections
 
@@ -97,4 +96,4 @@ private:
     size_t misses_ = 0;  // Pool miss (created new connection)
 };
 
-} // namespace titan::gateway
+}  // namespace titan::gateway

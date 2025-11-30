@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-
 // Titan Pipeline - Implementation
 
 #include "pipeline.hpp"
@@ -56,7 +55,8 @@ MiddlewareResult CorsMiddleware::process_request(RequestContext& ctx) {
     if (!config_.allowed_methods.empty()) {
         std::string methods;
         for (size_t i = 0; i < config_.allowed_methods.size(); ++i) {
-            if (i > 0) methods += ", ";
+            if (i > 0)
+                methods += ", ";
             methods += config_.allowed_methods[i];
         }
         ctx.set_metadata("cors_methods", std::move(methods));
@@ -66,7 +66,8 @@ MiddlewareResult CorsMiddleware::process_request(RequestContext& ctx) {
     if (!config_.allowed_headers.empty()) {
         std::string headers;
         for (size_t i = 0; i < config_.allowed_headers.size(); ++i) {
-            if (i > 0) headers += ", ";
+            if (i > 0)
+                headers += ", ";
             headers += config_.allowed_headers[i];
         }
         ctx.set_metadata("cors_headers", std::move(headers));
@@ -92,12 +93,14 @@ MiddlewareResult CorsMiddleware::process_request(RequestContext& ctx) {
 // RateLimitMiddleware implementation (Request phase - checks rate limits)
 
 RateLimitMiddleware::RateLimitMiddleware()
-    : config_()
-    , limiter_(std::make_unique<ThreadLocalRateLimiter>(config_.burst_size, config_.requests_per_second)) {}
+    : config_(),
+      limiter_(std::make_unique<ThreadLocalRateLimiter>(config_.burst_size,
+                                                        config_.requests_per_second)) {}
 
 RateLimitMiddleware::RateLimitMiddleware(Config config)
-    : config_(std::move(config))
-    , limiter_(std::make_unique<ThreadLocalRateLimiter>(config_.burst_size, config_.requests_per_second)) {}
+    : config_(std::move(config)),
+      limiter_(std::make_unique<ThreadLocalRateLimiter>(config_.burst_size,
+                                                        config_.requests_per_second)) {}
 
 MiddlewareResult RateLimitMiddleware::process_request(RequestContext& ctx) {
     // Use client IP as the rate limit key
@@ -144,7 +147,7 @@ MiddlewareResult ProxyMiddleware::process_request(RequestContext& ctx) {
     if (upstream->healthy_count() == 0) {
         // No healthy backends - return 503
         ctx.set_error("No healthy backends for upstream: " +
-                     std::string(ctx.route_match.upstream_name));
+                      std::string(ctx.route_match.upstream_name));
         if (ctx.response) {
             ctx.response->status = http::StatusCode::ServiceUnavailable;
         }
@@ -186,8 +189,7 @@ MiddlewareResult ProxyMiddleware::process_response(ResponseContext& ctx) {
 
         // Add timing information (store in metadata to keep string alive)
         auto now = std::chrono::steady_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now - ctx.start_time);
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - ctx.start_time);
         ctx.set_metadata("response_time", std::to_string(duration.count()) + "ms");
         ctx.response->add_header("X-Response-Time", ctx.get_metadata("response_time"));
     }
@@ -202,8 +204,7 @@ void Pipeline::use(std::unique_ptr<Middleware> middleware) {
 }
 
 void Pipeline::use(MiddlewareFunc func, std::string_view name) {
-    middleware_.push_back(
-        std::make_unique<FunctionMiddleware>(std::move(func), std::string(name)));
+    middleware_.push_back(std::make_unique<FunctionMiddleware>(std::move(func), std::string(name)));
 }
 
 MiddlewareResult Pipeline::execute_request(RequestContext& ctx) {
@@ -238,4 +239,4 @@ MiddlewareResult Pipeline::execute_response(ResponseContext& ctx) {
     return MiddlewareResult::Continue;
 }
 
-} // namespace titan::gateway
+}  // namespace titan::gateway
