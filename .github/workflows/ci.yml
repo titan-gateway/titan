@@ -120,6 +120,13 @@ jobs:
       - name: Run Unit Tests
         run: make test PRESET=dev
 
+      - name: Upload titan binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: titan-binary
+          path: build/dev/src/titan
+          retention-days: 1
+
   integration-test:
     name: Integration Tests
     runs-on: ubuntu-24.04
@@ -128,57 +135,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: |
-          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            cmake \
-            ninja-build \
-            gcc-14 \
-            g++-14 \
-            libstdc++-14-dev \
-            python3 \
-            python3-pip
-
-      - name: Setup vcpkg cache
-        uses: actions/cache@v4
+      - name: Download titan binary
+        uses: actions/download-artifact@v4
         with:
-          path: |
-            /opt/vcpkg
-            ~/.cache/vcpkg
-          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
-          restore-keys: |
-            vcpkg-${{ runner.os }}-
+          name: titan-binary
+          path: build/dev/src
 
-      - name: Setup vcpkg
-        run: |
-          if [ ! -d "/opt/vcpkg" ]; then
-            sudo mkdir -p /opt/vcpkg
-            sudo chown $USER:$USER /opt/vcpkg
-            git clone https://github.com/microsoft/vcpkg.git /opt/vcpkg
-            /opt/vcpkg/bootstrap-vcpkg.sh
-          fi
-          echo "VCPKG_ROOT=/opt/vcpkg" >> $GITHUB_ENV
-
-      - name: Setup build cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            build/dev
-            ~/.cache/ccache
-          key: build-${{ runner.os }}-${{ github.sha }}
-          restore-keys: |
-            build-${{ runner.os }}-
-
-      - name: Configure and Build
-        run: |
-          make configure PRESET=dev
-          make build PRESET=dev
+      - name: Make binary executable
+        run: chmod +x build/dev/src/titan
 
       - name: Install Python test dependencies
         run: |
+          sudo apt-get update
+          sudo apt-get install -y python3 python3-pip
           pip3 install --break-system-packages -r tests/integration/requirements.txt
           pip3 install --break-system-packages -r tests/mock-backend/requirements.txt
 
@@ -190,7 +159,7 @@ jobs:
   security-scan:
     name: Security Scanning
     runs-on: ubuntu-24.04
-    needs: build-test
+    needs: integration-test
     permissions:
       security-events: write
       actions: read
@@ -218,9 +187,26 @@ jobs:
             /opt/vcpkg
             ~/.cache/vcpkg
           key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
 
-      - name: Set vcpkg environment
-        run: echo "VCPKG_ROOT=/opt/vcpkg" >> $GITHUB_ENV
+      - name: Setup vcpkg
+        run: |
+          if [ ! -d "/opt/vcpkg" ]; then
+            git clone https://github.com/microsoft/vcpkg.git /opt/vcpkg
+            /opt/vcpkg/bootstrap-vcpkg.sh
+          fi
+          echo "VCPKG_ROOT=/opt/vcpkg" >> $GITHUB_ENV
+
+      - name: Setup build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/dev
+            ~/.cache/ccache
+          key: build-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            build-${{ runner.os }}-
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
