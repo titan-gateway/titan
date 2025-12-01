@@ -20,7 +20,8 @@
     "nlohmann-json",
     "fmt",
     "llhttp",
-    "nghttp2"
+    "nghttp2",
+    "quill"
   ],
   "builtin-baseline": "782419385291ae2db643c928314efe626853c702",
   "overrides": []

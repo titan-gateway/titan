@@ -17,6 +17,7 @@ add_executable(titan_tests
   test_proxy.cpp
   test_simd.cpp
   test_circuit_breaker.cpp
+  test_logging.cpp
 )
 
 target_link_libraries(titan_tests

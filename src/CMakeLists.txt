@@ -14,6 +14,8 @@ add_library(titan_lib
   core/server_runner.cpp
   core/admin_server.hpp
   core/admin_server.cpp
+  core/logging.hpp
+  core/logging.cpp
   http/http.hpp
   http/http.cpp
   http/parser.hpp
@@ -52,6 +54,7 @@ target_link_libraries(titan_lib
     nlohmann_json::nlohmann_json
     llhttp::llhttp_static
     PkgConfig::NGHTTP2
+    quill::quill
 )
 
 # Titan executable

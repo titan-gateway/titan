@@ -39,6 +39,8 @@
 #include "socket.hpp"
 #include "tls.hpp"
 
+#include <quill/Logger.h>
+
 // Forward declaration for test access
 class ProxyTestFixture;
 
@@ -131,6 +133,9 @@ public:
         return upstream_manager_.get();
     }
 
+    /// Set logger for this worker
+    void set_logger(quill::Logger* logger) noexcept { logger_ = logger; }
+
     /// Process incoming connection
     void handle_accept(int client_fd, std::string_view remote_ip, uint16_t remote_port);
 
@@ -164,6 +169,8 @@ private:
     std::unique_ptr<gateway::Router> router_;
     std::unique_ptr<gateway::UpstreamManager> upstream_manager_;
     std::unique_ptr<gateway::Pipeline> pipeline_;
+
+    quill::Logger* logger_ = nullptr;
 
     // TLS support
     std::optional<TlsContext> tls_context_;

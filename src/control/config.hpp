@@ -150,9 +150,15 @@ struct AuthConfig {
 struct LogConfig {
     std::string level = "info";   // debug, info, warning, error
     std::string format = "json";  // json, text
+    std::string output = "/var/log/titan";  // Log directory (worker_N.log appended)
     bool log_requests = true;
     bool log_responses = false;
     std::vector<std::string> exclude_paths;  // Don't log these paths
+
+    struct RotationConfig {
+        uint32_t max_size_mb = 100;
+        uint32_t max_files = 10;
+    } rotation;
 };
 
 /// Metrics configuration
@@ -211,8 +217,10 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(RateLimitConfig, enabled, requests_per_second
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(AuthConfig, enabled, type, header, valid_tokens);
 
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(LogConfig, level, format, log_requests, log_responses,
-                                   exclude_paths);
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(LogConfig::RotationConfig, max_size_mb, max_files);
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(LogConfig, level, format, output, log_requests, log_responses,
+                                   exclude_paths, rotation);
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(MetricsConfig, enabled, port, path, format);
 
@@ -306,12 +314,19 @@ inline void from_json(const nlohmann::json& j, AuthConfig& a) {
     a.valid_tokens = j.value("valid_tokens", std::vector<std::string>());
 }
 
+inline void from_json(const nlohmann::json& j, LogConfig::RotationConfig& r) {
+    r.max_size_mb = j.value("max_size_mb", 100u);
+    r.max_files = j.value("max_files", 10u);
+}
+
 inline void from_json(const nlohmann::json& j, LogConfig& l) {
     l.level = j.value("level", std::string("info"));
     l.format = j.value("format", std::string("json"));
+    l.output = j.value("output", std::string("/var/log/titan"));
     l.log_requests = j.value("log_requests", true);
     l.log_responses = j.value("log_responses", false);
     l.exclude_paths = j.value("exclude_paths", std::vector<std::string>());
+    l.rotation = j.value("rotation", LogConfig::RotationConfig{});
 }
 
 inline void from_json(const nlohmann::json& j, MetricsConfig& m) {
