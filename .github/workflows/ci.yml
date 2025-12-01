@@ -240,6 +240,11 @@ jobs:
       - name: Make binary executable
         run: chmod +x build/dev/src/titan
 
+      - name: Prepare test environment
+        run: |
+          sudo mkdir -p /var/log/titan
+          sudo chmod 777 /var/log/titan
+
       - name: Install Python test dependencies
         run: |
           sudo apt-get update
@@ -271,6 +276,11 @@ jobs:
 
       - name: Make binary executable
         run: chmod +x build/dev/src/titan
+
+      - name: Prepare test environment
+        run: |
+          sudo mkdir -p /var/log/titan
+          sudo chmod 777 /var/log/titan
 
       - name: Install Python test dependencies
         run: |
