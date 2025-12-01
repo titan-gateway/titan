@@ -32,6 +32,14 @@
 
 ---
 
+## What is Titan?
+
+Titan is an API gateway that sits between your clients and backend services, routing requests, load balancing traffic, and handling common tasks like rate limiting and CORS. Built with modern C++ for speed and efficiency, it's designed for applications that need to handle high traffic volumes with low latency.
+
+Titan focuses on simplicity and performance—configure routes with a JSON file, reload without downtime, and monitor with built-in metrics. Whether you're running microservices, building APIs, or managing traffic for ML inference endpoints, Titan handles the routing so you can focus on your application.
+
+---
+
 ## Performance Benchmarks
 
 Titan delivers industry-leading throughput and latency, competitive with the fastest API gateways available:
