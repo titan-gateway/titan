@@ -18,7 +18,7 @@
 
 #include "server.hpp"
 
-#include "../gateway/logging.hpp"
+#include "logging.hpp"
 
 #include <arpa/inet.h>
 #include <netdb.h>

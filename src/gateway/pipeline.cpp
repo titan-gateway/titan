@@ -21,7 +21,7 @@
 #include <cassert>
 #include <iostream>
 
-#include "logging.hpp"
+#include "../core/logging.hpp"
 
 namespace titan::gateway {
 

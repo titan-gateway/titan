@@ -1,4 +1,4 @@
-#include "gateway/logging.hpp"
+#include "logging.hpp"
 
 #include <fmt/format.h>
 

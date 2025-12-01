@@ -2,7 +2,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include "../../src/gateway/logging.hpp"
+#include "../../src/core/logging.hpp"
 
 using namespace titan::logging;
 

@@ -25,7 +25,7 @@
 #include "control/config.hpp"
 #include "core/server_runner.hpp"
 #include "core/tls.hpp"
-#include "gateway/logging.hpp"
+#include "core/logging.hpp"
 
 namespace titan::core {
 std::atomic<bool> g_server_running{true};

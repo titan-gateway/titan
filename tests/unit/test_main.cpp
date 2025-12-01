@@ -2,7 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_session.hpp>
 
-#include "../../src/gateway/logging.hpp"
+#include "../../src/core/logging.hpp"
 
 // Global test fixture - runs once before all tests
 struct GlobalSetup {

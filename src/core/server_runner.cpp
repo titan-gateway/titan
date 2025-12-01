@@ -22,7 +22,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include "../gateway/logging.hpp"
+#include "logging.hpp"
 #include "admin_server.hpp"
 #include "socket.hpp"
 
