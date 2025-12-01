@@ -18,7 +18,10 @@
 
 #include "pipeline.hpp"
 
+#include <cassert>
 #include <iostream>
+
+#include "logging.hpp"
 
 namespace titan::gateway {
 
@@ -117,6 +120,13 @@ MiddlewareResult RateLimitMiddleware::process_request(RequestContext& ctx) {
             ctx.response->status = http::StatusCode::TooManyRequests;
         }
         ctx.set_error("Rate limit exceeded");
+
+        // Log rate limit violation (branchless in release builds)
+        auto* logger = logging::get_current_logger();
+        assert(logger && "Logger must be initialized");
+        LOG_ERROR(logger, "Rate limit exceeded: client_ip={}, correlation_id={}",
+                  ctx.client_ip, ctx.correlation_id);
+
         return MiddlewareResult::Stop;
     }
 
@@ -140,6 +150,13 @@ MiddlewareResult ProxyMiddleware::process_request(RequestContext& ctx) {
         if (ctx.response) {
             ctx.response->status = http::StatusCode::BadGateway;
         }
+
+        // Log upstream not found error (branchless in release builds)
+        auto* logger = logging::get_current_logger();
+        assert(logger && "Logger must be initialized");
+        LOG_ERROR(logger, "Upstream not found: upstream={}, correlation_id={}",
+                  ctx.route_match.upstream_name, ctx.correlation_id);
+
         return MiddlewareResult::Stop;
     }
 
@@ -151,6 +168,13 @@ MiddlewareResult ProxyMiddleware::process_request(RequestContext& ctx) {
         if (ctx.response) {
             ctx.response->status = http::StatusCode::ServiceUnavailable;
         }
+
+        // Log no healthy backends error (branchless in release builds)
+        auto* logger = logging::get_current_logger();
+        assert(logger && "Logger must be initialized");
+        LOG_ERROR(logger, "No healthy backends: upstream={}, correlation_id={}",
+                  ctx.route_match.upstream_name, ctx.correlation_id);
+
         return MiddlewareResult::Stop;
     }
 

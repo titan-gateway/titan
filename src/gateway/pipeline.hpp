@@ -38,6 +38,8 @@ struct RequestContext {
     http::Request* request = nullptr;
     http::Response* response = nullptr;
 
+    std::string correlation_id;
+
     // Routing
     RouteMatch route_match;
 
@@ -81,6 +83,8 @@ struct ResponseContext {
     // Request/Response
     http::Request* request = nullptr;    // Original request (read-only)
     http::Response* response = nullptr;  // Backend response (modifiable)
+
+    std::string correlation_id;
 
     // Connection info
     std::string client_ip;

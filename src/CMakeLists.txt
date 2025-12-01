@@ -32,6 +32,8 @@ add_library(titan_lib
   gateway/rate_limit.cpp
   gateway/pipeline.hpp
   gateway/pipeline.cpp
+  gateway/logging.hpp
+  gateway/logging.cpp
   control/config.hpp
   control/config.cpp
   control/health.hpp
@@ -52,6 +54,7 @@ target_link_libraries(titan_lib
     nlohmann_json::nlohmann_json
     llhttp::llhttp_static
     PkgConfig::NGHTTP2
+    quill::quill
 )
 
 # Titan executable

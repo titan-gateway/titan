@@ -25,6 +25,7 @@
 #include "control/config.hpp"
 #include "core/server_runner.hpp"
 #include "core/tls.hpp"
+#include "gateway/logging.hpp"
 
 namespace titan::core {
 std::atomic<bool> g_server_running{true};
@@ -86,6 +87,9 @@ int main(int argc, char* argv[]) {
 
     // Initialize OpenSSL
     titan::core::initialize_openssl();
+
+    // Initialize logging system
+    titan::logging::init_logging_system();
 
     if (argc < 3 || std::string(argv[1]) != "--config") {
         fprintf(stderr, "Usage: %s --config <config.json> [--single-threaded]\n", argv[0]);

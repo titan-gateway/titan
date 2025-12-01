@@ -22,6 +22,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include "../gateway/logging.hpp"
 #include "admin_server.hpp"
 #include "socket.hpp"
 
@@ -51,7 +52,11 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
     // Pin thread to CPU core for better cache locality
     pin_thread_to_core(worker_id);
 
+    // Initialize per-worker logger
+    auto* logger = logging::init_worker_logger(worker_id);
+
     Server server(config);
+    server.set_logger(logger);
     if (auto ec = server.start(); ec) {
         return;
     }

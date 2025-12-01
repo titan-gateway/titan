@@ -18,6 +18,8 @@
 
 #include "server.hpp"
 
+#include "../gateway/logging.hpp"
+
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/tcp.h>
@@ -474,6 +476,7 @@ void Server::process_http2_stream(Connection& conn, http::H2Stream& stream) {
     gateway::RequestContext ctx;
     ctx.request = &stream.request;
     ctx.response = &stream.response;
+    ctx.correlation_id = logging::generate_correlation_id();
     ctx.route_match = match;
     ctx.client_ip = conn.remote_ip;
     ctx.client_port = conn.remote_port;
@@ -627,6 +630,7 @@ bool Server::process_request(Connection& conn) {
     gateway::RequestContext ctx;
     ctx.request = &conn.request;
     ctx.response = &conn.response;
+    ctx.correlation_id = logging::generate_correlation_id();
     ctx.route_match = match;
     ctx.client_ip = conn.remote_ip;
     ctx.client_port = conn.remote_port;
@@ -809,6 +813,7 @@ bool Server::proxy_to_backend(Connection& conn, gateway::RequestContext& ctx) {
     // Store timing and metadata for response middleware
     conn.backend_conn->start_time = ctx.start_time;
     conn.backend_conn->metadata = ctx.metadata;
+    conn.backend_conn->metadata["correlation_id"] = ctx.correlation_id;
 
     // Try to acquire from pool first
     conn.backend_conn->backend_fd = upstream->backend_pool().acquire(backend.host, backend.port);
@@ -1428,6 +1433,7 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
                 gateway::ResponseContext resp_ctx;
                 resp_ctx.request = &client_conn.request;
                 resp_ctx.response = &client_conn.response;
+                resp_ctx.correlation_id = backend_conn->metadata["correlation_id"];
                 resp_ctx.client_ip = client_conn.remote_ip;
                 resp_ctx.client_port = client_conn.remote_port;
                 resp_ctx.start_time = backend_conn->start_time;
