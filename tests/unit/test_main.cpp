@@ -3,13 +3,18 @@
 #include <catch2/catch_session.hpp>
 
 #include "../../src/core/logging.hpp"
+#include "../../src/control/config.hpp"
 
 // Global test fixture - runs once before all tests
 struct GlobalSetup {
     GlobalSetup() {
         // Initialize logging system for tests
         titan::logging::init_logging_system();
-        titan::logging::init_worker_logger(0);
+
+        // Use default logging config for tests
+        titan::control::LogConfig log_config;
+        log_config.output = "/tmp/titan_tests";
+        titan::logging::init_worker_logger(0, log_config);
     }
 
     ~GlobalSetup() {

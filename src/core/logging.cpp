@@ -9,6 +9,9 @@
 #include <iomanip>
 #include <random>
 #include <sstream>
+#include <algorithm>
+
+#include "../control/config.hpp"
 
 namespace titan::logging {
 
@@ -16,22 +19,46 @@ static thread_local quill::Logger* g_current_logger = nullptr;
 
 void init_logging_system() {
   quill::Backend::start();
-  std::filesystem::create_directories("/var/log/titan");
 }
 
-quill::Logger* init_worker_logger(int worker_id) {
+quill::Logger* init_worker_logger(int worker_id, const control::LogConfig& log_config) {
+  std::filesystem::create_directories(log_config.output);
+
   quill::RotatingFileSinkConfig config;
-  config.set_rotation_max_file_size(100'000'000);  // 100MB
-  config.set_max_backup_files(10);
+  config.set_rotation_max_file_size(log_config.rotation.max_size_mb * 1'000'000);
+  config.set_max_backup_files(log_config.rotation.max_files);
   config.set_open_mode('a');
 
-  auto json_sink = quill::Frontend::create_or_get_sink<quill::RotatingJsonFileSink>(
-      fmt::format("/var/log/titan/worker_{}.log", worker_id),
-      config
-  );
+  std::string log_path = fmt::format("{}/worker_{}.log", log_config.output, worker_id);
 
-  auto logger = quill::Frontend::create_or_get_logger(
-      fmt::format("worker_{}", worker_id), std::move(json_sink));
+  quill::Logger* logger = nullptr;
+
+  if (log_config.format == "json") {
+    auto json_sink = quill::Frontend::create_or_get_sink<quill::RotatingJsonFileSink>(
+        log_path, config);
+    logger = quill::Frontend::create_or_get_logger(
+        fmt::format("worker_{}", worker_id), std::move(json_sink));
+  } else {
+    auto file_sink = quill::Frontend::create_or_get_sink<quill::RotatingFileSink>(
+        log_path, config);
+    logger = quill::Frontend::create_or_get_logger(
+        fmt::format("worker_{}", worker_id), std::move(file_sink));
+  }
+
+  std::string level_lower = log_config.level;
+  std::transform(level_lower.begin(), level_lower.end(), level_lower.begin(), ::tolower);
+
+  if (level_lower == "debug") {
+    logger->set_log_level(quill::LogLevel::Debug);
+  } else if (level_lower == "info") {
+    logger->set_log_level(quill::LogLevel::Info);
+  } else if (level_lower == "warning" || level_lower == "warn") {
+    logger->set_log_level(quill::LogLevel::Warning);
+  } else if (level_lower == "error") {
+    logger->set_log_level(quill::LogLevel::Error);
+  } else {
+    logger->set_log_level(quill::LogLevel::Info);
+  }
 
   g_current_logger = logger;
   return logger;

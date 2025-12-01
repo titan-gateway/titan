@@ -53,7 +53,7 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
     pin_thread_to_core(worker_id);
 
     // Initialize per-worker logger
-    auto* logger = logging::init_worker_logger(worker_id);
+    auto* logger = logging::init_worker_logger(worker_id, config.logging);
 
     Server server(config);
     server.set_logger(logger);

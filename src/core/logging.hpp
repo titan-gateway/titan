@@ -4,7 +4,7 @@
 #include <quill/Frontend.h>
 #include <quill/LogMacros.h>
 #include <quill/Logger.h>
-#include <quill/sinks/FileSink.h>
+#include <quill/sinks/RotatingFileSink.h>
 #include <quill/sinks/RotatingJsonFileSink.h>
 
 #include <chrono>
@@ -12,14 +12,19 @@
 #include <string>
 #include <string_view>
 
+// Forward declaration to avoid circular dependency
+namespace titan::control {
+struct LogConfig;
+}
+
 namespace titan::logging {
 
 // Initialize Quill logging backend (called once at startup)
 void init_logging_system();
 
-// Initialize per-worker logger with JSON file sink
+// Initialize per-worker logger with config-driven settings
 // Returns logger for the given worker ID
-quill::Logger* init_worker_logger(int worker_id);
+quill::Logger* init_worker_logger(int worker_id, const titan::control::LogConfig& config);
 
 // Shutdown logging system (called at exit)
 void shutdown_logging();
