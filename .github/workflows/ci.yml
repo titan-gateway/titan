@@ -113,6 +113,11 @@ jobs:
           restore-keys: |
             build-${{ runner.os }}-x86_64-
 
+      - name: Prepare test environment
+        run: |
+          sudo mkdir -p /var/log/titan
+          sudo chmod 777 /var/log/titan
+
       - name: Build and Test (with coverage)
         run: make test-coverage
 
@@ -191,6 +196,11 @@ jobs:
           key: build-${{ runner.os }}-arm64-${{ github.sha }}
           restore-keys: |
             build-${{ runner.os }}-arm64-
+
+      - name: Prepare test environment
+        run: |
+          sudo mkdir -p /var/log/titan
+          sudo chmod 777 /var/log/titan
 
       - name: Build and Test (with coverage)
         run: make test-coverage

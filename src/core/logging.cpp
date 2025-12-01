@@ -7,6 +7,7 @@
 #include <chrono>
 #include <filesystem>
 #include <iomanip>
+#include <iostream>
 #include <random>
 #include <sstream>
 #include <algorithm>
@@ -22,7 +23,13 @@ void init_logging_system() {
 }
 
 quill::Logger* init_worker_logger(int worker_id, const control::LogConfig& log_config) {
-  std::filesystem::create_directories(log_config.output);
+  std::error_code ec;
+  std::filesystem::create_directories(log_config.output, ec);
+  if (ec) {
+    std::cerr << "ERROR: Failed to create log directory '" << log_config.output
+              << "': " << ec.message() << " (code: " << ec.value() << ")" << std::endl;
+    std::cerr << "       Logging may fail if directory does not exist or is not writable." << std::endl;
+  }
 
   quill::RotatingFileSinkConfig config;
   config.set_rotation_max_file_size(log_config.rotation.max_size_mb * 1'000'000);
