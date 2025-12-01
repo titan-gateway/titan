@@ -63,16 +63,6 @@ Titan delivers industry-leading throughput and latency, competitive with the fas
 
 ---
 
-## Why Titan?
-
-Titan is designed to provide exceptional performance without sacrificing features. Built with modern C++ and a thread-per-core architecture, it handles 100k+ requests per second while maintaining sub-millisecond P99 latency.
-
-**Design Philosophy:**
-- **Performance First**: Zero-copy design, lock-free hot path, efficient memory management
-- **Shared-Nothing**: Each worker owns its memory, connection pool, and routing table
-- **Production Ready**: Comprehensive testing (unit + integration), structured logging, Prometheus metrics
-- **Cloud-Native**: Hot reload, health checks, Docker/Kubernetes integration
-
 ## Core Features
 
 ### Production-Ready Features
