@@ -12,45 +12,33 @@
 
 namespace titan::logging {
 
-// Thread-local logger storage
 static thread_local quill::Logger* g_current_logger = nullptr;
 
 void init_logging_system() {
-  // Start Quill backend thread
   quill::Backend::start();
-
-  // Create log directory if it doesn't exist
   std::filesystem::create_directories("/var/log/titan");
 }
 
 quill::Logger* init_worker_logger(int worker_id) {
-  // Configure rotating file sink
   quill::RotatingFileSinkConfig config;
   config.set_rotation_max_file_size(100'000'000);  // 100MB
-  config.set_max_backup_files(10);  // Keep 10 backup files
-  config.set_open_mode('a');  // Append mode
+  config.set_max_backup_files(10);
+  config.set_open_mode('a');
 
-  // Create rotating JSON file sink
   auto json_sink = quill::Frontend::create_or_get_sink<quill::RotatingJsonFileSink>(
       fmt::format("/var/log/titan/worker_{}.log", worker_id),
       config
   );
 
-  // Create logger
   auto logger = quill::Frontend::create_or_get_logger(
       fmt::format("worker_{}", worker_id), std::move(json_sink));
 
-  // Store in thread-local storage
   g_current_logger = logger;
-
   return logger;
 }
 
 void shutdown_logging() {
-  // Flush all pending logs
   quill::Frontend::get_all_loggers();
-
-  // Stop backend thread
   quill::Backend::stop();
 }
 
