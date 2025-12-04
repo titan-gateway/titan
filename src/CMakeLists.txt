@@ -61,7 +61,6 @@ target_link_libraries(titan_lib
     llhttp::llhttp_static
     PkgConfig::NGHTTP2
     quill::quill
-    httplib::httplib
 )
 
 # Titan executable
