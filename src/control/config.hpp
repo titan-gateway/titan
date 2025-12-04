@@ -154,6 +154,15 @@ struct JwtKeyConfig {
     std::string secret;             // For HS256 (base64-encoded)
 };
 
+/// JWKS (JSON Web Key Set) fetcher configuration
+struct JwksConfigSchema {
+    std::string url;                          // JWKS endpoint URL
+    uint32_t refresh_interval_seconds = 3600; // Default: 1 hour
+    uint32_t timeout_seconds = 10;            // HTTP timeout
+    uint32_t retry_max = 3;                   // Max retries before circuit break
+    uint32_t circuit_breaker_seconds = 300;   // Cooldown after failures (5 min)
+};
+
 /// JWT authentication configuration
 struct JwtConfig {
     bool enabled = false;
@@ -162,8 +171,11 @@ struct JwtConfig {
     std::string header = "Authorization";  // Header name
     std::string scheme = "Bearer";         // "Bearer" or custom
 
-    // Signature verification keys
+    // Signature verification keys (static)
     std::vector<JwtKeyConfig> keys;
+
+    // JWKS endpoint (dynamic key fetching)
+    std::optional<JwksConfigSchema> jwks;
 
     // Claims validation
     bool require_exp = true;
@@ -251,7 +263,10 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(AuthConfig, enabled, type, header, valid_toke
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(JwtKeyConfig, algorithm, key_id, public_key_path, secret);
 
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(JwtConfig, enabled, header, scheme, keys, require_exp,
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(JwksConfigSchema, url, refresh_interval_seconds, timeout_seconds,
+                                   retry_max, circuit_breaker_seconds);
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(JwtConfig, enabled, header, scheme, keys, jwks, require_exp,
                                    require_sub, allowed_issuers, allowed_audiences,
                                    clock_skew_seconds, cache_capacity, cache_enabled);
 
@@ -359,11 +374,20 @@ inline void from_json(const nlohmann::json& j, JwtKeyConfig& k) {
     k.secret = j.value("secret", std::string());
 }
 
+inline void from_json(const nlohmann::json& j, JwksConfigSchema& jwks) {
+    j.at("url").get_to(jwks.url);  // url is required
+    jwks.refresh_interval_seconds = j.value("refresh_interval_seconds", 3600u);
+    jwks.timeout_seconds = j.value("timeout_seconds", 10u);
+    jwks.retry_max = j.value("retry_max", 3u);
+    jwks.circuit_breaker_seconds = j.value("circuit_breaker_seconds", 300u);
+}
+
 inline void from_json(const nlohmann::json& j, JwtConfig& jwt) {
     jwt.enabled = j.value("enabled", false);
     jwt.header = j.value("header", std::string("Authorization"));
     jwt.scheme = j.value("scheme", std::string("Bearer"));
     jwt.keys = j.value("keys", std::vector<JwtKeyConfig>());
+    jwt.jwks = j.value("jwks", std::optional<JwksConfigSchema>());
     jwt.require_exp = j.value("require_exp", true);
     jwt.require_sub = j.value("require_sub", false);
     jwt.allowed_issuers = j.value("allowed_issuers", std::vector<std::string>());
