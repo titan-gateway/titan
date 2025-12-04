@@ -239,7 +239,7 @@ Content-Type: application/json
 
 **Common Errors:**
 - Missing Authorization header
-- Invalid token format (not "Bearer <token>")
+- Invalid token format (not "Bearer `<token>`")
 - Malformed JWT (invalid base64url encoding)
 - Invalid signature
 - Expired token (`exp` claim)
