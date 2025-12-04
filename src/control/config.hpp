@@ -138,12 +138,43 @@ struct RateLimitConfig {
     std::string key = "client_ip";  // client_ip, header:X-API-Key, etc.
 };
 
-/// Authentication configuration
+/// Authentication configuration (simple token validation)
 struct AuthConfig {
     bool enabled = false;
     std::string type = "bearer";  // bearer, basic, apikey
     std::string header = "Authorization";
     std::vector<std::string> valid_tokens;
+};
+
+/// JWT key configuration
+struct JwtKeyConfig {
+    std::string algorithm;          // "RS256", "ES256", "HS256"
+    std::string key_id;             // Optional kid for rotation
+    std::string public_key_path;    // PEM file for RS256/ES256
+    std::string secret;             // For HS256 (base64-encoded)
+};
+
+/// JWT authentication configuration
+struct JwtConfig {
+    bool enabled = false;
+
+    // Token extraction
+    std::string header = "Authorization";  // Header name
+    std::string scheme = "Bearer";         // "Bearer" or custom
+
+    // Signature verification keys
+    std::vector<JwtKeyConfig> keys;
+
+    // Claims validation
+    bool require_exp = true;
+    bool require_sub = false;
+    std::vector<std::string> allowed_issuers;
+    std::vector<std::string> allowed_audiences;
+    int64_t clock_skew_seconds = 60;  // Tolerance for exp/nbf (clock drift)
+
+    // Caching
+    size_t cache_capacity = 10000;  // Tokens per thread
+    bool cache_enabled = true;
 };
 
 /// Logging configuration
@@ -179,6 +210,7 @@ struct Config {
     CorsConfig cors;
     RateLimitConfig rate_limit;
     AuthConfig auth;
+    JwtConfig jwt;
 
     // Observability
     LogConfig logging;
@@ -217,6 +249,12 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(RateLimitConfig, enabled, requests_per_second
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(AuthConfig, enabled, type, header, valid_tokens);
 
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(JwtKeyConfig, algorithm, key_id, public_key_path, secret);
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(JwtConfig, enabled, header, scheme, keys, require_exp,
+                                   require_sub, allowed_issuers, allowed_audiences,
+                                   clock_skew_seconds, cache_capacity, cache_enabled);
+
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(LogConfig::RotationConfig, max_size_mb, max_files);
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(LogConfig, level, format, output, log_requests, log_responses,
@@ -224,7 +262,7 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(LogConfig, level, format, output, log_request
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(MetricsConfig, enabled, port, path, format);
 
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Config, server, routes, upstreams, cors, rate_limit, auth,
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Config, server, routes, upstreams, cors, rate_limit, auth, jwt,
                                    logging, metrics, version, description);
 
 // Custom from_json functions to handle missing fields with defaults
@@ -314,6 +352,27 @@ inline void from_json(const nlohmann::json& j, AuthConfig& a) {
     a.valid_tokens = j.value("valid_tokens", std::vector<std::string>());
 }
 
+inline void from_json(const nlohmann::json& j, JwtKeyConfig& k) {
+    j.at("algorithm").get_to(k.algorithm);  // algorithm is required
+    k.key_id = j.value("key_id", std::string());
+    k.public_key_path = j.value("public_key_path", std::string());
+    k.secret = j.value("secret", std::string());
+}
+
+inline void from_json(const nlohmann::json& j, JwtConfig& jwt) {
+    jwt.enabled = j.value("enabled", false);
+    jwt.header = j.value("header", std::string("Authorization"));
+    jwt.scheme = j.value("scheme", std::string("Bearer"));
+    jwt.keys = j.value("keys", std::vector<JwtKeyConfig>());
+    jwt.require_exp = j.value("require_exp", true);
+    jwt.require_sub = j.value("require_sub", false);
+    jwt.allowed_issuers = j.value("allowed_issuers", std::vector<std::string>());
+    jwt.allowed_audiences = j.value("allowed_audiences", std::vector<std::string>());
+    jwt.clock_skew_seconds = j.value("clock_skew_seconds", int64_t(60));
+    jwt.cache_capacity = j.value("cache_capacity", size_t(10000));
+    jwt.cache_enabled = j.value("cache_enabled", true);
+}
+
 inline void from_json(const nlohmann::json& j, LogConfig::RotationConfig& r) {
     r.max_size_mb = j.value("max_size_mb", 100u);
     r.max_files = j.value("max_files", 10u);
@@ -343,6 +402,7 @@ inline void from_json(const nlohmann::json& j, Config& c) {
     c.cors = j.value("cors", CorsConfig{});
     c.rate_limit = j.value("rate_limit", RateLimitConfig{});
     c.auth = j.value("auth", AuthConfig{});
+    c.jwt = j.value("jwt", JwtConfig{});
     c.logging = j.value("logging", LogConfig{});
     c.metrics = j.value("metrics", MetricsConfig{});
     c.version = j.value("version", std::string("1.0"));

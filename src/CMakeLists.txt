@@ -16,6 +16,8 @@ add_library(titan_lib
   core/admin_server.cpp
   core/logging.hpp
   core/logging.cpp
+  core/jwt.hpp
+  core/jwt.cpp
   http/http.hpp
   http/http.cpp
   http/parser.hpp
@@ -34,6 +36,8 @@ add_library(titan_lib
   gateway/rate_limit.cpp
   gateway/pipeline.hpp
   gateway/pipeline.cpp
+  gateway/jwt_middleware.hpp
+  gateway/jwt_middleware.cpp
   control/config.hpp
   control/config.cpp
   control/health.hpp

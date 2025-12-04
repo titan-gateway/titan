@@ -76,12 +76,11 @@ Titan delivers industry-leading throughput and latency, competitive with the fas
 - **Circuit Breaking**: Automatic backend failure detection with configurable thresholds
 - **TLS Termination**: Handle HTTPS at edge (OpenSSL 3.x), communicate with backends over HTTP
 - **Connection Pooling**: Automatic backend connection reuse with health checks
+- **JWT Authentication**: RS256/ES256/HS256 signature validation with thread-local caching (10k tokens/worker)
 - **Hot Reload**: Zero-downtime configuration updates via `SIGHUP` (RCU pattern)
 - **Observability**: Prometheus metrics endpoint (`/metrics`), request/response logging
 
 ### In Development
-
-- **JWT Authentication**: RS256/ES256 signature validation, claims-based authorization
 - **Request/Response Transformation**: Header manipulation, path rewriting
 - **Response Compression**: gzip/brotli with SIMD optimization
 - **WebSocket Proxying**: HTTP to WebSocket upgrade, bidirectional streaming

@@ -182,9 +182,9 @@ Apply different rate limits to different endpoints:
 
 **Use case**: API tiering where premium users get higher rate limits than public users.
 
-### Example 5: CORS + Authentication Pipeline
+### Example 5: JWT Authentication + CORS
 
-Chain middleware for cross-origin requests with authentication:
+Chain middleware for cross-origin requests with JWT authentication:
 
 ```json
 {
@@ -198,10 +198,19 @@ Chain middleware for cross-origin requests with authentication:
   "routes": [
     {
       "path": "/api/*",
-      "upstream": "api",
-      "middleware": ["cors", "auth", "rate_limit"]
+      "upstream": "api"
     }
   ],
+  "jwt": {
+    "enabled": true,
+    "keys": [
+      {
+        "algorithm": "RS256",
+        "public_key_path": "/etc/titan/keys/jwt_public.pem"
+      }
+    ],
+    "allowed_issuers": ["https://auth.example.com"]
+  },
   "cors": {
     "allowed_origins": ["https://app.example.com", "https://dashboard.example.com"],
     "allowed_methods": ["GET", "POST", "PUT", "DELETE"],
@@ -209,13 +218,14 @@ Chain middleware for cross-origin requests with authentication:
     "max_age": 3600
   },
   "rate_limit": {
+    "enabled": true,
     "requests_per_second": 100,
     "burst": 200
   }
 }
 ```
 
-**Use case**: SPA frontend calling backend API—CORS headers allow browser requests, auth validates tokens, rate limiting prevents abuse.
+**Use case**: SPA frontend calling backend API—CORS headers allow browser requests, JWT validates tokens, rate limiting prevents abuse.
 
 ## Configuration Field Reference
 
@@ -264,6 +274,17 @@ Chain middleware for cross-origin requests with authentication:
 |-------|------|---------|-------------|
 | `requests_per_second` | number | **required** | Maximum requests per second per client IP |
 | `burst` | number | `requests_per_second * 2` | Burst capacity (token bucket size) |
+
+### Middleware: JWT Authentication
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | boolean | `false` | Enable JWT authentication |
+| `keys[]` | array | `[]` | Verification keys (RS256/ES256/HS256) |
+| `allowed_issuers` | array | `[]` | Whitelist of valid token issuers |
+| `allowed_audiences` | array | `[]` | Whitelist of valid token audiences |
+
+See **[JWT Authentication](./jwt-authentication.md)** for complete configuration details.
 
 ## Load Balancing Strategies
 
