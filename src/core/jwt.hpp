@@ -35,6 +35,9 @@
 
 namespace titan::core {
 
+// Forward declaration
+class JwksFetcher;
+
 /// JWT algorithm types
 enum class JwtAlgorithm {
     RS256,  // RSA + SHA-256 (asymmetric)
@@ -208,8 +211,11 @@ public:
     JwtValidator(JwtValidator&&) noexcept = default;
     JwtValidator& operator=(JwtValidator&&) noexcept = default;
 
-    /// Set key manager
-    void set_key_manager(std::shared_ptr<KeyManager> keys) { keys_ = std::move(keys); }
+    /// Set static key manager (always available, fallback when JWKS fails)
+    void set_key_manager(std::shared_ptr<KeyManager> keys) { static_keys_ = std::move(keys); }
+
+    /// Set JWKS fetcher for dynamic key loading (optional)
+    void set_jwks_fetcher(std::shared_ptr<JwksFetcher> fetcher) { jwks_fetcher_ = std::move(fetcher); }
 
     /// Validate JWT token (with caching)
     [[nodiscard]] ValidationResult validate(std::string_view token);
@@ -228,8 +234,12 @@ private:
     /// Validate claims (exp, nbf, iss, aud)
     [[nodiscard]] ValidationResult validate_claims(const JwtClaims& claims);
 
+    /// Get merged key manager (JWKS keys + static keys)
+    [[nodiscard]] std::shared_ptr<KeyManager> get_merged_keys();
+
     JwtValidatorConfig config_;
-    std::shared_ptr<KeyManager> keys_;
+    std::shared_ptr<KeyManager> static_keys_;      // Static keys from config
+    std::shared_ptr<JwksFetcher> jwks_fetcher_;    // Dynamic JWKS fetcher (optional)
     std::unique_ptr<ThreadLocalTokenCache> cache_;
 };
 

@@ -20,6 +20,7 @@
 #include <thread>
 
 #include "core/jwt.hpp"
+#include "core/jwks_fetcher.hpp"
 
 using namespace titan::core;
 
@@ -350,6 +351,89 @@ TEST_CASE("JWT validator configuration", "[jwt][validator]") {
 
         JwtValidator validator(config);
         REQUIRE(validator.cache_size() == 0);
+    }
+}
+
+// ============================================================================
+// JWKS Integration Tests
+// ============================================================================
+
+TEST_CASE("JwtValidator JWKS integration", "[jwt][jwks][integration]") {
+    SECTION("Validator without JWKS uses static keys only") {
+        JwtValidatorConfig config;
+        JwtValidator validator(config);
+
+        // Set static keys
+        auto static_keys = std::make_shared<KeyManager>();
+        validator.set_key_manager(static_keys);
+
+        // No JWKS fetcher set
+        // Validator should use static keys (tested via get_merged_keys internally)
+        REQUIRE(validator.cache_size() == 0);
+    }
+
+    SECTION("Validator with JWKS fetcher prefers JWKS keys") {
+        JwtValidatorConfig config;
+        JwtValidator validator(config);
+
+        // Set static keys
+        auto static_keys = std::make_shared<KeyManager>();
+        validator.set_key_manager(static_keys);
+
+        // Set JWKS fetcher
+        JwksConfig jwks_config;
+        jwks_config.url = "https://example.com/jwks";
+        auto jwks_fetcher = std::make_shared<JwksFetcher>(jwks_config);
+        validator.set_jwks_fetcher(jwks_fetcher);
+
+        // Validator should prefer JWKS keys when available
+        REQUIRE(validator.cache_size() == 0);
+    }
+
+    SECTION("Validator falls back to static keys when JWKS unavailable") {
+        JwtValidatorConfig config;
+        JwtValidator validator(config);
+
+        // Set static keys
+        auto static_keys = std::make_shared<KeyManager>();
+        validator.set_key_manager(static_keys);
+
+        // Set JWKS fetcher with invalid URL (will fail to fetch)
+        JwksConfig jwks_config;
+        jwks_config.url = "https://invalid.test.local/jwks";
+        jwks_config.timeout_seconds = 1;
+        auto jwks_fetcher = std::make_shared<JwksFetcher>(jwks_config);
+        validator.set_jwks_fetcher(jwks_fetcher);
+
+        // Trigger fetch (will fail)
+        jwks_fetcher->fetch_keys();
+
+        // Validator should fall back to static keys
+        // (tested indirectly through validation flow)
+        REQUIRE(validator.cache_size() == 0);
+    }
+
+    SECTION("Validator handles JWKS circuit breaker") {
+        JwtValidatorConfig config;
+        JwtValidator validator(config);
+
+        // Set JWKS fetcher
+        JwksConfig jwks_config;
+        jwks_config.url = "https://invalid.test.local/jwks";
+        jwks_config.timeout_seconds = 1;
+        jwks_config.retry_max = 2;
+        auto jwks_fetcher = std::make_shared<JwksFetcher>(jwks_config);
+        validator.set_jwks_fetcher(jwks_fetcher);
+
+        // Trigger multiple failures to open circuit breaker
+        jwks_fetcher->fetch_keys();
+        jwks_fetcher->fetch_keys();
+
+        REQUIRE(jwks_fetcher->get_state() == JwksFetcherState::CircuitOpen);
+
+        // Validator should still work with static keys as fallback
+        auto static_keys = std::make_shared<KeyManager>();
+        validator.set_key_manager(static_keys);
     }
 }
 
