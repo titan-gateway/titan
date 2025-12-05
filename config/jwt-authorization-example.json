@@ -1,0 +1,205 @@
+{
+  "version": "1.0",
+  "description": "JWT Authentication with Claims-Based Authorization",
+
+  "server": {
+    "worker_threads": 4,
+    "listen_address": "0.0.0.0",
+    "listen_port": 8080,
+    "backlog": 128,
+    "read_timeout": 60000,
+    "write_timeout": 60000,
+    "idle_timeout": 300000,
+    "shutdown_timeout": 30000,
+    "max_connections": 10000,
+    "max_request_size": 1048576,
+    "max_header_size": 8192
+  },
+
+  "upstreams": [
+    {
+      "name": "users_service",
+      "load_balancing": "round_robin",
+      "max_retries": 2,
+      "retry_timeout": 1000,
+      "pool_size": 100,
+      "pool_idle_timeout": 60,
+      "backends": [
+        {
+          "host": "localhost",
+          "port": 3001,
+          "weight": 1,
+          "max_connections": 1000
+        }
+      ]
+    },
+    {
+      "name": "posts_service",
+      "load_balancing": "round_robin",
+      "max_retries": 2,
+      "retry_timeout": 1000,
+      "pool_size": 100,
+      "pool_idle_timeout": 60,
+      "backends": [
+        {
+          "host": "localhost",
+          "port": 3002,
+          "weight": 1,
+          "max_connections": 1000
+        }
+      ]
+    },
+    {
+      "name": "admin_service",
+      "load_balancing": "round_robin",
+      "max_retries": 2,
+      "retry_timeout": 1000,
+      "pool_size": 50,
+      "pool_idle_timeout": 60,
+      "backends": [
+        {
+          "host": "localhost",
+          "port": 3003,
+          "weight": 1,
+          "max_connections": 500
+        }
+      ]
+    }
+  ],
+
+  "routes": [
+    {
+      "path": "/api/public/info",
+      "method": "GET",
+      "upstream": "users_service",
+      "auth_required": false
+    },
+
+    {
+      "path": "/api/users",
+      "method": "GET",
+      "upstream": "users_service",
+      "auth_required": true,
+      "required_scopes": ["read:users"]
+    },
+
+    {
+      "path": "/api/users",
+      "method": "POST",
+      "upstream": "users_service",
+      "auth_required": true,
+      "required_scopes": ["write:users"],
+      "required_roles": ["admin"]
+    },
+
+    {
+      "path": "/api/users/:id",
+      "method": "DELETE",
+      "upstream": "users_service",
+      "auth_required": true,
+      "required_scopes": ["delete:users", "admin:access"]
+    },
+
+    {
+      "path": "/api/posts",
+      "method": "GET",
+      "upstream": "posts_service",
+      "auth_required": true,
+      "required_scopes": ["read:posts", "read:all"]
+    },
+
+    {
+      "path": "/api/posts",
+      "method": "POST",
+      "upstream": "posts_service",
+      "auth_required": true,
+      "required_scopes": ["write:posts"]
+    },
+
+    {
+      "path": "/api/admin/dashboard",
+      "method": "GET",
+      "upstream": "admin_service",
+      "auth_required": true,
+      "required_roles": ["admin", "moderator"]
+    },
+
+    {
+      "path": "/api/admin/settings",
+      "method": "PUT",
+      "upstream": "admin_service",
+      "auth_required": true,
+      "required_roles": ["admin", "super-admin"]
+    }
+  ],
+
+  "jwt": {
+    "enabled": true,
+    "header": "Authorization",
+    "scheme": "Bearer",
+
+    "require_exp": true,
+    "require_sub": true,
+    "clock_skew_seconds": 60,
+    "allowed_issuers": ["https://your-tenant.auth0.com/"],
+    "allowed_audiences": ["https://api.example.com"],
+
+    "jwks": {
+      "url": "https://your-tenant.auth0.com/.well-known/jwks.json",
+      "refresh_interval_seconds": 3600,
+      "timeout_seconds": 10,
+      "retry_max": 3,
+      "circuit_breaker_seconds": 300
+    },
+
+    "keys": [
+      {
+        "algorithm": "RS256",
+        "key_id": "static-rsa-key-1",
+        "public_key_path": "/etc/titan/keys/rsa-public.pem"
+      }
+    ],
+
+    "cache_enabled": true,
+    "cache_capacity": 10000
+  },
+
+  "jwt_authz": {
+    "enabled": true,
+    "scope_claim": "scope",
+    "roles_claim": "roles",
+    "require_all_scopes": false,
+    "require_all_roles": false
+  },
+
+  "cors": {
+    "enabled": true,
+    "allowed_origins": ["https://app.example.com"],
+    "allowed_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    "allowed_headers": ["Authorization", "Content-Type"],
+    "allow_credentials": true,
+    "max_age": 86400
+  },
+
+  "rate_limit": {
+    "enabled": true,
+    "requests_per_second": 1000,
+    "burst_size": 2000,
+    "key": "client_ip"
+  },
+
+  "logging": {
+    "level": "info",
+    "format": "json",
+    "log_requests": true,
+    "log_responses": false,
+    "exclude_paths": ["/health", "/metrics"]
+  },
+
+  "metrics": {
+    "enabled": true,
+    "port": 9090,
+    "path": "/metrics",
+    "format": "prometheus"
+  }
+}

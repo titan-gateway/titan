@@ -220,12 +220,292 @@ Custom claims (e.g., `scope`, `role`) are stored in request metadata:
 ```
 jwt_sub → "user123"
 jwt_scope → "read:users write:posts"
+jwt_roles → "admin moderator"
 jwt_iss → "https://auth0.example.com/"
 jwt_jti → "token-id-123"
 jwt_claims → "{...}"  (full JSON)
 ```
 
-Use these in downstream middleware for authorization.
+These claims are extracted from the JWT and made available to authorization middleware (see **JWT Authorization** section below).
+
+## JWT Authorization (Claims-Based Access Control)
+
+Titan provides fine-grained authorization based on JWT claims. After a JWT is authenticated, the authorization middleware checks if the user has the required **scopes** (OAuth 2.0 permissions) or **roles** to access a specific route.
+
+### Features
+
+- **OAuth 2.0 Scopes**: Space-separated permissions (e.g., `"read:users write:posts"`)
+- **Custom Roles**: Simple role strings (e.g., `"admin moderator"`)
+- **Flexible Matching**: AND/OR logic for scopes and roles
+- **Per-Route Configuration**: Different authorization requirements for each route
+- **Detailed Error Responses**: 403 Forbidden with JSON error body
+
+### Configuration
+
+Authorization is configured per route in the `routes` section:
+
+```json
+{
+  "routes": [
+    {
+      "path": "/api/users",
+      "method": "GET",
+      "upstream": "users-service",
+      "auth_required": true,
+      "required_scopes": ["read:users"]
+    },
+    {
+      "path": "/api/users",
+      "method": "POST",
+      "upstream": "users-service",
+      "auth_required": true,
+      "required_scopes": ["write:users"],
+      "required_roles": ["admin"]
+    }
+  ]
+}
+```
+
+### Authorization Middleware Configuration
+
+Global authorization settings (optional):
+
+```json
+{
+  "jwt_authz": {
+    "enabled": true,
+    "scope_claim": "scope",
+    "roles_claim": "roles",
+    "require_all_scopes": false,
+    "require_all_roles": false
+  }
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | true | Enable/disable authorization middleware |
+| `scope_claim` | string | "scope" | JWT claim containing scopes |
+| `roles_claim` | string | "roles" | JWT claim containing roles |
+| `require_all_scopes` | bool | false | `false` = OR logic (any scope), `true` = AND logic (all scopes) |
+| `require_all_roles` | bool | false | `false` = OR logic (any role), `true` = AND logic (all roles) |
+
+### Scope Matching
+
+#### OR Logic (Default)
+
+User needs **at least one** of the required scopes:
+
+```json
+{
+  "path": "/api/posts",
+  "method": "GET",
+  "required_scopes": ["read:posts", "read:all"],
+  "jwt_authz": { "require_all_scopes": false }
+}
+```
+
+✅ Allowed if JWT has: `"scope": "read:posts"`
+✅ Allowed if JWT has: `"scope": "read:all"`
+✅ Allowed if JWT has: `"scope": "read:posts write:posts"`
+❌ Denied if JWT has: `"scope": "write:posts"`
+
+#### AND Logic
+
+User needs **all** of the required scopes:
+
+```json
+{
+  "path": "/api/admin/users",
+  "method": "DELETE",
+  "required_scopes": ["delete:users", "admin:access"],
+  "jwt_authz": { "require_all_scopes": true }
+}
+```
+
+✅ Allowed if JWT has: `"scope": "delete:users admin:access"`
+❌ Denied if JWT has: `"scope": "delete:users"`
+❌ Denied if JWT has: `"scope": "admin:access"`
+
+### Role Matching
+
+Roles work the same way as scopes:
+
+#### OR Logic (Default)
+
+User needs **at least one** of the required roles:
+
+```json
+{
+  "path": "/api/admin/dashboard",
+  "method": "GET",
+  "required_roles": ["admin", "moderator"]
+}
+```
+
+✅ Allowed if JWT has: `"roles": "admin"`
+✅ Allowed if JWT has: `"roles": "moderator"`
+❌ Denied if JWT has: `"roles": "user"`
+
+#### AND Logic
+
+User needs **all** of the required roles:
+
+```json
+{
+  "path": "/api/super-admin",
+  "method": "POST",
+  "required_roles": ["admin", "super-admin"],
+  "jwt_authz": { "require_all_roles": true }
+}
+```
+
+✅ Allowed if JWT has: `"roles": "admin super-admin"`
+❌ Denied if JWT has: `"roles": "admin"`
+
+### Combined Scope and Role Requirements
+
+Routes can require **both** scopes and roles:
+
+```json
+{
+  "path": "/api/admin/users",
+  "method": "POST",
+  "auth_required": true,
+  "required_scopes": ["write:users"],
+  "required_roles": ["admin"]
+}
+```
+
+Access is granted only if user has:
+- **All required scopes** (respecting AND/OR logic)
+- **AND all required roles** (respecting AND/OR logic)
+
+### Identity Provider Examples
+
+#### Auth0 with Scopes
+
+1. Configure API in Auth0 with scopes:
+   - `read:users`
+   - `write:users`
+   - `delete:users`
+
+2. Token will contain:
+```json
+{
+  "iss": "https://your-tenant.auth0.com/",
+  "sub": "auth0|123456",
+  "aud": "https://api.example.com",
+  "scope": "read:users write:posts"
+}
+```
+
+3. Configure Titan routes:
+```json
+{
+  "routes": [
+    {
+      "path": "/api/users",
+      "method": "GET",
+      "required_scopes": ["read:users"]
+    }
+  ]
+}
+```
+
+#### Keycloak with Roles
+
+1. Create roles in Keycloak realm:
+   - `admin`
+   - `moderator`
+   - `user`
+
+2. Map roles to JWT claim (Keycloak client mapper):
+   - Token Claim Name: `roles`
+   - Claim JSON Type: String (space-separated)
+
+3. Token will contain:
+```json
+{
+  "iss": "https://keycloak.example.com/realms/myrealm",
+  "sub": "user-uuid",
+  "roles": "admin moderator"
+}
+```
+
+4. Configure Titan routes:
+```json
+{
+  "routes": [
+    {
+      "path": "/api/admin",
+      "method": "POST",
+      "required_roles": ["admin"]
+    }
+  ]
+}
+```
+
+### Error Responses
+
+When authorization fails, Titan returns HTTP 403 Forbidden:
+
+```http
+HTTP/1.1 403 Forbidden
+Content-Type: application/json
+
+{
+  "error": "forbidden",
+  "message": "Insufficient permissions"
+}
+```
+
+The error message is intentionally generic to avoid leaking authorization logic. Detailed failure reasons are logged server-side:
+
+```
+[WARN] Authorization failed: missing scopes, user_scopes=read:posts, required_scopes=write:posts, client_ip=192.168.1.1, correlation_id=req-123
+```
+
+### Best Practices
+
+1. **Use Scopes for Permissions**: Model permissions as OAuth 2.0 scopes (`read:resource`, `write:resource`)
+2. **Use Roles for Groups**: Model user groups as simple roles (`admin`, `moderator`, `user`)
+3. **Combine Both**: Use scopes for fine-grained permissions and roles for broad access levels
+4. **Start with OR Logic**: Use `require_all_scopes: false` for most routes (easier to manage)
+5. **Use AND Logic Sparingly**: Reserve `require_all_scopes: true` for highly sensitive operations
+6. **Namespace Scopes**: Use colons to namespace scopes (`resource:action` format)
+7. **Keep Roles Simple**: Avoid creating too many granular roles (use scopes instead)
+
+### Testing
+
+Run authorization tests:
+
+```bash
+./build/dev/tests/unit/titan_tests '[jwt][authz]'
+```
+
+Test with curl:
+
+```bash
+# Get token with specific scopes
+TOKEN=$(curl -X POST https://your-tenant.auth0.com/oauth/token \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "client_id": "YOUR_CLIENT_ID",
+    "client_secret": "YOUR_CLIENT_SECRET",
+    "audience": "YOUR_API",
+    "grant_type": "client_credentials",
+    "scope": "read:users write:posts"
+  }' | jq -r '.access_token')
+
+# Test authorized request
+curl -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8080/api/users
+
+# Test unauthorized request (should return 403)
+curl -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8080/api/admin
+```
 
 ## Performance
 
