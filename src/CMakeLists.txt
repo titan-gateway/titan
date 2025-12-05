@@ -18,6 +18,8 @@ add_library(titan_lib
   core/logging.cpp
   core/jwt.hpp
   core/jwt.cpp
+  core/jwks_fetcher.hpp
+  core/jwks_fetcher.cpp
   http/http.hpp
   http/http.cpp
   http/parser.hpp

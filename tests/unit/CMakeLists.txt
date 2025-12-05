@@ -19,6 +19,7 @@ add_executable(titan_tests
   test_circuit_breaker.cpp
   test_logging.cpp
   test_jwt.cpp
+  test_jwks.cpp
 )
 
 target_link_libraries(titan_tests

@@ -35,6 +35,9 @@
 
 namespace titan::core {
 
+// Forward declaration
+class JwksFetcher;
+
 /// JWT algorithm types
 enum class JwtAlgorithm {
     RS256,  // RSA + SHA-256 (asymmetric)
@@ -97,6 +100,9 @@ struct VerificationKey {
     /// Load HMAC secret from base64-encoded string
     [[nodiscard]] static std::optional<VerificationKey> load_hmac_secret(std::string_view key_id,
                                                                           std::string_view secret);
+
+    /// Clone this key (increments OpenSSL key reference count)
+    [[nodiscard]] std::optional<VerificationKey> clone() const;
 };
 
 /// Key manager (supports multiple keys for rotation)
@@ -123,6 +129,10 @@ public:
 
     /// Clear all keys
     void clear() { keys_.clear(); }
+
+    /// Iterate over keys (const)
+    [[nodiscard]] auto begin() const { return keys_.begin(); }
+    [[nodiscard]] auto end() const { return keys_.end(); }
 
 private:
     std::vector<VerificationKey> keys_;
@@ -208,8 +218,11 @@ public:
     JwtValidator(JwtValidator&&) noexcept = default;
     JwtValidator& operator=(JwtValidator&&) noexcept = default;
 
-    /// Set key manager
-    void set_key_manager(std::shared_ptr<KeyManager> keys) { keys_ = std::move(keys); }
+    /// Set static key manager (always available, fallback when JWKS fails)
+    void set_key_manager(std::shared_ptr<KeyManager> keys) { static_keys_ = std::move(keys); }
+
+    /// Set JWKS fetcher for dynamic key loading (optional)
+    void set_jwks_fetcher(std::shared_ptr<JwksFetcher> fetcher) { jwks_fetcher_ = std::move(fetcher); }
 
     /// Validate JWT token (with caching)
     [[nodiscard]] ValidationResult validate(std::string_view token);
@@ -228,8 +241,12 @@ private:
     /// Validate claims (exp, nbf, iss, aud)
     [[nodiscard]] ValidationResult validate_claims(const JwtClaims& claims);
 
+    /// Get merged key manager (JWKS keys + static keys)
+    [[nodiscard]] std::shared_ptr<KeyManager> get_merged_keys();
+
     JwtValidatorConfig config_;
-    std::shared_ptr<KeyManager> keys_;
+    std::shared_ptr<KeyManager> static_keys_;      // Static keys from config
+    std::shared_ptr<JwksFetcher> jwks_fetcher_;    // Dynamic JWKS fetcher (optional)
     std::unique_ptr<ThreadLocalTokenCache> cache_;
 };
 

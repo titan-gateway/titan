@@ -33,6 +33,8 @@
 #include <openssl/pem.h>
 #include <openssl/rsa.h>
 
+#include "jwks_fetcher.hpp"
+
 namespace titan::core {
 
 // ============================================================================
@@ -279,6 +281,26 @@ std::optional<VerificationKey> VerificationKey::load_hmac_secret(std::string_vie
     return key;
 }
 
+std::optional<VerificationKey> VerificationKey::clone() const {
+    VerificationKey cloned;
+    cloned.algorithm = algorithm;
+    cloned.key_id = key_id;
+
+    // Clone public key (RSA/EC)
+    if (public_key) {
+        // Increment OpenSSL reference count (thread-safe)
+        if (EVP_PKEY_up_ref(public_key) != 1) {
+            return std::nullopt;
+        }
+        cloned.public_key = public_key;
+    }
+
+    // Copy HMAC secret (vector copy)
+    cloned.hmac_secret = hmac_secret;
+
+    return cloned;
+}
+
 // ============================================================================
 // KeyManager Implementation
 // ============================================================================
@@ -428,12 +450,13 @@ ValidationResult JwtValidator::validate_uncached(std::string_view token) {
         return ValidationResult::failure("Algorithm 'none' not allowed");
     }
 
-    // STEP 4: Get verification key
-    if (!keys_) {
+    // STEP 4: Get verification key (merged JWKS + static keys)
+    auto keys = get_merged_keys();
+    if (!keys) {
         return ValidationResult::failure("No key manager configured");
     }
 
-    const VerificationKey* key = keys_->get_key(header->algorithm, header->key_id);
+    const VerificationKey* key = keys->get_key(header->algorithm, header->key_id);
     if (!key) {
         return ValidationResult::failure("Unknown key ID");
     }
@@ -585,6 +608,48 @@ ValidationResult JwtValidator::validate_claims(const JwtClaims& claims) {
     }
 
     return ValidationResult::success(claims);
+}
+
+std::shared_ptr<KeyManager> JwtValidator::get_merged_keys() {
+    // If no JWKS fetcher, return static keys only
+    if (!jwks_fetcher_) {
+        return static_keys_;
+    }
+
+    // Get JWKS keys (RCU read, thread-safe)
+    auto jwks_keys = jwks_fetcher_->get_keys();
+
+    // If JWKS is unavailable (empty) or circuit breaker is open, fall back to static keys
+    if (!jwks_keys || jwks_keys->key_count() == 0) {
+        return static_keys_;
+    }
+
+    // If no static keys, return JWKS keys only
+    if (!static_keys_ || static_keys_->key_count() == 0) {
+        return jwks_keys;
+    }
+
+    // MERGE: Create new KeyManager with JWKS keys + static keys
+    // JWKS keys take precedence (added first, checked first by KeyManager::get_key)
+    auto merged = std::make_shared<KeyManager>();
+
+    // Add JWKS keys first (higher priority for kid matching)
+    for (const auto& key : *jwks_keys) {
+        auto cloned = key.clone();
+        if (cloned.has_value()) {
+            merged->add_key(std::move(*cloned));
+        }
+    }
+
+    // Add static keys (fallback for keys not in JWKS)
+    for (const auto& key : *static_keys_) {
+        auto cloned = key.clone();
+        if (cloned.has_value()) {
+            merged->add_key(std::move(*cloned));
+        }
+    }
+
+    return merged;
 }
 
 }  // namespace titan::core
