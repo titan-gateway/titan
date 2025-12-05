@@ -40,6 +40,8 @@ add_library(titan_lib
   gateway/pipeline.cpp
   gateway/jwt_middleware.hpp
   gateway/jwt_middleware.cpp
+  gateway/jwt_authz_middleware.hpp
+  gateway/jwt_authz_middleware.cpp
   control/config.hpp
   control/config.cpp
   control/health.hpp

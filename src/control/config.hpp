@@ -118,6 +118,11 @@ struct RouteConfig {
 
     // Middleware overrides
     std::vector<std::string> middleware;
+
+    // Authorization (JWT claims-based)
+    bool auth_required = false;                // Require JWT authentication
+    std::vector<std::string> required_scopes;  // OAuth 2.0 scopes (e.g., "read:users")
+    std::vector<std::string> required_roles;   // Simple role strings (e.g., "admin")
 };
 
 /// CORS middleware configuration
@@ -252,7 +257,8 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(UpstreamConfig, name, backends, load_balancin
                                    retry_timeout, pool_size, pool_idle_timeout, circuit_breaker);
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(RouteConfig, path, method, upstream, handler_id, priority,
-                                   rewrite_path, timeout, middleware);
+                                   rewrite_path, timeout, middleware, auth_required,
+                                   required_scopes, required_roles);
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(CorsConfig, enabled, allowed_origins, allowed_methods,
                                    allowed_headers, allow_credentials, max_age);
@@ -341,6 +347,9 @@ inline void from_json(const nlohmann::json& j, RouteConfig& r) {
     r.rewrite_path = j.value("rewrite_path", std::optional<std::string>());
     r.timeout = j.value("timeout", std::optional<uint32_t>());
     r.middleware = j.value("middleware", std::vector<std::string>());
+    r.auth_required = j.value("auth_required", false);
+    r.required_scopes = j.value("required_scopes", std::vector<std::string>());
+    r.required_roles = j.value("required_roles", std::vector<std::string>());
 }
 
 inline void from_json(const nlohmann::json& j, CorsConfig& c) {
