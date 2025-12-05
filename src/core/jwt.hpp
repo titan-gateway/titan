@@ -100,6 +100,9 @@ struct VerificationKey {
     /// Load HMAC secret from base64-encoded string
     [[nodiscard]] static std::optional<VerificationKey> load_hmac_secret(std::string_view key_id,
                                                                           std::string_view secret);
+
+    /// Clone this key (increments OpenSSL key reference count)
+    [[nodiscard]] std::optional<VerificationKey> clone() const;
 };
 
 /// Key manager (supports multiple keys for rotation)
@@ -126,6 +129,10 @@ public:
 
     /// Clear all keys
     void clear() { keys_.clear(); }
+
+    /// Iterate over keys (const)
+    [[nodiscard]] auto begin() const { return keys_.begin(); }
+    [[nodiscard]] auto end() const { return keys_.end(); }
 
 private:
     std::vector<VerificationKey> keys_;

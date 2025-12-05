@@ -281,6 +281,26 @@ std::optional<VerificationKey> VerificationKey::load_hmac_secret(std::string_vie
     return key;
 }
 
+std::optional<VerificationKey> VerificationKey::clone() const {
+    VerificationKey cloned;
+    cloned.algorithm = algorithm;
+    cloned.key_id = key_id;
+
+    // Clone public key (RSA/EC)
+    if (public_key) {
+        // Increment OpenSSL reference count (thread-safe)
+        if (EVP_PKEY_up_ref(public_key) != 1) {
+            return std::nullopt;
+        }
+        cloned.public_key = public_key;
+    }
+
+    // Copy HMAC secret (vector copy)
+    cloned.hmac_secret = hmac_secret;
+
+    return cloned;
+}
+
 // ============================================================================
 // KeyManager Implementation
 // ============================================================================
@@ -614,18 +634,22 @@ std::shared_ptr<KeyManager> JwtValidator::get_merged_keys() {
     auto merged = std::make_shared<KeyManager>();
 
     // Add JWKS keys first (higher priority for kid matching)
-    for (size_t i = 0; i < jwks_keys->key_count(); ++i) {
-        // Note: KeyManager stores keys in a vector, we can't copy them directly
-        // due to VerificationKey being non-copyable. JWKS keys are already in the manager.
+    for (const auto& key : *jwks_keys) {
+        auto cloned = key.clone();
+        if (cloned.has_value()) {
+            merged->add_key(std::move(*cloned));
+        }
     }
 
-    // TODO: Implement proper key merging once KeyManager supports iteration
-    // For now, prefer JWKS keys when available, fall back to static keys
-    // This is safe because KeyManager::get_key() returns first match by algorithm + kid
+    // Add static keys (fallback for keys not in JWKS)
+    for (const auto& key : *static_keys_) {
+        auto cloned = key.clone();
+        if (cloned.has_value()) {
+            merged->add_key(std::move(*cloned));
+        }
+    }
 
-    // Return JWKS keys (they already include all keys from fetcher)
-    // Static keys are used as fallback when JWKS circuit breaker is open
-    return jwks_keys;
+    return merged;
 }
 
 }  // namespace titan::core
