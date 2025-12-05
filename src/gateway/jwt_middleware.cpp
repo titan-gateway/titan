@@ -41,6 +41,12 @@ MiddlewareResult JwtAuthMiddleware::process_request(RequestContext& ctx) {
         return MiddlewareResult::Error;
     }
 
+    // Check if this route requires authentication
+    // If auth_required is false, skip JWT validation (allow public access)
+    if (!ctx.route_match.auth_required) {
+        return MiddlewareResult::Continue;
+    }
+
     // STEP 1: Extract token from Authorization header
     auto auth_header = ctx.request->get_header(config_.header);
     if (auth_header.empty()) {

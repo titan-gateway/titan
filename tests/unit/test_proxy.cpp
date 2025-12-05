@@ -26,7 +26,7 @@ public:
         : config_(create_test_config()),
           router_(gateway::build_router(config_)),
           upstream_manager_(gateway::build_upstream_manager(config_)),
-          pipeline_(gateway::build_pipeline(config_, upstream_manager_.get(), nullptr)),
+          pipeline_(gateway::build_pipeline(config_, upstream_manager_.get(), nullptr, nullptr)),
           server_(config_, std::move(router_), std::move(upstream_manager_),
                   std::move(pipeline_)) {}
 

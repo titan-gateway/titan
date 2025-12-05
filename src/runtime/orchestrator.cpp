@@ -66,7 +66,21 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
     auto router = gateway::build_router(config);
     auto upstream_manager = gateway::build_upstream_manager(config);
     auto upstream_manager_ptr = upstream_manager.get();
-    auto pipeline = gateway::build_pipeline(config, upstream_manager_ptr, g_revocation_queue);
+
+    // Build JWT components (per-worker)
+    auto static_keys = gateway::build_static_key_manager(config);
+    auto jwt_validator = gateway::build_jwt_validator(config, static_keys);
+    if (jwt_validator) {
+        auto jwks_fetcher = gateway::build_jwks_fetcher(config);
+        if (jwks_fetcher) {
+            jwt_validator->set_jwks_fetcher(jwks_fetcher);
+            // Start JWKS fetcher background thread
+            jwks_fetcher->start();
+        }
+    }
+
+    auto pipeline =
+        gateway::build_pipeline(config, upstream_manager_ptr, g_revocation_queue, jwt_validator);
 
     // Create server with pre-built components
     core::Server server(config, std::move(router), std::move(upstream_manager), std::move(pipeline));
@@ -248,7 +262,21 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
     auto router = gateway::build_router(config);
     auto upstream_manager = gateway::build_upstream_manager(config);
     auto upstream_manager_ptr = upstream_manager.get();
-    auto pipeline = gateway::build_pipeline(config, upstream_manager_ptr, g_revocation_queue);
+
+    // Build JWT components (per-worker)
+    auto static_keys = gateway::build_static_key_manager(config);
+    auto jwt_validator = gateway::build_jwt_validator(config, static_keys);
+    if (jwt_validator) {
+        auto jwks_fetcher = gateway::build_jwks_fetcher(config);
+        if (jwks_fetcher) {
+            jwt_validator->set_jwks_fetcher(jwks_fetcher);
+            // Start JWKS fetcher background thread
+            jwks_fetcher->start();
+        }
+    }
+
+    auto pipeline =
+        gateway::build_pipeline(config, upstream_manager_ptr, g_revocation_queue, jwt_validator);
 
     // Create server with pre-built components
     core::Server server(config, std::move(router), std::move(upstream_manager), std::move(pipeline));
@@ -430,7 +458,21 @@ std::error_code run_simple_server(const control::Config& config) {
     auto router = gateway::build_router(config);
     auto upstream_manager = gateway::build_upstream_manager(config);
     auto upstream_manager_ptr = upstream_manager.get();
-    auto pipeline = gateway::build_pipeline(config, upstream_manager_ptr, g_revocation_queue);
+
+    // Build JWT components
+    auto static_keys = gateway::build_static_key_manager(config);
+    auto jwt_validator = gateway::build_jwt_validator(config, static_keys);
+    if (jwt_validator) {
+        auto jwks_fetcher = gateway::build_jwks_fetcher(config);
+        if (jwks_fetcher) {
+            jwt_validator->set_jwks_fetcher(jwks_fetcher);
+            // Start JWKS fetcher background thread
+            jwks_fetcher->start();
+        }
+    }
+
+    auto pipeline =
+        gateway::build_pipeline(config, upstream_manager_ptr, g_revocation_queue, jwt_validator);
 
     // Create server with pre-built components
     core::Server server(config, std::move(router), std::move(upstream_manager), std::move(pipeline));
@@ -572,7 +614,21 @@ std::error_code run_simple_server(const control::Config& config) {
     auto router = gateway::build_router(config);
     auto upstream_manager = gateway::build_upstream_manager(config);
     auto upstream_manager_ptr = upstream_manager.get();
-    auto pipeline = gateway::build_pipeline(config, upstream_manager_ptr, g_revocation_queue);
+
+    // Build JWT components
+    auto static_keys = gateway::build_static_key_manager(config);
+    auto jwt_validator = gateway::build_jwt_validator(config, static_keys);
+    if (jwt_validator) {
+        auto jwks_fetcher = gateway::build_jwks_fetcher(config);
+        if (jwks_fetcher) {
+            jwt_validator->set_jwks_fetcher(jwks_fetcher);
+            // Start JWKS fetcher background thread
+            jwks_fetcher->start();
+        }
+    }
+
+    auto pipeline =
+        gateway::build_pipeline(config, upstream_manager_ptr, g_revocation_queue, jwt_validator);
 
     // Create server with pre-built components
     core::Server server(config, std::move(router), std::move(upstream_manager), std::move(pipeline));

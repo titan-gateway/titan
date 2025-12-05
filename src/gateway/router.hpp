@@ -43,6 +43,7 @@ struct RouteMatch {
     std::vector<RouteParam> params;  // Extracted path parameters
     std::string_view wildcard;       // Wildcard match (if any)
     std::string_view upstream_name;  // Upstream name for this route
+    bool auth_required = false;      // Whether this route requires JWT authentication
 
     [[nodiscard]] bool matched() const noexcept { return !handler_id.empty(); }
 
@@ -60,6 +61,9 @@ struct Route {
     // Backend configuration (for proxy routes)
     std::string upstream_name;  // Name of upstream group
     std::string rewrite_path;   // Optional path rewriting
+
+    // Authentication
+    bool auth_required = false;  // Require JWT authentication for this route
 };
 
 /// Radix tree node (internal)

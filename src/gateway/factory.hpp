@@ -22,7 +22,9 @@
 #include <memory>
 
 #include "../control/config.hpp"
+#include "../core/jwt.hpp"
 #include "../core/jwt_revocation.hpp"
+#include "../core/jwks_fetcher.hpp"
 #include "pipeline.hpp"
 #include "router.hpp"
 #include "upstream.hpp"
@@ -35,9 +37,22 @@ namespace titan::gateway {
 /// Build upstream manager from configuration
 [[nodiscard]] std::unique_ptr<UpstreamManager> build_upstream_manager(const control::Config& config);
 
+/// Build static JWT key manager from configuration (shared across workers)
+[[nodiscard]] std::shared_ptr<core::KeyManager> build_static_key_manager(
+    const control::Config& config);
+
+/// Build JWT validator (per-worker, has thread-local cache)
+[[nodiscard]] std::shared_ptr<core::JwtValidator> build_jwt_validator(
+    const control::Config& config, std::shared_ptr<core::KeyManager> static_keys = nullptr);
+
+/// Build JWKS fetcher if enabled (per-worker, has background thread)
+[[nodiscard]] std::shared_ptr<core::JwksFetcher> build_jwks_fetcher(
+    const control::Config& config);
+
 /// Build middleware pipeline from configuration
-[[nodiscard]] std::unique_ptr<Pipeline> build_pipeline(const control::Config& config,
-                                                        UpstreamManager* upstream_manager,
-                                                        core::RevocationQueue* revocation_queue);
+[[nodiscard]] std::unique_ptr<Pipeline> build_pipeline(
+    const control::Config& config, UpstreamManager* upstream_manager,
+    core::RevocationQueue* revocation_queue,
+    std::shared_ptr<core::JwtValidator> jwt_validator = nullptr);
 
 }  // namespace titan::gateway
