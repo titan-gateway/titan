@@ -1,0 +1,141 @@
+{
+  "version": "1.0",
+  "description": "Titan API Gateway - JWT Authentication with JWKS Example",
+  "comment": "This example shows JWT authentication with dynamic key loading from Auth0/Keycloak JWKS endpoints",
+
+  "server": {
+    "worker_threads": 4,
+    "listen_address": "0.0.0.0",
+    "listen_port": 8080,
+    "backlog": 128,
+    "read_timeout": 60000,
+    "write_timeout": 60000,
+    "idle_timeout": 300000,
+    "shutdown_timeout": 30000,
+    "max_connections": 10000,
+    "max_request_size": 1048576,
+    "max_header_size": 8192
+  },
+
+  "upstreams": [
+    {
+      "name": "api_backend",
+      "load_balancing": "round_robin",
+      "max_retries": 2,
+      "retry_timeout": 1000,
+      "pool_size": 100,
+      "pool_idle_timeout": 60,
+      "backends": [
+        {
+          "host": "localhost",
+          "port": 3000,
+          "weight": 1,
+          "max_connections": 1000,
+          "health_check_enabled": true,
+          "health_check_interval": 30,
+          "health_check_timeout": 5,
+          "health_check_path": "/health"
+        }
+      ]
+    }
+  ],
+
+  "routes": [
+    {
+      "path": "/api/public",
+      "method": "GET",
+      "upstream": "api_backend",
+      "handler_id": "public_endpoint",
+      "priority": 5
+    },
+    {
+      "path": "/api/protected",
+      "method": "GET",
+      "upstream": "api_backend",
+      "handler_id": "protected_endpoint",
+      "priority": 10
+    },
+    {
+      "path": "/api/users",
+      "method": "POST",
+      "upstream": "api_backend",
+      "handler_id": "create_user",
+      "priority": 10
+    }
+  ],
+
+  "jwt": {
+    "enabled": true,
+    "header": "Authorization",
+    "scheme": "Bearer",
+
+    "require_exp": true,
+    "require_sub": true,
+    "clock_skew_seconds": 60,
+    "allowed_issuers": [
+      "https://your-tenant.auth0.com/",
+      "https://keycloak.example.com/realms/your-realm"
+    ],
+    "allowed_audiences": [
+      "https://api.example.com",
+      "your-api-identifier"
+    ],
+
+    "jwks": {
+      "url": "https://your-tenant.auth0.com/.well-known/jwks.json",
+      "refresh_interval_seconds": 3600,
+      "timeout_seconds": 10,
+      "retry_max": 3,
+      "circuit_breaker_seconds": 300
+    },
+
+    "keys": [
+      {
+        "algorithm": "RS256",
+        "key_id": "static-rsa-key-1",
+        "public_key_path": "/etc/titan/keys/rsa-public.pem"
+      }
+    ],
+
+    "cache_enabled": true,
+    "cache_capacity": 10000
+  },
+
+  "cors": {
+    "enabled": true,
+    "allowed_origins": ["https://app.example.com"],
+    "allowed_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    "allowed_headers": ["Authorization", "Content-Type"],
+    "allow_credentials": true,
+    "max_age": 86400
+  },
+
+  "rate_limit": {
+    "enabled": true,
+    "requests_per_second": 1000,
+    "burst_size": 2000,
+    "key": "client_ip"
+  },
+
+  "logging": {
+    "level": "info",
+    "format": "json",
+    "log_requests": true,
+    "log_responses": false,
+    "exclude_paths": ["/health", "/metrics"]
+  },
+
+  "metrics": {
+    "enabled": true,
+    "port": 9090,
+    "path": "/metrics",
+    "format": "prometheus"
+  },
+
+  "_comment_examples": {
+    "auth0_jwks_url": "https://<tenant>.auth0.com/.well-known/jwks.json",
+    "keycloak_jwks_url": "https://<host>/realms/<realm>/protocol/openid-connect/certs",
+    "google_jwks_url": "https://www.googleapis.com/oauth2/v3/certs",
+    "microsoft_jwks_url": "https://login.microsoftonline.com/<tenant>/discovery/v2.0/keys"
+  }
+}
