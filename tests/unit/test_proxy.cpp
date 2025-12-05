@@ -12,6 +12,7 @@
 #include <thread>
 
 #include "../../src/core/server.hpp"
+#include "../../src/gateway/factory.hpp"
 #include "../../src/http/http.hpp"
 
 using namespace titan;
@@ -21,7 +22,13 @@ using namespace titan::http;
 // Test fixture with access to private methods via friend declaration
 class ProxyTestFixture {
 public:
-    ProxyTestFixture() : config_(create_test_config()), server_(config_) {}
+    ProxyTestFixture()
+        : config_(create_test_config()),
+          router_(gateway::build_router(config_)),
+          upstream_manager_(gateway::build_upstream_manager(config_)),
+          pipeline_(gateway::build_pipeline(config_, upstream_manager_.get(), nullptr)),
+          server_(config_, std::move(router_), std::move(upstream_manager_),
+                  std::move(pipeline_)) {}
 
     // Wrapper methods to access private Server methods
     std::string test_build_backend_request(const Request& req) {
@@ -47,6 +54,9 @@ private:
     }
 
     control::Config config_;
+    std::unique_ptr<gateway::Router> router_;
+    std::unique_ptr<gateway::UpstreamManager> upstream_manager_;
+    std::unique_ptr<gateway::Pipeline> pipeline_;
     Server server_;
 };
 

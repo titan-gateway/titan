@@ -57,117 +57,13 @@ constexpr size_t kQuerySeparatorSize = 1;    // "?"
 constexpr auto kConnectionStaleThreshold = std::chrono::seconds(5);
 }  // anonymous namespace
 
-Server::Server(const control::Config& config)
+Server::Server(const control::Config& config, std::unique_ptr<gateway::Router> router,
+               std::unique_ptr<gateway::UpstreamManager> upstream_manager,
+               std::unique_ptr<gateway::Pipeline> pipeline)
     : config_(config),
-      router_(std::make_unique<gateway::Router>()),
-      upstream_manager_(std::make_unique<gateway::UpstreamManager>()),
-      pipeline_(std::make_unique<gateway::Pipeline>()) {
-    // Build router from config
-    for (const auto& route_config : config_.routes) {
-        gateway::Route route;
-        route.path = route_config.path;
-
-        if (!route_config.method.empty()) {
-            // Convert method string to enum
-            const auto& method_str = route_config.method;
-            switch (method_str[0]) {
-                case 'G':
-                    if (method_str == "GET")
-                        route.method = http::Method::GET;
-                    break;
-                case 'P':
-                    if (method_str == "POST")
-                        route.method = http::Method::POST;
-                    else if (method_str == "PUT")
-                        route.method = http::Method::PUT;
-                    else if (method_str == "PATCH")
-                        route.method = http::Method::PATCH;
-                    break;
-                case 'D':
-                    if (method_str == "DELETE")
-                        route.method = http::Method::DELETE;
-                    break;
-                case 'H':
-                    if (method_str == "HEAD")
-                        route.method = http::Method::HEAD;
-                    break;
-                case 'O':
-                    if (method_str == "OPTIONS")
-                        route.method = http::Method::OPTIONS;
-                    break;
-            }
-        }
-
-        route.handler_id =
-            route_config.handler_id.empty() ? route_config.path : route_config.handler_id;
-        route.upstream_name = route_config.upstream;
-        route.priority = route_config.priority;
-
-        router_->add_route(std::move(route));
-    }
-
-    // Build upstreams from config
-    for (const auto& upstream_config : config_.upstreams) {
-        // Calculate pool size as max of all backend max_connections
-        size_t pool_size = 64;  // Default
-        for (const auto& backend_config : upstream_config.backends) {
-            pool_size = std::max(pool_size, static_cast<size_t>(backend_config.max_connections));
-        }
-
-        auto upstream = std::make_unique<gateway::Upstream>(upstream_config.name, pool_size);
-
-        for (const auto& backend_config : upstream_config.backends) {
-            gateway::Backend backend;
-            backend.host = backend_config.host;
-            backend.port = backend_config.port;
-            backend.weight = backend_config.weight;
-            backend.max_connections = backend_config.max_connections;
-
-            // Initialize circuit breaker if enabled
-            if (upstream_config.circuit_breaker.enabled) {
-                gateway::CircuitBreakerConfig cb_config;
-                cb_config.failure_threshold = upstream_config.circuit_breaker.failure_threshold;
-                cb_config.success_threshold = upstream_config.circuit_breaker.success_threshold;
-                cb_config.timeout_ms = upstream_config.circuit_breaker.timeout_ms;
-                cb_config.window_ms = upstream_config.circuit_breaker.window_ms;
-                cb_config.enable_global_hints = upstream_config.circuit_breaker.enable_global_hints;
-                cb_config.catastrophic_threshold =
-                    upstream_config.circuit_breaker.catastrophic_threshold;
-
-                upstream->add_backend_with_circuit_breaker(std::move(backend), cb_config);
-            } else {
-                upstream->add_backend(std::move(backend));
-            }
-        }
-
-        // Set load balancing strategy from config
-        if (upstream_config.load_balancing == "least_connections") {
-            upstream->set_load_balancer(std::make_unique<gateway::LeastConnectionsBalancer>());
-        } else if (upstream_config.load_balancing == "random") {
-            upstream->set_load_balancer(std::make_unique<gateway::RandomBalancer>());
-        } else if (upstream_config.load_balancing == "weighted_round_robin") {
-            upstream->set_load_balancer(std::make_unique<gateway::WeightedRoundRobinBalancer>());
-        }
-        // else: defaults to RoundRobinBalancer (set in Upstream constructor)
-
-        upstream_manager_->register_upstream(std::move(upstream));
-    }
-
-    // Build middleware pipeline (Two-Phase: Request → Response)
-    // Order matters: middleware runs in order added
-    pipeline_->use(std::make_unique<gateway::LoggingMiddleware>());
-    pipeline_->use(std::make_unique<gateway::CorsMiddleware>());
-
-    // Rate limiting (only if enabled in config)
-    if (config_.rate_limit.enabled && config_.rate_limit.requests_per_second > 0) {
-        gateway::RateLimitMiddleware::Config rl_config;
-        rl_config.requests_per_second = config_.rate_limit.requests_per_second;
-        rl_config.burst_size = config_.rate_limit.burst_size;
-        pipeline_->use(std::make_unique<gateway::RateLimitMiddleware>(rl_config));
-    }
-
-    pipeline_->use(std::make_unique<gateway::ProxyMiddleware>(upstream_manager_.get()));
-
+      router_(std::move(router)),
+      upstream_manager_(std::move(upstream_manager)),
+      pipeline_(std::move(pipeline)) {
     // Initialize TLS if enabled
     if (config_.server.tls_enabled) {
         std::error_code error;
@@ -178,8 +74,6 @@ Server::Server(const control::Config& config)
         if (result) {
             tls_context_ = std::move(*result);
         } else {
-            // TLS initialization failed - log error
-            // TODO: Add proper error handling/logging
             throw std::runtime_error("Failed to initialize TLS context: " + error.message());
         }
     }

@@ -192,6 +192,9 @@ struct JwtConfig {
     // Caching
     size_t cache_capacity = 10000;  // Tokens per thread
     bool cache_enabled = true;
+
+    // Token revocation
+    bool revocation_enabled = true;  // Enable token revocation checking
 };
 
 /// Logging configuration
@@ -404,6 +407,7 @@ inline void from_json(const nlohmann::json& j, JwtConfig& jwt) {
     jwt.clock_skew_seconds = j.value("clock_skew_seconds", int64_t(60));
     jwt.cache_capacity = j.value("cache_capacity", size_t(10000));
     jwt.cache_enabled = j.value("cache_enabled", true);
+    jwt.revocation_enabled = j.value("revocation_enabled", true);
 }
 
 inline void from_json(const nlohmann::json& j, LogConfig::RotationConfig& r) {

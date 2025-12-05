@@ -37,6 +37,7 @@ find_package(nlohmann_json CONFIG REQUIRED)
 find_package(fmt CONFIG REQUIRED)
 find_package(llhttp CONFIG REQUIRED)
 find_package(quill CONFIG REQUIRED)
+find_package(httplib CONFIG REQUIRED)
 
 # nghttp2 (HTTP/2 library) - use PkgConfig
 find_package(PkgConfig REQUIRED)

@@ -14,23 +14,27 @@
  * limitations under the License.
  */
 
-// Titan Server Runner - Header
-// Simple server loop for MVP
+// Titan Runtime Orchestrator - Header
+// High-level orchestration of workers, event loops, and global state
 
 #pragma once
 
 #include <system_error>
 
 #include "../control/config.hpp"
-#include "server.hpp"
+#include "../core/jwt_revocation.hpp"
+#include "../core/server.hpp"
 
-namespace titan::core {
+namespace titan::runtime {
 
-/// Run HTTP server using poll() (single-threaded)
+// Global revocation queue (set by run_multi_threaded_server, used by workers)
+extern core::RevocationQueue* g_revocation_queue;
+
+/// Run HTTP server using single-threaded event loop
 [[nodiscard]] std::error_code run_simple_server(const control::Config& config);
 
 /// Run HTTP server with multi-threading (SO_REUSEPORT + dual epoll)
 /// Spawns N worker threads (one per CPU core), each with its own event loop
 [[nodiscard]] std::error_code run_multi_threaded_server(const control::Config& config);
 
-}  // namespace titan::core
+}  // namespace titan::runtime

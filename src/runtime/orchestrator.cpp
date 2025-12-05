@@ -14,17 +14,19 @@
  * limitations under the License.
  */
 
-// Titan Server Runner - Implementation
+// Titan Runtime Orchestrator - Implementation
 
-#include "server_runner.hpp"
+#include "orchestrator.hpp"
 
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include "logging.hpp"
-#include "admin_server.hpp"
-#include "socket.hpp"
+#include "../core/logging.hpp"
+#include "../core/admin_server.hpp"
+#include "../core/socket.hpp"
+#include "../core/jwt_revocation.hpp"
+#include "../gateway/factory.hpp"
 
 #ifdef __linux__
 #include <sys/epoll.h>
@@ -38,10 +40,15 @@
 #include <vector>
 
 namespace titan::core {
-
 extern std::atomic<bool> g_server_running;
 extern std::atomic<bool> g_graceful_shutdown;
 extern std::atomic<const gateway::UpstreamManager*> g_upstream_manager_for_metrics;
+}
+
+namespace titan::runtime {
+
+// Global revocation queue for JWT token revocation (shared across all workers)
+core::RevocationQueue* g_revocation_queue = nullptr;
 
 // Worker thread function - runs dual epoll event loop for one worker
 // Each worker has its own Server instance and TWO epoll/kqueue instances:
@@ -50,12 +57,19 @@ extern std::atomic<const gateway::UpstreamManager*> g_upstream_manager_for_metri
 #ifdef __linux__
 static void run_worker_thread(const control::Config& config, int worker_id) {
     // Pin thread to CPU core for better cache locality
-    pin_thread_to_core(worker_id);
+    core::pin_thread_to_core(worker_id);
 
     // Initialize per-worker logger
     auto* logger = logging::init_worker_logger(worker_id, config.logging);
 
-    Server server(config);
+    // Build gateway components using factory
+    auto router = gateway::build_router(config);
+    auto upstream_manager = gateway::build_upstream_manager(config);
+    auto upstream_manager_ptr = upstream_manager.get();
+    auto pipeline = gateway::build_pipeline(config, upstream_manager_ptr, g_revocation_queue);
+
+    // Create server with pre-built components
+    core::Server server(config, std::move(router), std::move(upstream_manager), std::move(pipeline));
     server.set_logger(logger);
     if (auto ec = server.start(); ec) {
         return;
@@ -63,11 +77,11 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
 
     // Worker 0 shares its upstream_manager for admin server metrics
     if (worker_id == 0) {
-        g_upstream_manager_for_metrics.store(server.upstream_manager(), std::memory_order_release);
+        core::g_upstream_manager_for_metrics.store(server.upstream_manager(), std::memory_order_release);
     }
 
     int listen_fd = server.listen_fd();
-    if (auto ec = set_nonblocking(listen_fd); ec) {
+    if (auto ec = core::set_nonblocking(listen_fd); ec) {
         return;
     }
 
@@ -96,7 +110,7 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
     epoll_event client_events[MAX_EVENTS];
     epoll_event backend_events[MAX_EVENTS];
 
-    while (g_server_running) {
+    while (core::g_server_running) {
         // Process client events (non-blocking poll with 0 timeout)
         int n_client = epoll_wait(client_epoll_fd, client_events, MAX_EVENTS, 0);
 
@@ -117,7 +131,7 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
                         continue;
                     }
 
-                    if (auto ec = set_nonblocking(client_fd); ec) {
+                    if (auto ec = core::set_nonblocking(client_fd); ec) {
                         close(client_fd);
                         continue;
                     }
@@ -166,7 +180,7 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
     }
 
     // Graceful shutdown: Wait for in-flight requests to complete
-    if (g_graceful_shutdown && !active_client_fds.empty()) {
+    if (core::g_graceful_shutdown && !active_client_fds.empty()) {
         constexpr int SHUTDOWN_TIMEOUT_MS = 30000;  // 30 seconds
         constexpr int POLL_INTERVAL_MS = 100;
         int elapsed_ms = 0;
@@ -228,20 +242,27 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
 #elif defined(__APPLE__) || defined(__FreeBSD__)
 static void run_worker_thread(const control::Config& config, int worker_id) {
     // Note: macOS doesn't support thread CPU affinity
-    // pin_thread_to_core(worker_id);  // No-op on macOS
+    // core::pin_thread_to_core(worker_id);  // No-op on macOS
 
-    Server server(config);
+    // Build gateway components using factory
+    auto router = gateway::build_router(config);
+    auto upstream_manager = gateway::build_upstream_manager(config);
+    auto upstream_manager_ptr = upstream_manager.get();
+    auto pipeline = gateway::build_pipeline(config, upstream_manager_ptr, g_revocation_queue);
+
+    // Create server with pre-built components
+    core::Server server(config, std::move(router), std::move(upstream_manager), std::move(pipeline));
     if (auto ec = server.start(); ec) {
         return;
     }
 
     // Worker 0 shares its upstream_manager for admin server metrics
     if (worker_id == 0) {
-        g_upstream_manager_for_metrics.store(server.upstream_manager(), std::memory_order_release);
+        core::g_upstream_manager_for_metrics.store(server.upstream_manager(), std::memory_order_release);
     }
 
     int listen_fd = server.listen_fd();
-    if (auto ec = set_nonblocking(listen_fd); ec) {
+    if (auto ec = core::set_nonblocking(listen_fd); ec) {
         return;
     }
 
@@ -271,7 +292,7 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
     struct kevent backend_events[MAX_EVENTS];
     struct timespec timeout{0, 1000000};  // 1ms timeout
 
-    while (g_server_running) {
+    while (core::g_server_running) {
         // Process client events (immediate timeout)
         struct timespec zero_timeout{0, 0};
         int n_client = kevent(client_kq, nullptr, 0, client_events, MAX_EVENTS, &zero_timeout);
@@ -293,7 +314,7 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
                         continue;
                     }
 
-                    if (auto ec = set_nonblocking(client_fd); ec) {
+                    if (auto ec = core::set_nonblocking(client_fd); ec) {
                         close(client_fd);
                         continue;
                     }
@@ -340,7 +361,7 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
     }
 
     // Graceful shutdown: Wait for in-flight requests to complete
-    if (g_graceful_shutdown && !active_client_fds.empty()) {
+    if (core::g_graceful_shutdown && !active_client_fds.empty()) {
         constexpr int SHUTDOWN_TIMEOUT_MS = 30000;  // 30 seconds
         constexpr int POLL_INTERVAL_MS = 100;
         int elapsed_ms = 0;
@@ -405,14 +426,21 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
 #ifdef __linux__
 // Linux epoll-based event loop (O(1) scalability)
 std::error_code run_simple_server(const control::Config& config) {
-    Server server(config);
+    // Build gateway components using factory
+    auto router = gateway::build_router(config);
+    auto upstream_manager = gateway::build_upstream_manager(config);
+    auto upstream_manager_ptr = upstream_manager.get();
+    auto pipeline = gateway::build_pipeline(config, upstream_manager_ptr, g_revocation_queue);
+
+    // Create server with pre-built components
+    core::Server server(config, std::move(router), std::move(upstream_manager), std::move(pipeline));
 
     if (auto ec = server.start(); ec) {
         return ec;
     }
 
     int listen_fd = server.listen_fd();
-    if (auto ec = set_nonblocking(listen_fd); ec) {
+    if (auto ec = core::set_nonblocking(listen_fd); ec) {
         return ec;
     }
 
@@ -438,7 +466,7 @@ std::error_code run_simple_server(const control::Config& config) {
         return std::error_code(errno, std::system_category());
     }
 
-    g_server_running = true;
+    core::g_server_running = true;
     std::unordered_set<int> active_fds;
 
     // Increased from 128 to 4096 for better scalability under extreme load
@@ -447,7 +475,7 @@ std::error_code run_simple_server(const control::Config& config) {
     epoll_event events[MAX_EVENTS];
     epoll_event backend_events[MAX_EVENTS];
 
-    while (g_server_running) {
+    while (core::g_server_running) {
         int n_events = epoll_wait(epoll_fd, events, MAX_EVENTS, 1000);
 
         if (n_events < 0) {
@@ -476,7 +504,7 @@ std::error_code run_simple_server(const control::Config& config) {
                         continue;  // Error, try next
                     }
 
-                    if (auto ec = set_nonblocking(client_fd); ec) {
+                    if (auto ec = core::set_nonblocking(client_fd); ec) {
                         close(client_fd);
                         continue;
                     }
@@ -540,14 +568,21 @@ std::error_code run_simple_server(const control::Config& config) {
 #elif defined(__APPLE__) || defined(__FreeBSD__)
 // macOS/BSD kqueue-based event loop (O(1) scalability)
 std::error_code run_simple_server(const control::Config& config) {
-    Server server(config);
+    // Build gateway components using factory
+    auto router = gateway::build_router(config);
+    auto upstream_manager = gateway::build_upstream_manager(config);
+    auto upstream_manager_ptr = upstream_manager.get();
+    auto pipeline = gateway::build_pipeline(config, upstream_manager_ptr, g_revocation_queue);
+
+    // Create server with pre-built components
+    core::Server server(config, std::move(router), std::move(upstream_manager), std::move(pipeline));
 
     if (auto ec = server.start(); ec) {
         return ec;
     }
 
     int listen_fd = server.listen_fd();
-    if (auto ec = set_nonblocking(listen_fd); ec) {
+    if (auto ec = core::set_nonblocking(listen_fd); ec) {
         return ec;
     }
 
@@ -572,7 +607,7 @@ std::error_code run_simple_server(const control::Config& config) {
         return std::error_code(errno, std::system_category());
     }
 
-    g_server_running = true;
+    core::g_server_running = true;
     std::unordered_set<int> active_fds;
 
     // Increased from 128 to 4096 for better scalability under extreme load
@@ -582,7 +617,7 @@ std::error_code run_simple_server(const control::Config& config) {
     struct timespec timeout{1, 0};                // 1 second timeout
     struct timespec backend_timeout{0, 1000000};  // 1ms timeout
 
-    while (g_server_running) {
+    while (core::g_server_running) {
         int n_events = kevent(kq, nullptr, 0, events, MAX_EVENTS, &timeout);
 
         if (n_events < 0) {
@@ -611,7 +646,7 @@ std::error_code run_simple_server(const control::Config& config) {
                         continue;
                     }
 
-                    if (auto ec = set_nonblocking(client_fd); ec) {
+                    if (auto ec = core::set_nonblocking(client_fd); ec) {
                         close(client_fd);
                         continue;
                     }
@@ -677,20 +712,26 @@ std::error_code run_multi_threaded_server(const control::Config& config) {
     // Determine number of worker threads (default to CPU core count)
     uint32_t num_workers = config.server.worker_threads;
     if (num_workers == 0) {
-        num_workers = get_cpu_count();
+        num_workers = core::get_cpu_count();
     }
 
     // Set server running flag
-    g_server_running = true;
+    core::g_server_running = true;
+
+    // Initialize global revocation queue for JWT token revocation
+    // This is shared across all workers for synchronization
+    core::RevocationQueue revocation_queue;
+    g_revocation_queue = &revocation_queue;
 
     // Start admin server on separate port (metrics, health)
     // This runs on port 9090 (configurable) and is NOT exposed to public
-    std::unique_ptr<AdminServer> admin_server;
+    std::unique_ptr<core::AdminServer> admin_server;
     std::thread admin_thread;
 
     if (config.metrics.enabled) {
         // Admin server will read upstream_manager from global once worker 0 sets it
-        admin_server = std::make_unique<AdminServer>(config, nullptr);
+        // Pass revocation queue for JWT revocation endpoint
+        admin_server = std::make_unique<core::AdminServer>(config, nullptr, &revocation_queue);
 
         auto err = admin_server->start();
         if (err) {
@@ -729,7 +770,10 @@ std::error_code run_multi_threaded_server(const control::Config& config) {
         }
     }
 
+    // Cleanup global revocation queue pointer
+    g_revocation_queue = nullptr;
+
     return {};
 }
 
-}  // namespace titan::core
+}  // namespace titan::runtime

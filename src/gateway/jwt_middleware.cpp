@@ -24,8 +24,11 @@
 
 namespace titan::gateway {
 
-JwtAuthMiddleware::JwtAuthMiddleware(Config config, std::shared_ptr<core::JwtValidator> validator)
-    : config_(std::move(config)), validator_(std::move(validator)) {
+JwtAuthMiddleware::JwtAuthMiddleware(Config config, std::shared_ptr<core::JwtValidator> validator,
+                                     core::RevocationQueue* revocation_queue)
+    : config_(std::move(config)),
+      validator_(std::move(validator)),
+      revocation_queue_(revocation_queue) {
     assert(validator_ && "JwtValidator must not be null");
 }
 
@@ -68,7 +71,23 @@ MiddlewareResult JwtAuthMiddleware::process_request(RequestContext& ctx) {
         return send_401(ctx, result.error);
     }
 
-    // STEP 4: Store claims in context for downstream middleware
+    // STEP 4: Check if token has been revoked
+    if (config_.revocation_enabled && revocation_queue_) {
+        // Sync from global revocation queue (fast path: just atomic load if empty)
+        revocation_list_.sync_from_queue(*revocation_queue_);
+
+        // Check if this token's jti is in the blacklist
+        if (!result.claims.jti.empty() && revocation_list_.is_revoked(result.claims.jti)) {
+            auto* logger = logging::get_current_logger();
+            assert(logger && "Logger must be initialized");
+            LOG_WARNING(logger, "JWT revoked: jti={}, client_ip={}, correlation_id={}",
+                        result.claims.jti, ctx.client_ip, ctx.correlation_id);
+
+            return send_401(ctx, "Token has been revoked");
+        }
+    }
+
+    // STEP 5: Store claims in context for downstream middleware
     // Use metadata to make claims available to other middleware (rate limiting, logging, etc.)
     if (!result.claims.sub.empty()) {
         ctx.set_metadata("jwt_sub", result.claims.sub);
