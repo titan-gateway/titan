@@ -21,6 +21,7 @@
 #include "../core/jwt.hpp"
 #include "../core/jwks_fetcher.hpp"
 #include "circuit_breaker.hpp"
+#include "jwt_authz_middleware.hpp"
 #include "jwt_middleware.hpp"
 #include "rate_limit.hpp"
 
@@ -70,6 +71,8 @@ std::unique_ptr<Router> build_router(const control::Config& config) {
         route.upstream_name = route_config.upstream;
         route.priority = route_config.priority;
         route.auth_required = route_config.auth_required;
+        route.required_scopes = route_config.required_scopes;
+        route.required_roles = route_config.required_roles;
 
         router->add_route(std::move(route));
     }
@@ -232,9 +235,18 @@ std::unique_ptr<Pipeline> build_pipeline(const control::Config& config,
             std::make_unique<JwtAuthMiddleware>(jwt_config, jwt_validator, revocation_queue));
     }
 
-    // NOTE: JwtAuthzMiddleware exists but is not enabled by default in the factory.
-    // To use authorization, manually add JwtAuthzMiddleware to the pipeline with a Router reference.
-    // TODO: Add global jwt_authz config and enable in pipeline when needed.
+    // JWT authorization (claims-based access control)
+    // Must run AFTER JwtAuthMiddleware to have access to validated claims
+    if (config.jwt.enabled && config.jwt_authz.enabled) {
+        JwtAuthzMiddleware::Config authz_config;
+        authz_config.enabled = config.jwt_authz.enabled;
+        authz_config.scope_claim = config.jwt_authz.scope_claim;
+        authz_config.roles_claim = config.jwt_authz.roles_claim;
+        authz_config.require_all_scopes = config.jwt_authz.require_all_scopes;
+        authz_config.require_all_roles = config.jwt_authz.require_all_roles;
+
+        pipeline->use(std::make_unique<JwtAuthzMiddleware>(authz_config));
+    }
 
     // Rate limiting (only if enabled in config)
     if (config.rate_limit.enabled && config.rate_limit.requests_per_second > 0) {

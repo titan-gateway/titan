@@ -197,6 +197,15 @@ struct JwtConfig {
     bool revocation_enabled = true;  // Enable token revocation checking
 };
 
+/// JWT authorization configuration
+struct JwtAuthzConfig {
+    bool enabled = true;                     // Enable authorization middleware
+    std::string scope_claim = "scope";       // JWT claim containing scopes
+    std::string roles_claim = "roles";       // JWT claim containing roles
+    bool require_all_scopes = false;         // true = AND, false = OR
+    bool require_all_roles = false;          // true = AND, false = OR
+};
+
 /// Logging configuration
 struct LogConfig {
     std::string level = "info";   // debug, info, warning, error
@@ -231,6 +240,7 @@ struct Config {
     RateLimitConfig rate_limit;
     AuthConfig auth;
     JwtConfig jwt;
+    JwtAuthzConfig jwt_authz;
 
     // Observability
     LogConfig logging;
@@ -279,6 +289,9 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(JwtConfig, enabled, header, scheme, keys, jwk
                                    require_sub, allowed_issuers, allowed_audiences,
                                    clock_skew_seconds, cache_capacity, cache_enabled);
 
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(JwtAuthzConfig, enabled, scope_claim, roles_claim,
+                                   require_all_scopes, require_all_roles);
+
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(LogConfig::RotationConfig, max_size_mb, max_files);
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(LogConfig, level, format, output, log_requests, log_responses,
@@ -287,7 +300,7 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(LogConfig, level, format, output, log_request
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(MetricsConfig, enabled, port, path, format);
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Config, server, routes, upstreams, cors, rate_limit, auth, jwt,
-                                   logging, metrics, version, description);
+                                   jwt_authz, logging, metrics, version, description);
 
 // Custom from_json functions to handle missing fields with defaults
 inline void from_json(const nlohmann::json& j, ServerConfig& s) {

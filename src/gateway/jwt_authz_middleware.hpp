@@ -19,13 +19,11 @@
 
 #pragma once
 
-#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "pipeline.hpp"
-#include "router.hpp"
 
 namespace titan::gateway {
 
@@ -41,7 +39,7 @@ public:
         bool require_all_roles = false;      // true = AND, false = OR
     };
 
-    explicit JwtAuthzMiddleware(Config config, std::shared_ptr<Router> router);
+    explicit JwtAuthzMiddleware(Config config);
     ~JwtAuthzMiddleware() override = default;
 
     /// Process request phase (authorize based on JWT claims)
@@ -66,7 +64,6 @@ private:
     [[nodiscard]] std::vector<std::string> parse_space_separated(std::string_view input) const;
 
     Config config_;
-    std::shared_ptr<Router> router_;  // Access to route configuration
 };
 
 }  // namespace titan::gateway
