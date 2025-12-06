@@ -329,3 +329,98 @@ TEST_CASE("Parser reset clears state between pipelined requests", "[http][pipeli
     REQUIRE(req2.method == Method::POST);
     REQUIRE(req2.path == "/second");
 }
+
+// ============================================================================
+// Response Header Tests - Heap Safety
+// ============================================================================
+
+TEST_CASE("Response - add_header handles temporary strings without use-after-free",
+          "[http][response][memory-safety]") {
+    Response resp;
+
+    SECTION("Single temporary string (JWT middleware scenario)") {
+        // Simulate middleware passing temporary string (the bug scenario)
+        // Before the fix, this would cause heap-use-after-free
+        std::string scheme = "Bearer";
+        resp.add_header("WWW-Authenticate", scheme + " realm=\"titan\"");
+
+        // Verify header value is still valid (not dangling)
+        auto* header = resp.find_header("WWW-Authenticate");
+        REQUIRE(header != nullptr);
+        REQUIRE(header->value == "Bearer realm=\"titan\"");
+    }
+
+    SECTION("Multiple temporary strings with deque growth") {
+        // Add many headers with temporary VALUES to trigger deque growth
+        // Header names are literals (as in real usage), but values are temporaries
+        // This ensures deque doesn't invalidate references like vector would
+        for (int i = 0; i < 100; i++) {
+            std::string value = "value-" + std::to_string(i);
+            // Note: In real usage, header names are always string literals
+            // Only values may be temporary strings (e.g., from concatenation)
+            resp.add_header("X-Custom", value);
+        }
+
+        // Verify the LAST header value is still valid
+        // All 100 headers have the same name, so find_header returns the first one
+        auto* header = resp.find_header("X-Custom");
+        REQUIRE(header != nullptr);
+        // Should have the first value added
+        REQUIRE(header->value == "value-0");
+
+        // Verify we added all 100 headers
+        REQUIRE(resp.headers.size() == 100);
+    }
+
+    SECTION("Mixed temporary and literal strings") {
+        // Add header with temporary VALUE (the bug scenario)
+        std::string auth_scheme = "Bearer";
+        resp.add_header("Authorization", auth_scheme + " token123");
+
+        // Add header with string literal value
+        resp.add_header("Content-Type", "application/json");
+
+        // Add more headers with temporary values to trigger deque growth
+        for (int i = 0; i < 20; i++) {
+            std::string value = "val-" + std::to_string(i);
+            resp.add_header("X-Test", value);
+        }
+
+        // Verify first header is still valid (not invalidated by deque growth)
+        auto* auth_header = resp.find_header("Authorization");
+        REQUIRE(auth_header != nullptr);
+        REQUIRE(auth_header->value == "Bearer token123");
+
+        // Verify literal string header
+        auto* content_type = resp.find_header("Content-Type");
+        REQUIRE(content_type != nullptr);
+        REQUIRE(content_type->value == "application/json");
+    }
+}
+
+TEST_CASE("Response - owned_header_values uses deque for reference stability",
+          "[http][response][memory-safety]") {
+    Response resp;
+
+    // Add first header
+    std::string value1 = "first-value";
+    resp.add_header("X-First", value1);
+
+    // Get pointer to first header's value
+    auto* first_header = resp.find_header("X-First");
+    REQUIRE(first_header != nullptr);
+    const char* first_value_ptr = first_header->value.data();
+
+    // Add many more headers to force deque to allocate new chunks
+    // If we used vector, this would invalidate first_value_ptr
+    for (int i = 0; i < 100; i++) {
+        resp.add_header("X-Header-" + std::to_string(i), "value-" + std::to_string(i));
+    }
+
+    // Verify first header's value pointer is STILL VALID
+    // This proves deque doesn't invalidate references
+    first_header = resp.find_header("X-First");
+    REQUIRE(first_header != nullptr);
+    REQUIRE(first_header->value == "first-value");
+    REQUIRE(first_header->value.data() == first_value_ptr);  // Same pointer!
+}

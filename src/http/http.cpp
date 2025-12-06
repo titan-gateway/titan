@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <cctype>
 #include <charconv>
+#include <string>
 
 namespace titan::http {
 
@@ -87,7 +88,10 @@ bool Response::has_header(std::string_view name) const noexcept {
 }
 
 void Response::add_header(std::string_view name, std::string_view value) {
-    headers.push_back({name, value});
+    // Store value in owned storage to prevent dangling string_view
+    // This ensures headers remain valid even when middleware uses temporary strings
+    owned_header_values.emplace_back(value);
+    headers.push_back({name, owned_header_values.back()});
 }
 
 void Response::set_content_length(size_t length) {

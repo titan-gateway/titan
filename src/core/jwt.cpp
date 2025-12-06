@@ -555,6 +555,61 @@ ValidationResult JwtValidator::validate_uncached(std::string_view token) {
     return validate_claims(*claims);
 }
 
+// Helper: Convert IEEE P1363 ECDSA signature to ASN.1 DER format
+// PyJWT library generates P1363 format (64 bytes: r||s concatenated)
+// OpenSSL expects ASN.1 DER format
+static std::optional<std::vector<unsigned char>> convert_ecdsa_p1363_to_der(
+    std::string_view p1363_sig) {
+    // P-256 signatures are 64 bytes (32 bytes r + 32 bytes s)
+    if (p1363_sig.size() != 64) {
+        return std::nullopt;
+    }
+
+    // Extract r and s components
+    const unsigned char* r_bytes = reinterpret_cast<const unsigned char*>(p1363_sig.data());
+    const unsigned char* s_bytes = r_bytes + 32;
+
+    // Create BIGNUM for r and s
+    BIGNUM* r = BN_bin2bn(r_bytes, 32, nullptr);
+    BIGNUM* s = BN_bin2bn(s_bytes, 32, nullptr);
+    if (!r || !s) {
+        BN_free(r);
+        BN_free(s);
+        return std::nullopt;
+    }
+
+    // Create ECDSA_SIG structure
+    ECDSA_SIG* sig = ECDSA_SIG_new();
+    if (!sig) {
+        BN_free(r);
+        BN_free(s);
+        return std::nullopt;
+    }
+
+    // Set r and s (ECDSA_SIG takes ownership)
+    if (ECDSA_SIG_set0(sig, r, s) != 1) {
+        BN_free(r);
+        BN_free(s);
+        ECDSA_SIG_free(sig);
+        return std::nullopt;
+    }
+
+    // Convert to DER format
+    unsigned char* der_sig = nullptr;
+    int der_len = i2d_ECDSA_SIG(sig, &der_sig);
+    ECDSA_SIG_free(sig);
+
+    if (der_len <= 0 || !der_sig) {
+        return std::nullopt;
+    }
+
+    // Copy to vector and free OpenSSL memory
+    std::vector<unsigned char> result(der_sig, der_sig + der_len);
+    OPENSSL_free(der_sig);
+
+    return result;
+}
+
 bool JwtValidator::verify_signature(JwtAlgorithm alg, std::string_view message,
                                     std::string_view signature, const VerificationKey* key) {
     if (!key) {
@@ -586,6 +641,12 @@ bool JwtValidator::verify_signature(JwtAlgorithm alg, std::string_view message,
 
         case JwtAlgorithm::ES256: {
             // ECDSA-SHA256 verification
+            // Convert IEEE P1363 signature (from PyJWT) to ASN.1 DER format (for OpenSSL)
+            auto der_sig = convert_ecdsa_p1363_to_der(signature);
+            if (!der_sig) {
+                return false;  // Invalid signature format
+            }
+
             EVP_MD_CTX* ctx = EVP_MD_CTX_new();
             if (!ctx) {
                 return false;
@@ -594,9 +655,7 @@ bool JwtValidator::verify_signature(JwtAlgorithm alg, std::string_view message,
             bool valid = false;
             if (EVP_DigestVerifyInit(ctx, nullptr, EVP_sha256(), nullptr, key->public_key) == 1) {
                 if (EVP_DigestVerifyUpdate(ctx, message.data(), message.size()) == 1) {
-                    if (EVP_DigestVerifyFinal(
-                            ctx, reinterpret_cast<const unsigned char*>(signature.data()),
-                            signature.size()) == 1) {
+                    if (EVP_DigestVerifyFinal(ctx, der_sig->data(), der_sig->size()) == 1) {
                         valid = true;
                     }
                 }
