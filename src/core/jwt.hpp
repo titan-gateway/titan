@@ -163,10 +163,11 @@ struct ValidationResult {
     [[nodiscard]] explicit operator bool() const noexcept { return valid; }
 };
 
-/// Thread-local JWT token cache (LRU eviction)
+/// Thread-local JWT token cache (LRU eviction with size limits)
 class ThreadLocalTokenCache {
 public:
-    explicit ThreadLocalTokenCache(size_t capacity);
+    explicit ThreadLocalTokenCache(size_t capacity,
+                                   size_t max_size_bytes = MAX_JWT_CACHE_SIZE_BYTES);
     ~ThreadLocalTokenCache() = default;
 
     // Non-copyable, movable
@@ -184,7 +185,7 @@ public:
     /// Get cached token (returns nullopt on miss or expired)
     [[nodiscard]] std::optional<CachedToken> get(std::string_view token);
 
-    /// Put token in cache
+    /// Put token in cache (evicts by size or count)
     void put(std::string_view token, JwtClaims claims);
 
     /// Clear cache
@@ -193,9 +194,17 @@ public:
     /// Get cache statistics
     [[nodiscard]] size_t size() const noexcept { return cache_.size(); }
     [[nodiscard]] size_t capacity() const noexcept { return capacity_; }
+    [[nodiscard]] size_t total_size_bytes() const noexcept { return total_size_bytes_; }
+    [[nodiscard]] size_t max_size_bytes() const noexcept { return max_size_bytes_; }
 
 private:
-    size_t capacity_;
+    /// Calculate token size in bytes (token string + claims)
+    [[nodiscard]] size_t calculate_token_size(std::string_view token,
+                                                const JwtClaims& claims) const;
+
+    size_t capacity_;                // Max entry count
+    size_t max_size_bytes_;          // Max total size in bytes
+    size_t total_size_bytes_ = 0;    // Current total size in bytes
     std::list<std::pair<std::string, CachedToken>> lru_list_;
     std::unordered_map<std::string, decltype(lru_list_)::iterator> cache_;
 };

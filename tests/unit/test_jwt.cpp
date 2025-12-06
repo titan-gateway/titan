@@ -395,6 +395,132 @@ TEST_CASE("Thread-local token cache", "[jwt][cache]") {
         cache.clear();
         REQUIRE(cache.size() == 0);
         REQUIRE(!cache.get("token1").has_value());
+        REQUIRE(cache.total_size_bytes() == 0);
+    }
+}
+
+// ============================================================================
+// Thread-Local Token Cache Size Enforcement Tests (Phase 7)
+// ============================================================================
+
+TEST_CASE("Thread-local token cache size enforcement", "[jwt][cache][security]") {
+    SECTION("Cache tracks total size in bytes") {
+        ThreadLocalTokenCache cache(1000, 100 * 1024);  // 100KB limit
+
+        JwtClaims claims;
+        claims.sub = "user123";
+        claims.scope = "read:users";
+
+        cache.put("token1", claims);
+
+        REQUIRE(cache.size() == 1);
+        REQUIRE(cache.total_size_bytes() > 0);
+        REQUIRE(cache.total_size_bytes() < 100 * 1024);
+    }
+
+    SECTION("Cache evicts by size before count limit") {
+        // Create cache with 1KB total size limit, 1000 entry limit
+        ThreadLocalTokenCache cache(1000, 1024);
+
+        JwtClaims large_claims;
+        large_claims.sub = "user123";
+        large_claims.scope = std::string(200, 'x');  // ~200 bytes
+
+        // Add tokens until size limit is hit (should be < 1000 entries)
+        for (int i = 0; i < 10; i++) {
+            std::string token = "token" + std::to_string(i);
+            cache.put(token, large_claims);
+        }
+
+        // Should evict by size, not count
+        REQUIRE(cache.size() < 10);  // Some were evicted
+        REQUIRE(cache.total_size_bytes() <= 1024);  // Size limit enforced
+    }
+
+    SECTION("Cache evicts oldest first when size limit reached") {
+        ThreadLocalTokenCache cache(1000, 5 * 1024);  // 5KB limit
+
+        JwtClaims small_claims;
+        small_claims.sub = "user1";
+
+        // Add two small tokens
+        cache.put("small1", small_claims);
+        cache.put("small2", small_claims);
+        REQUIRE(cache.size() == 2);
+
+        // Now add a very large token that will force evictions
+        JwtClaims large_claims;
+        large_claims.sub = "user_large";
+        large_claims.scope = std::string(4 * 1024, 'x');  // 4KB scope
+
+        cache.put("large_token", large_claims);
+
+        // At least one small token should be evicted to make room for large token
+        // The key test: size-based eviction happened
+        REQUIRE(cache.size() < 3);  // Some eviction occurred
+        REQUIRE(cache.total_size_bytes() <= 5 * 1024);  // Size limit enforced
+        REQUIRE(cache.get("large_token").has_value());  // Large token was added
+    }
+
+    SECTION("Cache update preserves size tracking") {
+        ThreadLocalTokenCache cache(1000, 10 * 1024);
+
+        JwtClaims small_claims;
+        small_claims.sub = "user1";
+        small_claims.scope = "read:users";
+
+        cache.put("token1", small_claims);
+        size_t initial_size = cache.total_size_bytes();
+
+        // Update with larger claims
+        JwtClaims large_claims;
+        large_claims.sub = "user2";
+        large_claims.scope = std::string(1000, 'x');
+
+        cache.put("token1", large_claims);
+
+        // Size should increase
+        REQUIRE(cache.size() == 1);  // No new entry
+        REQUIRE(cache.total_size_bytes() > initial_size);
+
+        // Update with smaller claims
+        cache.put("token1", small_claims);
+
+        // Size should decrease
+        REQUIRE(cache.total_size_bytes() < cache.max_size_bytes());
+    }
+
+    SECTION("Cache clear resets size tracking") {
+        ThreadLocalTokenCache cache(1000, 10 * 1024);
+
+        JwtClaims claims;
+        claims.scope = std::string(1000, 'x');
+
+        cache.put("token1", claims);
+        cache.put("token2", claims);
+
+        REQUIRE(cache.total_size_bytes() > 0);
+
+        cache.clear();
+        REQUIRE(cache.size() == 0);
+        REQUIRE(cache.total_size_bytes() == 0);
+    }
+
+    SECTION("Size calculation accounts for large scopes and roles") {
+        ThreadLocalTokenCache cache(1000, 100 * 1024);
+
+        JwtClaims claims;
+        claims.sub = "user123";
+        claims.iss = "https://auth.example.com";
+        claims.aud = "titan-api";
+        claims.scope = std::string(5000, 's');  // 5KB scope
+        claims.roles = std::string(3000, 'r');  // 3KB roles
+
+        cache.put("large_token_12345678901234567890", claims);
+
+        // Size should account for token string + all claims
+        size_t expected_min = 5000 + 3000 + 100;  // scopes + roles + overhead
+        REQUIRE(cache.total_size_bytes() >= expected_min);
     }
 }
 

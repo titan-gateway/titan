@@ -354,7 +354,8 @@ const VerificationKey* KeyManager::get_key(JwtAlgorithm alg, std::string_view ke
 // ThreadLocalTokenCache Implementation
 // ============================================================================
 
-ThreadLocalTokenCache::ThreadLocalTokenCache(size_t capacity) : capacity_(capacity) {}
+ThreadLocalTokenCache::ThreadLocalTokenCache(size_t capacity, size_t max_size_bytes)
+    : capacity_(capacity), max_size_bytes_(max_size_bytes) {}
 
 std::optional<ThreadLocalTokenCache::CachedToken> ThreadLocalTokenCache::get(
     std::string_view token) {
@@ -373,33 +374,79 @@ std::optional<ThreadLocalTokenCache::CachedToken> ThreadLocalTokenCache::get(
 
 void ThreadLocalTokenCache::put(std::string_view token, JwtClaims claims) {
     std::string token_str(token);
+    size_t token_size = calculate_token_size(token, claims);
 
     // Check if already exists
     auto it = cache_.find(token_str);
     if (it != cache_.end()) {
+        // Calculate old size for accurate tracking
+        size_t old_size = calculate_token_size(it->second->first, it->second->second.claims);
+
         // Update existing entry
         lru_list_.splice(lru_list_.begin(), lru_list_, it->second);
         it->second->second.claims = std::move(claims);
         it->second->second.cached_at = std::time(nullptr);
+
+        // Update size tracking (new size - old size)
+        total_size_bytes_ = total_size_bytes_ - old_size + token_size;
         return;
     }
 
-    // Evict oldest if at capacity
-    if (cache_.size() >= capacity_) {
+    // Evict entries until we have space (by count or size)
+    while ((cache_.size() >= capacity_) ||
+           (total_size_bytes_ + token_size > max_size_bytes_)) {
+        if (lru_list_.empty()) {
+            break;  // Can't evict anything
+        }
+
+        // Evict oldest entry
         auto& oldest = lru_list_.back();
+        size_t oldest_size = calculate_token_size(oldest.first, oldest.second.claims);
+
         cache_.erase(oldest.first);
         lru_list_.pop_back();
+        total_size_bytes_ -= oldest_size;
     }
 
     // Insert new entry at front
     CachedToken cached{std::move(claims), std::time(nullptr)};
     lru_list_.emplace_front(token_str, std::move(cached));
     cache_[token_str] = lru_list_.begin();
+    total_size_bytes_ += token_size;
 }
 
 void ThreadLocalTokenCache::clear() {
     cache_.clear();
     lru_list_.clear();
+    total_size_bytes_ = 0;
+}
+
+size_t ThreadLocalTokenCache::calculate_token_size(std::string_view token,
+                                                     const JwtClaims& claims) const {
+    size_t size = token.size();  // Token string
+
+    // Claims size estimation
+    size += claims.sub.size();
+    size += claims.iss.size();
+    size += claims.aud.size();
+    size += claims.jti.size();
+    size += claims.scope.size();
+    size += claims.roles.size();
+
+    // Custom JSON size (rough estimate)
+    if (!claims.custom.empty()) {
+        size += claims.custom.dump().size();
+    }
+
+    // Struct overhead (rough estimate)
+    size += sizeof(CachedToken);
+    size += sizeof(std::time_t);
+    size += sizeof(JwtClaims);
+
+    // Hash map and list overhead
+    size += sizeof(std::pair<std::string, CachedToken>);
+
+    return size;
 }
 
 // ============================================================================
