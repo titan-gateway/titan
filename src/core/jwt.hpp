@@ -35,6 +35,13 @@
 
 namespace titan::core {
 
+// Security limits (DoS prevention)
+constexpr size_t MAX_JWT_CLAIM_SIZE = 10 * 1024;  // 10KB max for scope/roles claims
+constexpr size_t MAX_JWT_TOKEN_SIZE = 64 * 1024;  // 64KB max total token size
+constexpr size_t MAX_SCOPE_ROLE_COUNT = 100;      // Max tokens in scope/roles claim
+constexpr size_t MAX_JWT_CACHE_SIZE_BYTES = 100 * 1024 * 1024;  // 100MB per thread
+constexpr size_t MAX_REQUIRED_SCOPES_ROLES = 50;  // Max required scopes/roles per route (config validation)
+
 // Forward declaration
 class JwksFetcher;
 

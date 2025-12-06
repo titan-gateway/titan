@@ -72,10 +72,13 @@ MiddlewareResult JwtAuthzMiddleware::process_request(RequestContext& ctx) {
                 required_scopes_str += ctx.route_match.required_scopes[i];
             }
 
+            // Security: Sanitize user-controlled scopes before logging
+            std::string safe_scopes = sanitize_for_logging(jwt_scope);
+
             LOG_WARNING(logger,
                         "Authorization failed: missing scopes, user_scopes={}, "
                         "required_scopes={}, client_ip={}, correlation_id={}",
-                        jwt_scope, required_scopes_str, ctx.client_ip, ctx.correlation_id);
+                        safe_scopes, required_scopes_str, ctx.client_ip, ctx.correlation_id);
 
             return send_403(ctx, "Insufficient permissions");
         }
@@ -95,10 +98,13 @@ MiddlewareResult JwtAuthzMiddleware::process_request(RequestContext& ctx) {
                 required_roles_str += ctx.route_match.required_roles[i];
             }
 
+            // Security: Sanitize user-controlled roles before logging
+            std::string safe_roles = sanitize_for_logging(jwt_roles);
+
             LOG_WARNING(logger,
                         "Authorization failed: missing roles, user_roles={}, "
                         "required_roles={}, client_ip={}, correlation_id={}",
-                        jwt_roles, required_roles_str, ctx.client_ip, ctx.correlation_id);
+                        safe_roles, required_roles_str, ctx.client_ip, ctx.correlation_id);
 
             return send_403(ctx, "Insufficient permissions");
         }
@@ -189,7 +195,8 @@ bool JwtAuthzMiddleware::has_required_roles(std::string_view user_roles,
     }
 }
 
-std::vector<std::string> JwtAuthzMiddleware::parse_space_separated(std::string_view input) const {
+std::vector<std::string> JwtAuthzMiddleware::parse_space_separated(
+    std::string_view input, size_t max_tokens) const {
     std::vector<std::string> result;
 
     if (input.empty()) {
@@ -199,10 +206,57 @@ std::vector<std::string> JwtAuthzMiddleware::parse_space_separated(std::string_v
     std::string input_str{input};  // Convert to string
     std::istringstream ss{input_str};
     std::string token;
+    size_t count = 0;
+
     while (ss >> token) {
         if (!token.empty()) {
             result.push_back(token);
+            count++;
+
+            // Security: Limit token count to prevent CPU DoS
+            if (count >= max_tokens) {
+                // Log warning if truncated (but don't break functionality)
+                auto* logger = logging::get_current_logger();
+                if (logger) {
+                    LOG_WARNING(logger,
+                                "Scope/role list truncated at {} tokens (security limit)", max_tokens);
+                }
+                break;
+            }
         }
+    }
+
+    return result;
+}
+
+std::string JwtAuthzMiddleware::sanitize_for_logging(std::string_view input) const {
+    if (input.empty()) {
+        return "";
+    }
+
+    std::string result;
+    result.reserve(std::min(input.size(), MAX_LOG_STRING_LENGTH));
+
+    for (size_t i = 0; i < input.size() && i < MAX_LOG_STRING_LENGTH; ++i) {
+        char c = input[i];
+        // Escape control characters to prevent log injection
+        if (c == '\n') {
+            result += "\\n";
+        } else if (c == '\r') {
+            result += "\\r";
+        } else if (c == '\t') {
+            result += "\\t";
+        } else if (c >= 32 && c < 127) {
+            result += c;  // Printable ASCII
+        } else {
+            // Replace non-printable with placeholder
+            result += '?';
+        }
+    }
+
+    // Truncate with indicator if too long
+    if (input.size() > MAX_LOG_STRING_LENGTH) {
+        result += "...(truncated)";
     }
 
     return result;

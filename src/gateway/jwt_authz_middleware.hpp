@@ -23,9 +23,13 @@
 #include <string_view>
 #include <vector>
 
+#include "../core/jwt.hpp"
 #include "pipeline.hpp"
 
 namespace titan::gateway {
+
+// Security limits for authorization (DoS prevention)
+constexpr size_t MAX_LOG_STRING_LENGTH = 200;  // Max string length before truncation in logs
 
 /// JWT authorization middleware (Phase 1: Claims-based access control)
 /// Must run AFTER JwtAuthMiddleware to have access to validated claims
@@ -60,8 +64,12 @@ private:
     [[nodiscard]] bool has_required_roles(std::string_view user_roles,
                                            const std::vector<std::string>& required_roles) const;
 
-    /// Parse space-separated scope/role string into set
-    [[nodiscard]] std::vector<std::string> parse_space_separated(std::string_view input) const;
+    /// Parse space-separated scope/role string into set (with count limit)
+    [[nodiscard]] std::vector<std::string> parse_space_separated(
+        std::string_view input, size_t max_tokens = core::MAX_SCOPE_ROLE_COUNT) const;
+
+    /// Sanitize string for safe logging (escape control characters, truncate)
+    [[nodiscard]] std::string sanitize_for_logging(std::string_view input) const;
 
     Config config_;
 };
