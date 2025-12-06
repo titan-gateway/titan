@@ -169,6 +169,19 @@ std::optional<JwtHeader> JwtHeader::parse(std::string_view json) {
 // JwtClaims Implementation
 // ============================================================================
 
+// Helper: Validate that scope/role claim contains only valid characters
+// Security: Prevent privilege escalation via control character injection
+static bool is_valid_claim_string(std::string_view claim) {
+    for (char c : claim) {
+        // Allow: space, printable ASCII (no control characters)
+        // Reject: newline, tab, carriage return, null byte, etc.
+        if (c < 32 || c > 126) {
+            return false;  // Control character or non-ASCII
+        }
+    }
+    return true;
+}
+
 std::optional<JwtClaims> JwtClaims::parse(std::string_view json) {
     try {
         auto j = nlohmann::json::parse(json);
@@ -186,6 +199,25 @@ std::optional<JwtClaims> JwtClaims::parse(std::string_view json) {
 
         // Parse custom claims
         claims.scope = j.value("scope", "");
+        claims.roles = j.value("roles", "");
+
+        // Security: Validate claim sizes (DoS prevention)
+        if (claims.scope.size() > MAX_JWT_CLAIM_SIZE) {
+            return std::nullopt;  // Reject tokens with excessive scope claims
+        }
+        if (claims.roles.size() > MAX_JWT_CLAIM_SIZE) {
+            return std::nullopt;  // Reject tokens with excessive role claims
+        }
+
+        // Security: Validate scope/roles contain no control characters
+        // This prevents privilege escalation via newline/tab injection
+        if (!claims.scope.empty() && !is_valid_claim_string(claims.scope)) {
+            return std::nullopt;  // Reject tokens with malformed scope claim
+        }
+        if (!claims.roles.empty() && !is_valid_claim_string(claims.roles)) {
+            return std::nullopt;  // Reject tokens with malformed roles claim
+        }
+
         claims.custom = j;  // Store full JSON for advanced use
 
         return claims;

@@ -49,29 +49,29 @@ def titan_jwt_security_config(tmp_path, jwt_test_keys, mock_backend_1):
                 "priority": 10,
                 "auth_required": True,
             },
-            # Scope-gated routes
+            # Scope-gated routes (using standard API paths like test_jwt_authz.py)
             {
-                "path": "/api/scope99",
+                "path": "/api/users",
                 "method": "GET",
-                "handler_id": "scope99",
+                "handler_id": "get_users",
                 "upstream": "backend",
                 "priority": 5,
                 "auth_required": True,
-                "required_scopes": ["scope99"],
+                "required_scopes": ["scope99"],  # Test specific scope
             },
             {
-                "path": "/api/scope149",
+                "path": "/api/posts",
                 "method": "GET",
-                "handler_id": "scope149",
+                "handler_id": "get_posts",
                 "upstream": "backend",
                 "priority": 5,
                 "auth_required": True,
-                "required_scopes": ["scope149"],
+                "required_scopes": ["scope149"],  # Test truncation
             },
             {
-                "path": "/api/admin",
+                "path": "/admin/dashboard",
                 "method": "GET",
-                "handler_id": "admin",
+                "handler_id": "admin_dashboard",
                 "upstream": "backend",
                 "priority": 5,
                 "auth_required": True,
@@ -168,14 +168,14 @@ class TestJWTSecurityHardening:
 
         # Request route requiring scope99 (within first 100) - should succeed
         resp = requests.get(
-            f"{titan_jwt_security_server}/api/scope99",
+            f"{titan_jwt_security_server}/api/users",
             headers={"Authorization": f"Bearer {token}"}
         )
         assert resp.status_code == 200, f"Expected 200 for scope99, got {resp.status_code}"
 
         # Request route requiring scope149 (beyond 100) - should fail with 403
         resp = requests.get(
-            f"{titan_jwt_security_server}/api/scope149",
+            f"{titan_jwt_security_server}/api/posts",
             headers={"Authorization": f"Bearer {token}"}
         )
         assert resp.status_code == 403, f"Expected 403 for scope149 (truncated), got {resp.status_code}"
@@ -227,15 +227,18 @@ class TestJWTSecurityHardening:
 
         token = create_jwt_token(algorithm="HS256", scope=malicious_scope, sub="attacker")
 
-        # Try to access admin route (should fail - scope "admin" not in parsed list)
+        # Try to access admin route (should be rejected - invalid scope claim)
+        # SECURITY: Tokens with control characters in scope should be rejected (401)
+        # NOT allowed to escalate privileges via newline injection
         resp = requests.get(
-            f"{titan_jwt_security_server}/api/admin",
+            f"{titan_jwt_security_server}/admin/dashboard",
             headers={"Authorization": f"Bearer {token}"}
         )
 
-        # Should fail authorization (403) or authentication (401), not crash (500)
-        assert resp.status_code in [401, 403], \
-            f"Expected 401/403 for log injection attempt, got {resp.status_code}"
+        # MUST reject token with malformed scope claim (401 Unauthorized)
+        # Returning 200 would be a privilege escalation vulnerability!
+        assert resp.status_code == 401, \
+            f"SECURITY FAILURE: Token with control chars in scope must be rejected, got {resp.status_code}"
 
 
     def test_hash_based_authorization_performance(self, titan_jwt_security_server, jwt_test_keys, create_jwt_token):
@@ -253,7 +256,7 @@ class TestJWTSecurityHardening:
         # Measure response time for scope check
         start = time.time()
         resp = requests.get(
-            f"{titan_jwt_security_server}/api/scope99",
+            f"{titan_jwt_security_server}/api/users",
             headers={"Authorization": f"Bearer {token}"}
         )
         duration_ms = (time.time() - start) * 1000
@@ -293,16 +296,16 @@ class TestJWTSecurityHardening:
     def test_empty_and_whitespace_scopes(self, titan_jwt_security_server, jwt_test_keys, create_jwt_token):
         """
         Edge Case Test: Empty and whitespace-only scopes
-        Expected: Graceful handling, no crashes
+        Expected: Valid whitespace (spaces) accepted, control characters rejected
         """
-        test_cases = [
+        # Valid cases: empty or space-only scopes (OAuth 2.0 uses space as delimiter)
+        valid_cases = [
             "",  # Empty scope
             "   ",  # Only spaces
-            "\t\n\r",  # Only whitespace characters
             "  read:users  ",  # Leading/trailing whitespace
         ]
 
-        for scope in test_cases:
+        for scope in valid_cases:
             token = create_jwt_token(algorithm="HS256", scope=scope)
 
             resp = requests.get(
@@ -312,7 +315,27 @@ class TestJWTSecurityHardening:
 
             # Should succeed (protected route doesn't require scopes)
             assert resp.status_code == 200, \
-                f"Failed with scope {repr(scope)}: {resp.status_code}"
+                f"Failed with valid scope {repr(scope)}: {resp.status_code}"
+
+        # Invalid cases: control characters (security: prevent injection attacks)
+        invalid_cases = [
+            "\t",  # Tab
+            "\n",  # Newline
+            "\r",  # Carriage return
+            "\t\n\r",  # Mixed control characters
+        ]
+
+        for scope in invalid_cases:
+            token = create_jwt_token(algorithm="HS256", scope=scope)
+
+            resp = requests.get(
+                f"{titan_jwt_security_server}/protected",
+                headers={"Authorization": f"Bearer {token}"}
+            )
+
+            # MUST reject tokens with control characters (401 Unauthorized)
+            assert resp.status_code == 401, \
+                f"SECURITY: Token with control char {repr(scope)} must be rejected, got {resp.status_code}"
 
 
     def test_scope_parsing_correctness(self, titan_jwt_security_server, jwt_test_keys, create_jwt_token):
@@ -325,14 +348,14 @@ class TestJWTSecurityHardening:
 
         # Should succeed - has scope99
         resp = requests.get(
-            f"{titan_jwt_security_server}/api/scope99",
+            f"{titan_jwt_security_server}/api/users",
             headers={"Authorization": f"Bearer {token}"}
         )
         assert resp.status_code == 200
 
         # Should fail - doesn't have admin
         resp = requests.get(
-            f"{titan_jwt_security_server}/api/admin",
+            f"{titan_jwt_security_server}/admin/dashboard",
             headers={"Authorization": f"Bearer {token}"}
         )
         assert resp.status_code == 403
