@@ -21,6 +21,8 @@
 
 #include <atomic>
 
+#include <nlohmann/json.hpp>
+
 #include "../control/prometheus.hpp"
 #include "socket.hpp"
 
@@ -41,8 +43,9 @@ extern std::atomic<const gateway::UpstreamManager*> g_upstream_manager_for_metri
 namespace titan::core {
 
 AdminServer::AdminServer(const control::Config& config,
-                         const gateway::UpstreamManager* upstream_manager)
-    : config_(config), upstream_manager_(upstream_manager) {}
+                         const gateway::UpstreamManager* upstream_manager,
+                         RevocationQueue* revocation_queue)
+    : config_(config), upstream_manager_(upstream_manager), revocation_queue_(revocation_queue) {}
 
 AdminServer::~AdminServer() {
     stop();
@@ -160,6 +163,64 @@ void AdminServer::handle_connection(int client_fd) {
                 upstream_mgr, worker_id_, "titan");
             send_response(client_fd, 200, "text/plain; version=0.0.4", body);
             return;
+        }
+    }
+
+    // POST endpoints
+    if (req.method == "POST") {
+        if (req.path == "/_admin/jwt/revoke") {
+            // JWT revocation endpoint
+            if (!revocation_queue_) {
+                send_response(client_fd, 503, "application/json",
+                              R"({"error":"service_unavailable","message":"Revocation not enabled"})");
+                return;
+            }
+
+            // Extract body from request (find "\r\n\r\n" then parse JSON)
+            const char* body_start = std::strstr(buffer, "\r\n\r\n");
+            if (!body_start) {
+                send_response(client_fd, 400, "application/json",
+                              R"({"error":"bad_request","message":"Missing request body"})");
+                return;
+            }
+            body_start += 4;  // Skip "\r\n\r\n"
+
+            // Parse JSON body
+            try {
+                auto json = nlohmann::json::parse(body_start);
+
+                // Extract jti (required)
+                if (!json.contains("jti") || !json["jti"].is_string()) {
+                    send_response(client_fd, 400, "application/json",
+                                  R"({"error":"bad_request","message":"Missing or invalid 'jti' field"})");
+                    return;
+                }
+
+                // Extract exp (required)
+                if (!json.contains("exp") || !json["exp"].is_number_unsigned()) {
+                    send_response(client_fd, 400, "application/json",
+                                  R"json({"error":"bad_request","message":"Missing or invalid 'exp' field (must be Unix timestamp)"})json");
+                    return;
+                }
+
+                std::string jti = json["jti"];
+                uint64_t exp = json["exp"];
+
+                // Push to global revocation queue
+                revocation_queue_->push({std::move(jti), exp});
+
+                // Success response
+                std::string response_body =
+                    R"({"status":"ok","message":"Token revoked successfully"})";
+                send_response(client_fd, 200, "application/json", response_body);
+                return;
+
+            } catch (const nlohmann::json::exception& e) {
+                std::string error_body = R"({"error":"bad_request","message":"Invalid JSON: )" +
+                                         std::string(e.what()) + R"("})";
+                send_response(client_fd, 400, "application/json", error_body);
+                return;
+            }
         }
     }
 

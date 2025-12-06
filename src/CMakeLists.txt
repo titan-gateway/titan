@@ -10,8 +10,6 @@ add_library(titan_lib
   core/tls.cpp
   core/server.hpp
   core/server.cpp
-  core/server_runner.hpp
-  core/server_runner.cpp
   core/admin_server.hpp
   core/admin_server.cpp
   core/logging.hpp
@@ -20,6 +18,8 @@ add_library(titan_lib
   core/jwt.cpp
   core/jwks_fetcher.hpp
   core/jwks_fetcher.cpp
+  core/jwt_revocation.hpp
+  core/jwt_revocation.cpp
   http/http.hpp
   http/http.cpp
   http/parser.hpp
@@ -42,12 +42,16 @@ add_library(titan_lib
   gateway/jwt_middleware.cpp
   gateway/jwt_authz_middleware.hpp
   gateway/jwt_authz_middleware.cpp
+  gateway/factory.hpp
+  gateway/factory.cpp
   control/config.hpp
   control/config.cpp
   control/health.hpp
   control/health.cpp
   control/metrics.hpp
   control/prometheus.hpp
+  runtime/orchestrator.hpp
+  runtime/orchestrator.cpp
 )
 
 # Public include directories
@@ -63,6 +67,7 @@ target_link_libraries(titan_lib
     llhttp::llhttp_static
     PkgConfig::NGHTTP2
     quill::quill
+    httplib::httplib
 )
 
 # Titan executable

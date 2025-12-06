@@ -21,6 +21,7 @@ add_executable(titan_tests
   test_jwt.cpp
   test_jwks.cpp
   test_jwt_authz.cpp
+  test_jwt_revocation.cpp
 )
 
 target_link_libraries(titan_tests

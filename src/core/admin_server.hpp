@@ -26,6 +26,7 @@
 
 #include "../control/config.hpp"
 #include "../gateway/upstream.hpp"
+#include "jwt_revocation.hpp"
 
 namespace titan::core {
 
@@ -36,7 +37,8 @@ class AdminServer {
 public:
     /// Create admin server with config and upstream manager
     explicit AdminServer(const control::Config& config,
-                         const gateway::UpstreamManager* upstream_manager);
+                         const gateway::UpstreamManager* upstream_manager,
+                         RevocationQueue* revocation_queue = nullptr);
     ~AdminServer();
 
     // Non-copyable, non-movable
@@ -60,6 +62,7 @@ public:
 private:
     const control::Config& config_;
     const gateway::UpstreamManager* upstream_manager_;
+    RevocationQueue* revocation_queue_;  // Global revocation queue (nullable)
 
     int listen_fd_ = -1;
     std::atomic<bool> running_{false};

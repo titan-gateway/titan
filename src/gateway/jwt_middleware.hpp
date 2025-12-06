@@ -23,6 +23,7 @@
 #include <string_view>
 
 #include "../core/jwt.hpp"
+#include "../core/jwt_revocation.hpp"
 #include "pipeline.hpp"
 
 namespace titan::gateway {
@@ -34,9 +35,11 @@ public:
         std::string header = "Authorization";  // Header name
         std::string scheme = "Bearer";         // "Bearer <token>"
         bool enabled = true;
+        bool revocation_enabled = true;        // Enable token revocation checking
     };
 
-    explicit JwtAuthMiddleware(Config config, std::shared_ptr<core::JwtValidator> validator);
+    explicit JwtAuthMiddleware(Config config, std::shared_ptr<core::JwtValidator> validator,
+                                core::RevocationQueue* revocation_queue = nullptr);
     ~JwtAuthMiddleware() override = default;
 
     /// Process request phase (validate JWT token)
@@ -51,6 +54,10 @@ private:
 
     Config config_;
     std::shared_ptr<core::JwtValidator> validator_;
+
+    // Token revocation (thread-local blacklist)
+    core::RevocationList revocation_list_;
+    core::RevocationQueue* revocation_queue_;  // Shared across all workers (nullable)
 };
 
 }  // namespace titan::gateway

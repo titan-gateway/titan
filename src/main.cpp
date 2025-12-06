@@ -23,7 +23,7 @@
 #include <string>
 
 #include "control/config.hpp"
-#include "core/server_runner.hpp"
+#include "runtime/orchestrator.hpp"
 #include "core/tls.hpp"
 #include "core/logging.hpp"
 
@@ -148,14 +148,14 @@ int main(int argc, char* argv[]) {
     std::error_code ec;
     if (single_threaded) {
         printf("Starting Titan in single-threaded mode...\n");
-        ec = titan::core::run_simple_server(config);
+        ec = titan::runtime::run_simple_server(config);
     } else {
         uint32_t num_workers = config.server.worker_threads;
         if (num_workers == 0) {
             num_workers = titan::core::get_cpu_count();
         }
         printf("Starting Titan with %u worker threads...\n", num_workers);
-        ec = titan::core::run_multi_threaded_server(config);
+        ec = titan::runtime::run_multi_threaded_server(config);
     }
 
     if (ec) {

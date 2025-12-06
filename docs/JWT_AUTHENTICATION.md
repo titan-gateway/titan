@@ -10,6 +10,7 @@ Titan supports JWT (JSON Web Token) authentication with dynamic key loading from
 - **Static Key Fallback**: Use static keys when JWKS is unavailable
 - **Thread-Safe**: RCU (Read-Copy-Update) pattern for zero-lock key rotation
 - **Token Caching**: LRU cache for validated tokens (10,000 tokens per worker)
+- **Token Revocation**: Immediate revocation with lock-free atomic queue and thread-local blacklists
 - **Standards Compliant**: RFC 7519 (JWT), RFC 7517 (JWK), RFC 4648 (Base64url)
 
 ## Configuration
@@ -506,6 +507,280 @@ curl -H "Authorization: Bearer $TOKEN" \
 curl -H "Authorization: Bearer $TOKEN" \
   http://localhost:8080/api/admin
 ```
+
+## JWT Token Revocation
+
+Titan supports immediate JWT token revocation for security-critical scenarios (e.g., compromised tokens, logout, permission changes). Revoked tokens are rejected even if they haven't expired yet.
+
+### Features
+
+- **Immediate Revocation**: Tokens are revoked immediately without waiting for expiration
+- **Lock-Free Architecture**: Atomic queue for cross-thread communication, zero-lock reads
+- **Thread-Local Blacklist**: Each worker maintains its own revocation list (shared-nothing)
+- **Automatic Cleanup**: Expired revocations are automatically removed to free memory
+- **Admin API**: Simple HTTP endpoint for revoking tokens
+- **JTI-Based**: Uses JWT ID (`jti` claim) for unique token identification
+
+### Configuration
+
+Enable token revocation in your JWT configuration:
+
+```json
+{
+  "jwt": {
+    "enabled": true,
+    "revocation_enabled": true,
+    "jwks": { ... }
+  }
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `revocation_enabled` | bool | true | Enable/disable token revocation checking |
+
+### Architecture
+
+Revocation uses a **lock-free atomic queue** for broadcasting and **thread-local blacklists** for validation:
+
+```
+Admin API (POST /_admin/jwt/revoke)
+    ↓
+Push to Global RevocationQueue (lock-free atomic stack)
+    ↓
+Workers sync on each request (fast atomic check if queue empty)
+    ↓
+Thread-Local RevocationList (O(1) lookup, no locks)
+    ↓
+Reject revoked tokens with 401 Unauthorized
+```
+
+**Key Design Decisions:**
+
+1. **Lock-Free Queue**: Uses compare-and-swap (CAS) for wait-free push operations
+2. **Thread-Local Lists**: Each worker owns its blacklist (no lock contention on hot path)
+3. **Fast Path Optimization**: Workers check `has_pending()` via atomic load (no syscalls)
+4. **RCU Pattern**: Workers drain queue and update their local blacklist atomically
+5. **Memory Management**: Expired entries are cleaned up automatically
+
+### Admin API Endpoint
+
+Revoke a token using the admin API:
+
+```bash
+curl -X POST http://localhost:9090/_admin/jwt/revoke \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "jti": "token-id-to-revoke",
+    "exp": 1735730400
+  }'
+```
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `jti` | string | Yes | JWT ID claim from the token to revoke |
+| `exp` | uint64 | Yes | Token expiration timestamp (Unix epoch seconds) |
+
+**Response (Success):**
+
+```json
+{
+  "status": "ok",
+  "message": "Token revoked successfully"
+}
+```
+
+**Response (Error):**
+
+```json
+{
+  "error": "bad_request",
+  "message": "Missing or invalid 'jti' field"
+}
+```
+
+**Important**: The `exp` field is required (not optional). This prevents memory waste and security issues:
+- If token expires in 5 minutes but you set `exp` to 1 hour → waste memory
+- If token expires in 24 hours but you set `exp` to 1 hour → token becomes valid again (security issue!)
+
+### Getting JTI from a Token
+
+Extract the `jti` claim from a JWT token:
+
+```bash
+# Decode JWT payload (base64url decode)
+TOKEN="eyJhbGc..."
+PAYLOAD=$(echo "$TOKEN" | cut -d '.' -f 2 | base64 -d 2>/dev/null)
+echo "$PAYLOAD" | jq -r '.jti, .exp'
+```
+
+Example JWT payload:
+
+```json
+{
+  "iss": "https://auth0.example.com/",
+  "sub": "user123",
+  "aud": "https://api.example.com",
+  "exp": 1735730400,
+  "iat": 1735726800,
+  "jti": "unique-token-id-12345"
+}
+```
+
+### Worker Synchronization
+
+Each worker thread synchronizes revocations on every request:
+
+1. **Fast Path** (queue empty): Single atomic load, ~1 ns overhead
+2. **Slow Path** (queue has entries): Drain queue, update local blacklist, ~1 μs
+
+Workers sync independently:
+- First worker to sync drains the entire queue
+- Other workers find queue empty (fast path)
+- Eventually consistent (all workers see revocations within ~1 request cycle)
+
+### Validation Flow
+
+When a request arrives with a JWT token:
+
+```
+Extract JWT → Parse & Verify Signature → Validate Claims (exp, iss, aud)
+    ↓
+Check if jti is in revocation blacklist
+    ↓
+[YES] → 401 Unauthorized "Token has been revoked"
+    ↓
+[NO] → Continue to authorization middleware
+```
+
+The revocation check happens in `JwtAuthMiddleware::process_request()` at `src/gateway/jwt_middleware.cpp:183-195`.
+
+### Performance
+
+- **Revocation Check**: O(1) hash map lookup, ~10 ns overhead per request
+- **Sync from Queue**: ~1 μs when queue has entries, ~1 ns when empty
+- **Memory Usage**: ~64 bytes per revoked token (jti string + exp timestamp)
+- **Cleanup**: Automatic removal of expired entries (no manual intervention needed)
+
+### Testing
+
+Run revocation unit tests:
+
+```bash
+./build/dev/tests/unit/titan_tests '[jwt][revocation]'
+```
+
+Test with curl:
+
+```bash
+# 1. Get a valid token
+TOKEN=$(curl -X POST https://your-tenant.auth0.com/oauth/token \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "client_id": "YOUR_CLIENT_ID",
+    "client_secret": "YOUR_CLIENT_SECRET",
+    "audience": "YOUR_API",
+    "grant_type": "client_credentials"
+  }' | jq -r '.access_token')
+
+# 2. Test token is valid
+curl -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8080/api/users
+# → 200 OK
+
+# 3. Revoke the token
+# Extract jti and exp from token
+PAYLOAD=$(echo "$TOKEN" | cut -d '.' -f 2 | base64 -d 2>/dev/null)
+JTI=$(echo "$PAYLOAD" | jq -r '.jti')
+EXP=$(echo "$PAYLOAD" | jq -r '.exp')
+
+curl -X POST http://localhost:9090/_admin/jwt/revoke \
+  -H 'Content-Type: application/json' \
+  -d "{\"jti\":\"$JTI\",\"exp\":$EXP}"
+# → {"status":"ok","message":"Token revoked successfully"}
+
+# 4. Test token is now revoked
+curl -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8080/api/users
+# → 401 Unauthorized {"error":"unauthorized","message":"Token has been revoked"}
+```
+
+### Best Practices
+
+1. **Always Include JTI**: Ensure your identity provider includes `jti` claim in JWTs
+2. **Use Correct Expiration**: Always provide the actual token `exp` value when revoking
+3. **Revoke Before Expiry**: Revoke tokens as soon as possible when compromised
+4. **Short-Lived Tokens**: Use short expiration times (5-15 minutes) to minimize revocation overhead
+5. **Refresh Tokens**: Use refresh tokens for long-lived sessions, revoke refresh tokens instead
+6. **Monitor Revocations**: Track revocation metrics to detect abuse patterns
+7. **Cleanup Strategy**: Let automatic cleanup handle expired entries (no manual intervention)
+8. **Secure Admin API**: Protect the `/_admin/jwt/revoke` endpoint with authentication
+
+### Use Cases
+
+**1. User Logout**
+
+When a user logs out, revoke their current access token:
+
+```bash
+# Extract jti from token
+curl -X POST http://localhost:9090/_admin/jwt/revoke \
+  -H 'Content-Type: application/json' \
+  -d '{"jti":"user-session-token-123","exp":1735730400}'
+```
+
+**2. Compromised Token**
+
+If a token is leaked or compromised:
+
+```bash
+# Immediately revoke the compromised token
+curl -X POST http://localhost:9090/_admin/jwt/revoke \
+  -H 'Content-Type: application/json' \
+  -d '{"jti":"compromised-token-456","exp":1735730400}'
+```
+
+**3. Permission Changes**
+
+When a user's permissions change (e.g., admin → user):
+
+```bash
+# Revoke old token with admin permissions
+curl -X POST http://localhost:9090/_admin/jwt/revoke \
+  -H 'Content-Type: application/json' \
+  -d '{"jti":"old-admin-token-789","exp":1735730400}'
+
+# User gets new token with updated permissions on next refresh
+```
+
+### Monitoring
+
+Revocation metrics (Prometheus format):
+
+```
+titan_jwt_revocations_total 150
+titan_jwt_revocation_checks_total{result="allowed"} 100000
+titan_jwt_revocation_checks_total{result="revoked"} 50
+titan_jwt_revocation_queue_size 0
+titan_jwt_revocation_blacklist_size{worker="0"} 25
+titan_jwt_revocation_blacklist_size{worker="1"} 25
+titan_jwt_revocation_blacklist_size{worker="2"} 25
+titan_jwt_revocation_blacklist_size{worker="3"} 25
+```
+
+### Limitations
+
+1. **Requires JTI Claim**: Tokens must include `jti` claim to be revokable
+2. **Eventually Consistent**: Workers sync independently (not instant across all workers)
+3. **Memory Overhead**: Each revoked token consumes ~64 bytes until expiration
+4. **No Persistence**: Revocations are in-memory only (lost on restart)
+
+For persistent revocation (surviving restarts), consider:
+- Redis-backed revocation list
+- Database-backed revocation table
+- Shorter token expiration times (less need for revocation)
 
 ## Performance
 

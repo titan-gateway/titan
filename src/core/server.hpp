@@ -113,8 +113,10 @@ class Server {
     friend class ::ProxyTestFixture;
 
 public:
-    /// Create server with configuration
-    explicit Server(const control::Config& config);
+    /// Create server with configuration and pre-built components
+    explicit Server(const control::Config& config, std::unique_ptr<gateway::Router> router,
+                    std::unique_ptr<gateway::UpstreamManager> upstream_manager,
+                    std::unique_ptr<gateway::Pipeline> pipeline);
     ~Server();
 
     Server(const Server&) = delete;

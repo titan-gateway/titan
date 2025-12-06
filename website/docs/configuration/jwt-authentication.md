@@ -306,6 +306,131 @@ curl -H "Authorization: Bearer invalid" \
      https://localhost:8080/api/users
 ```
 
+## JWT Authorization (Claims-Based Access Control)
+
+After authenticating a JWT, Titan provides fine-grained authorization based on JWT claims. Use **OAuth 2.0 scopes** for permissions and **roles** for user groups.
+
+### Per-Route Authorization
+
+Configure authorization requirements directly on routes:
+
+```json
+{
+  "routes": [
+    {
+      "path": "/api/users",
+      "method": "GET",
+      "upstream": "users-service",
+      "auth_required": true,
+      "required_scopes": ["read:users"]
+    },
+    {
+      "path": "/api/users",
+      "method": "POST",
+      "upstream": "users-service",
+      "auth_required": true,
+      "required_scopes": ["write:users"],
+      "required_roles": ["admin"]
+    }
+  ]
+}
+```
+
+### Authorization Configuration
+
+Global settings for authorization behavior:
+
+```json
+{
+  "jwt_authz": {
+    "enabled": true,
+    "scope_claim": "scope",
+    "roles_claim": "roles",
+    "require_all_scopes": false,
+    "require_all_roles": false
+  }
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | boolean | `true` | Enable authorization middleware |
+| `scope_claim` | string | `"scope"` | JWT claim containing scopes |
+| `roles_claim` | string | `"roles"` | JWT claim containing roles |
+| `require_all_scopes` | boolean | `false` | `false` = OR (any), `true` = AND (all) |
+| `require_all_roles` | boolean | `false` | `false` = OR (any), `true` = AND (all) |
+
+### Scope Matching
+
+#### OR Logic (Default) - Any Scope
+
+User needs **at least one** of the required scopes:
+
+```json
+{
+  "path": "/api/posts",
+  "method": "GET",
+  "required_scopes": ["read:posts", "read:all"]
+}
+```
+
+✅ Allowed: `"scope": "read:posts"`
+✅ Allowed: `"scope": "read:all"`
+❌ Denied: `"scope": "write:posts"`
+
+#### AND Logic - All Scopes
+
+User needs **all** required scopes:
+
+```json
+{
+  "path": "/api/admin/users",
+  "method": "DELETE",
+  "required_scopes": ["delete:users", "admin:access"],
+  "jwt_authz": { "require_all_scopes": true }
+}
+```
+
+✅ Allowed: `"scope": "delete:users admin:access"`
+❌ Denied: `"scope": "delete:users"` (missing admin:access)
+
+### Role Matching
+
+Roles work identically to scopes:
+
+```json
+{
+  "path": "/api/admin/dashboard",
+  "method": "GET",
+  "required_roles": ["admin", "moderator"]
+}
+```
+
+✅ Allowed: `"roles": "admin"`
+✅ Allowed: `"roles": "moderator"`
+❌ Denied: `"roles": "user"`
+
+### Authorization Error Response
+
+Failed authorization returns **403 Forbidden**:
+
+```http
+HTTP/1.1 403 Forbidden
+Content-Type: application/json
+
+{"error":"forbidden","message":"Insufficient permissions"}
+```
+
+Server logs contain detailed failure reasons (scopes/roles that were missing).
+
+### Best Practices
+
+1. **Use Scopes for Permissions**: Model permissions as OAuth 2.0 scopes (`read:resource`, `write:resource`)
+2. **Use Roles for Groups**: Model user groups as simple roles (`admin`, `moderator`, `user`)
+3. **Start with OR Logic**: Use `require_all_scopes: false` for most routes (easier to manage)
+4. **Namespace Scopes**: Use colons to namespace scopes (`resource:action` format)
+5. **Keep Roles Simple**: Avoid creating too many granular roles (use scopes instead)
+
 ## Troubleshooting
 
 ### "Invalid signature" errors
@@ -319,6 +444,12 @@ curl -H "Authorization: Bearer invalid" \
 - Check clock synchronization between auth server and Titan (use NTP)
 - Increase `clock_skew_seconds` if necessary (max 300s recommended)
 - Verify token `exp` claim is in Unix timestamp format (seconds, not milliseconds)
+
+### "Insufficient permissions" (403 Forbidden)
+
+- Check JWT contains required `scope` or `roles` claim
+- Verify claim values match route requirements
+- Check `require_all_scopes` / `require_all_roles` logic matches your intent
 
 ## Next Steps
 

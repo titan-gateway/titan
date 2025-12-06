@@ -26,13 +26,10 @@
 
 namespace titan::gateway {
 
-JwtAuthzMiddleware::JwtAuthzMiddleware(Config config, std::shared_ptr<Router> router)
-    : config_(std::move(config)), router_(std::move(router)) {
-    assert(router_ && "Router must not be null");
-}
+JwtAuthzMiddleware::JwtAuthzMiddleware(Config config) : config_(std::move(config)) {}
 
 MiddlewareResult JwtAuthzMiddleware::process_request(RequestContext& ctx) {
-    if (!config_.enabled || !router_) {
+    if (!config_.enabled) {
         return MiddlewareResult::Continue;
     }
 
@@ -40,20 +37,20 @@ MiddlewareResult JwtAuthzMiddleware::process_request(RequestContext& ctx) {
         return MiddlewareResult::Error;
     }
 
-    // STEP 1: Get route configuration to check authorization requirements
-    // Note: Route matching is done by router earlier, we use matched_route if available
-    // For now, we check if route requires auth via matched_route metadata
+    // STEP 1: Check if route requires authorization
+    // Route matching populates ctx.route_match with authorization requirements
+    if (!ctx.route_match.auth_required) {
+        return MiddlewareResult::Continue;
+    }
 
-    // Check if route requires authentication
-    std::string_view auth_required_str = ctx.get_metadata("route_auth_required");
-    if (auth_required_str.empty() || auth_required_str == "false") {
-        // No authorization required for this route
+    // If no scopes or roles required, nothing to authorize
+    if (ctx.route_match.required_scopes.empty() && ctx.route_match.required_roles.empty()) {
         return MiddlewareResult::Continue;
     }
 
     // STEP 2: Get JWT claims from context (set by JwtAuthMiddleware)
     std::string_view jwt_scope = ctx.get_metadata("jwt_scope");
-    std::string_view jwt_roles = ctx.get_metadata("jwt_roles");  // Custom claim
+    std::string_view jwt_roles = ctx.get_metadata("jwt_roles");
 
     // If no JWT claims present, user is not authenticated
     // (JwtAuthMiddleware should have already rejected if JWT was required)
@@ -62,22 +59,22 @@ MiddlewareResult JwtAuthzMiddleware::process_request(RequestContext& ctx) {
     }
 
     // STEP 3: Check required scopes
-    std::string_view required_scopes_str = ctx.get_metadata("route_required_scopes");
-    if (!required_scopes_str.empty()) {
-        // Parse required scopes (comma-separated in metadata)
-        std::vector<std::string> required_scopes;
-        std::string scopes_str{required_scopes_str};  // Convert to string
-        std::istringstream ss{scopes_str};
-        std::string scope;
-        while (std::getline(ss, scope, ',')) {
-            required_scopes.push_back(scope);
-        }
-
-        if (!has_required_scopes(jwt_scope, required_scopes)) {
+    if (!ctx.route_match.required_scopes.empty()) {
+        if (!has_required_scopes(jwt_scope, ctx.route_match.required_scopes)) {
             auto* logger = logging::get_current_logger();
             assert(logger && "Logger must be initialized");
-            LOG_WARNING(logger, "Authorization failed: missing scopes, user_scopes={}, "
-                               "required_scopes={}, client_ip={}, correlation_id={}",
+
+            // Build scope string for logging
+            std::string required_scopes_str;
+            for (size_t i = 0; i < ctx.route_match.required_scopes.size(); ++i) {
+                if (i > 0)
+                    required_scopes_str += ",";
+                required_scopes_str += ctx.route_match.required_scopes[i];
+            }
+
+            LOG_WARNING(logger,
+                        "Authorization failed: missing scopes, user_scopes={}, "
+                        "required_scopes={}, client_ip={}, correlation_id={}",
                         jwt_scope, required_scopes_str, ctx.client_ip, ctx.correlation_id);
 
             return send_403(ctx, "Insufficient permissions");
@@ -85,22 +82,22 @@ MiddlewareResult JwtAuthzMiddleware::process_request(RequestContext& ctx) {
     }
 
     // STEP 4: Check required roles
-    std::string_view required_roles_str = ctx.get_metadata("route_required_roles");
-    if (!required_roles_str.empty()) {
-        // Parse required roles (comma-separated in metadata)
-        std::vector<std::string> required_roles;
-        std::string roles_str{required_roles_str};  // Convert to string
-        std::istringstream ss{roles_str};
-        std::string role;
-        while (std::getline(ss, role, ',')) {
-            required_roles.push_back(role);
-        }
-
-        if (!has_required_roles(jwt_roles, required_roles)) {
+    if (!ctx.route_match.required_roles.empty()) {
+        if (!has_required_roles(jwt_roles, ctx.route_match.required_roles)) {
             auto* logger = logging::get_current_logger();
             assert(logger && "Logger must be initialized");
-            LOG_WARNING(logger, "Authorization failed: missing roles, user_roles={}, "
-                               "required_roles={}, client_ip={}, correlation_id={}",
+
+            // Build role string for logging
+            std::string required_roles_str;
+            for (size_t i = 0; i < ctx.route_match.required_roles.size(); ++i) {
+                if (i > 0)
+                    required_roles_str += ",";
+                required_roles_str += ctx.route_match.required_roles[i];
+            }
+
+            LOG_WARNING(logger,
+                        "Authorization failed: missing roles, user_roles={}, "
+                        "required_roles={}, client_ip={}, correlation_id={}",
                         jwt_roles, required_roles_str, ctx.client_ip, ctx.correlation_id);
 
             return send_403(ctx, "Insufficient permissions");

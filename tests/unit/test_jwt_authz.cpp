@@ -17,7 +17,6 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "gateway/jwt_authz_middleware.hpp"
-#include "gateway/router.hpp"
 #include "http/http.hpp"
 
 using namespace titan::gateway;
@@ -40,6 +39,9 @@ struct TestContext {
         ctx.request->path = "/api/test";
         ctx.client_ip = "127.0.0.1";
         ctx.correlation_id = "test-123";
+
+        // Initialize route_match with defaults
+        ctx.route_match.auth_required = false;
     }
 };
 
@@ -52,15 +54,14 @@ static RequestContext& create_test_context(TestContext& tc) {
 // ============================================================================
 
 TEST_CASE("JwtAuthzMiddleware scope matching", "[jwt][authz][scope]") {
-    auto router = std::make_shared<Router>();
     JwtAuthzMiddleware::Config config;
     config.require_all_scopes = false;  // OR logic
-    JwtAuthzMiddleware middleware(config, router);
+    JwtAuthzMiddleware middleware(config);
 
     SECTION("No authorization required - allow all") {
         TestContext tc;
         auto& ctx = tc.ctx;
-        // No route_auth_required metadata
+        ctx.route_match.auth_required = false;
         auto result = middleware.process_request(ctx);
         REQUIRE(result == MiddlewareResult::Continue);
     }
@@ -68,7 +69,7 @@ TEST_CASE("JwtAuthzMiddleware scope matching", "[jwt][authz][scope]") {
     SECTION("Authorization not required - allow all") {
         TestContext tc;
         auto& ctx = tc.ctx;
-        ctx.set_metadata("route_auth_required", "false");
+        ctx.route_match.auth_required = false;
         auto result = middleware.process_request(ctx);
         REQUIRE(result == MiddlewareResult::Continue);
     }
@@ -76,9 +77,9 @@ TEST_CASE("JwtAuthzMiddleware scope matching", "[jwt][authz][scope]") {
     SECTION("User has required scope") {
         TestContext tc;
         auto& ctx = tc.ctx;
-        ctx.set_metadata("route_auth_required", "true");
+        ctx.route_match.auth_required = true;
+        ctx.route_match.required_scopes = {"read:users"};
         ctx.set_metadata("jwt_scope", "read:users write:posts");
-        ctx.set_metadata("route_required_scopes", "read:users");
 
         auto result = middleware.process_request(ctx);
         REQUIRE(result == MiddlewareResult::Continue);
@@ -87,9 +88,9 @@ TEST_CASE("JwtAuthzMiddleware scope matching", "[jwt][authz][scope]") {
     SECTION("User missing required scope") {
         TestContext tc;
         auto& ctx = tc.ctx;
-        ctx.set_metadata("route_auth_required", "true");
+        ctx.route_match.auth_required = true;
+        ctx.route_match.required_scopes = {"read:users"};
         ctx.set_metadata("jwt_scope", "read:posts");
-        ctx.set_metadata("route_required_scopes", "read:users");
 
         auto result = middleware.process_request(ctx);
         REQUIRE(result == MiddlewareResult::Stop);
@@ -99,9 +100,9 @@ TEST_CASE("JwtAuthzMiddleware scope matching", "[jwt][authz][scope]") {
     SECTION("User has one of multiple required scopes (OR logic)") {
         TestContext tc;
         auto& ctx = tc.ctx;
-        ctx.set_metadata("route_auth_required", "true");
+        ctx.route_match.auth_required = true;
+        ctx.route_match.required_scopes = {"read:users", "write:users"};
         ctx.set_metadata("jwt_scope", "read:users");
-        ctx.set_metadata("route_required_scopes", "read:users,write:users");
 
         auto result = middleware.process_request(ctx);
         REQUIRE(result == MiddlewareResult::Continue);
@@ -110,9 +111,9 @@ TEST_CASE("JwtAuthzMiddleware scope matching", "[jwt][authz][scope]") {
     SECTION("User missing all required scopes (OR logic)") {
         TestContext tc;
         auto& ctx = tc.ctx;
-        ctx.set_metadata("route_auth_required", "true");
+        ctx.route_match.auth_required = true;
+        ctx.route_match.required_scopes = {"read:users", "write:users"};
         ctx.set_metadata("jwt_scope", "read:posts");
-        ctx.set_metadata("route_required_scopes", "read:users,write:users");
 
         auto result = middleware.process_request(ctx);
         REQUIRE(result == MiddlewareResult::Stop);
@@ -121,17 +122,16 @@ TEST_CASE("JwtAuthzMiddleware scope matching", "[jwt][authz][scope]") {
 }
 
 TEST_CASE("JwtAuthzMiddleware scope matching - AND logic", "[jwt][authz][scope]") {
-    auto router = std::make_shared<Router>();
     JwtAuthzMiddleware::Config config;
     config.require_all_scopes = true;  // AND logic
-    JwtAuthzMiddleware middleware(config, router);
+    JwtAuthzMiddleware middleware(config);
 
     SECTION("User has all required scopes") {
         TestContext tc;
         auto& ctx = tc.ctx;
-        ctx.set_metadata("route_auth_required", "true");
+        ctx.route_match.auth_required = true;
+        ctx.route_match.required_scopes = {"read:users", "write:users"};
         ctx.set_metadata("jwt_scope", "read:users write:users delete:users");
-        ctx.set_metadata("route_required_scopes", "read:users,write:users");
 
         auto result = middleware.process_request(ctx);
         REQUIRE(result == MiddlewareResult::Continue);
@@ -140,9 +140,9 @@ TEST_CASE("JwtAuthzMiddleware scope matching - AND logic", "[jwt][authz][scope]"
     SECTION("User missing one required scope") {
         TestContext tc;
         auto& ctx = tc.ctx;
-        ctx.set_metadata("route_auth_required", "true");
+        ctx.route_match.auth_required = true;
+        ctx.route_match.required_scopes = {"read:users", "write:users"};
         ctx.set_metadata("jwt_scope", "read:users");
-        ctx.set_metadata("route_required_scopes", "read:users,write:users");
 
         auto result = middleware.process_request(ctx);
         REQUIRE(result == MiddlewareResult::Stop);
@@ -155,17 +155,16 @@ TEST_CASE("JwtAuthzMiddleware scope matching - AND logic", "[jwt][authz][scope]"
 // ============================================================================
 
 TEST_CASE("JwtAuthzMiddleware role matching", "[jwt][authz][role]") {
-    auto router = std::make_shared<Router>();
     JwtAuthzMiddleware::Config config;
     config.require_all_roles = false;  // OR logic
-    JwtAuthzMiddleware middleware(config, router);
+    JwtAuthzMiddleware middleware(config);
 
     SECTION("User has required role") {
         TestContext tc;
         auto& ctx = tc.ctx;
-        ctx.set_metadata("route_auth_required", "true");
+        ctx.route_match.auth_required = true;
+        ctx.route_match.required_roles = {"admin"};
         ctx.set_metadata("jwt_roles", "admin moderator");
-        ctx.set_metadata("route_required_roles", "admin");
 
         auto result = middleware.process_request(ctx);
         REQUIRE(result == MiddlewareResult::Continue);
@@ -174,9 +173,9 @@ TEST_CASE("JwtAuthzMiddleware role matching", "[jwt][authz][role]") {
     SECTION("User missing required role") {
         TestContext tc;
         auto& ctx = tc.ctx;
-        ctx.set_metadata("route_auth_required", "true");
+        ctx.route_match.auth_required = true;
+        ctx.route_match.required_roles = {"admin"};
         ctx.set_metadata("jwt_roles", "user");
-        ctx.set_metadata("route_required_roles", "admin");
 
         auto result = middleware.process_request(ctx);
         REQUIRE(result == MiddlewareResult::Stop);
@@ -186,9 +185,9 @@ TEST_CASE("JwtAuthzMiddleware role matching", "[jwt][authz][role]") {
     SECTION("User has one of multiple required roles (OR logic)") {
         TestContext tc;
         auto& ctx = tc.ctx;
-        ctx.set_metadata("route_auth_required", "true");
+        ctx.route_match.auth_required = true;
+        ctx.route_match.required_roles = {"admin", "moderator"};
         ctx.set_metadata("jwt_roles", "moderator");
-        ctx.set_metadata("route_required_roles", "admin,moderator");
 
         auto result = middleware.process_request(ctx);
         REQUIRE(result == MiddlewareResult::Continue);
@@ -197,9 +196,9 @@ TEST_CASE("JwtAuthzMiddleware role matching", "[jwt][authz][role]") {
     SECTION("User missing all required roles (OR logic)") {
         TestContext tc;
         auto& ctx = tc.ctx;
-        ctx.set_metadata("route_auth_required", "true");
+        ctx.route_match.auth_required = true;
+        ctx.route_match.required_roles = {"admin", "moderator"};
         ctx.set_metadata("jwt_roles", "user");
-        ctx.set_metadata("route_required_roles", "admin,moderator");
 
         auto result = middleware.process_request(ctx);
         REQUIRE(result == MiddlewareResult::Stop);
@@ -208,17 +207,16 @@ TEST_CASE("JwtAuthzMiddleware role matching", "[jwt][authz][role]") {
 }
 
 TEST_CASE("JwtAuthzMiddleware role matching - AND logic", "[jwt][authz][role]") {
-    auto router = std::make_shared<Router>();
     JwtAuthzMiddleware::Config config;
     config.require_all_roles = true;  // AND logic
-    JwtAuthzMiddleware middleware(config, router);
+    JwtAuthzMiddleware middleware(config);
 
     SECTION("User has all required roles") {
         TestContext tc;
         auto& ctx = tc.ctx;
-        ctx.set_metadata("route_auth_required", "true");
+        ctx.route_match.auth_required = true;
+        ctx.route_match.required_roles = {"admin", "moderator"};
         ctx.set_metadata("jwt_roles", "admin moderator user");
-        ctx.set_metadata("route_required_roles", "admin,moderator");
 
         auto result = middleware.process_request(ctx);
         REQUIRE(result == MiddlewareResult::Continue);
@@ -227,9 +225,9 @@ TEST_CASE("JwtAuthzMiddleware role matching - AND logic", "[jwt][authz][role]") 
     SECTION("User missing one required role") {
         TestContext tc;
         auto& ctx = tc.ctx;
-        ctx.set_metadata("route_auth_required", "true");
+        ctx.route_match.auth_required = true;
+        ctx.route_match.required_roles = {"admin", "moderator"};
         ctx.set_metadata("jwt_roles", "admin");
-        ctx.set_metadata("route_required_roles", "admin,moderator");
 
         auto result = middleware.process_request(ctx);
         REQUIRE(result == MiddlewareResult::Stop);
@@ -242,18 +240,17 @@ TEST_CASE("JwtAuthzMiddleware role matching - AND logic", "[jwt][authz][role]") 
 // ============================================================================
 
 TEST_CASE("JwtAuthzMiddleware combined scope and role", "[jwt][authz][combined]") {
-    auto router = std::make_shared<Router>();
     JwtAuthzMiddleware::Config config;
-    JwtAuthzMiddleware middleware(config, router);
+    JwtAuthzMiddleware middleware(config);
 
     SECTION("User has required scope and role") {
         TestContext tc;
         auto& ctx = tc.ctx;
-        ctx.set_metadata("route_auth_required", "true");
+        ctx.route_match.auth_required = true;
+        ctx.route_match.required_scopes = {"read:users"};
+        ctx.route_match.required_roles = {"admin"};
         ctx.set_metadata("jwt_scope", "read:users");
         ctx.set_metadata("jwt_roles", "admin");
-        ctx.set_metadata("route_required_scopes", "read:users");
-        ctx.set_metadata("route_required_roles", "admin");
 
         auto result = middleware.process_request(ctx);
         REQUIRE(result == MiddlewareResult::Continue);
@@ -262,11 +259,11 @@ TEST_CASE("JwtAuthzMiddleware combined scope and role", "[jwt][authz][combined]"
     SECTION("User has scope but missing role") {
         TestContext tc;
         auto& ctx = tc.ctx;
-        ctx.set_metadata("route_auth_required", "true");
+        ctx.route_match.auth_required = true;
+        ctx.route_match.required_scopes = {"read:users"};
+        ctx.route_match.required_roles = {"admin"};
         ctx.set_metadata("jwt_scope", "read:users");
         ctx.set_metadata("jwt_roles", "user");
-        ctx.set_metadata("route_required_scopes", "read:users");
-        ctx.set_metadata("route_required_roles", "admin");
 
         auto result = middleware.process_request(ctx);
         REQUIRE(result == MiddlewareResult::Stop);
@@ -276,11 +273,11 @@ TEST_CASE("JwtAuthzMiddleware combined scope and role", "[jwt][authz][combined]"
     SECTION("User has role but missing scope") {
         TestContext tc;
         auto& ctx = tc.ctx;
-        ctx.set_metadata("route_auth_required", "true");
+        ctx.route_match.auth_required = true;
+        ctx.route_match.required_scopes = {"read:users"};
+        ctx.route_match.required_roles = {"admin"};
         ctx.set_metadata("jwt_scope", "read:posts");
         ctx.set_metadata("jwt_roles", "admin");
-        ctx.set_metadata("route_required_scopes", "read:users");
-        ctx.set_metadata("route_required_roles", "admin");
 
         auto result = middleware.process_request(ctx);
         REQUIRE(result == MiddlewareResult::Stop);
@@ -293,16 +290,15 @@ TEST_CASE("JwtAuthzMiddleware combined scope and role", "[jwt][authz][combined]"
 // ============================================================================
 
 TEST_CASE("JwtAuthzMiddleware edge cases", "[jwt][authz][edge]") {
-    auto router = std::make_shared<Router>();
     JwtAuthzMiddleware::Config config;
-    JwtAuthzMiddleware middleware(config, router);
+    JwtAuthzMiddleware middleware(config);
 
     SECTION("No JWT claims present") {
         TestContext tc;
         auto& ctx = tc.ctx;
-        ctx.set_metadata("route_auth_required", "true");
+        ctx.route_match.auth_required = true;
+        ctx.route_match.required_scopes = {"read:users"};
         // No jwt_scope or jwt_roles set
-        ctx.set_metadata("route_required_scopes", "read:users");
 
         auto result = middleware.process_request(ctx);
         REQUIRE(result == MiddlewareResult::Stop);
@@ -312,9 +308,9 @@ TEST_CASE("JwtAuthzMiddleware edge cases", "[jwt][authz][edge]") {
     SECTION("Empty scope string") {
         TestContext tc;
         auto& ctx = tc.ctx;
-        ctx.set_metadata("route_auth_required", "true");
+        ctx.route_match.auth_required = true;
+        ctx.route_match.required_scopes = {"read:users"};
         ctx.set_metadata("jwt_scope", "");
-        ctx.set_metadata("route_required_scopes", "read:users");
 
         auto result = middleware.process_request(ctx);
         REQUIRE(result == MiddlewareResult::Stop);
@@ -324,9 +320,9 @@ TEST_CASE("JwtAuthzMiddleware edge cases", "[jwt][authz][edge]") {
     SECTION("Whitespace-only scope string") {
         TestContext tc;
         auto& ctx = tc.ctx;
-        ctx.set_metadata("route_auth_required", "true");
+        ctx.route_match.auth_required = true;
+        ctx.route_match.required_scopes = {"read:users"};
         ctx.set_metadata("jwt_scope", "   ");
-        ctx.set_metadata("route_required_scopes", "read:users");
 
         auto result = middleware.process_request(ctx);
         REQUIRE(result == MiddlewareResult::Stop);
@@ -336,9 +332,9 @@ TEST_CASE("JwtAuthzMiddleware edge cases", "[jwt][authz][edge]") {
     SECTION("Multiple spaces between scopes") {
         TestContext tc;
         auto& ctx = tc.ctx;
-        ctx.set_metadata("route_auth_required", "true");
+        ctx.route_match.auth_required = true;
+        ctx.route_match.required_scopes = {"write:users"};
         ctx.set_metadata("jwt_scope", "read:users    write:users");
-        ctx.set_metadata("route_required_scopes", "write:users");
 
         auto result = middleware.process_request(ctx);
         REQUIRE(result == MiddlewareResult::Continue);
@@ -347,12 +343,12 @@ TEST_CASE("JwtAuthzMiddleware edge cases", "[jwt][authz][edge]") {
     SECTION("Disabled middleware") {
         JwtAuthzMiddleware::Config disabled_config;
         disabled_config.enabled = false;
-        JwtAuthzMiddleware disabled_middleware(disabled_config, router);
+        JwtAuthzMiddleware disabled_middleware(disabled_config);
 
         TestContext tc;
         auto& ctx = tc.ctx;
-        ctx.set_metadata("route_auth_required", "true");
-        ctx.set_metadata("route_required_scopes", "read:users");
+        ctx.route_match.auth_required = true;
+        ctx.route_match.required_scopes = {"read:users"};
         // No jwt_scope set (should fail if middleware was enabled)
 
         auto result = disabled_middleware.process_request(ctx);
@@ -365,16 +361,15 @@ TEST_CASE("JwtAuthzMiddleware edge cases", "[jwt][authz][edge]") {
 // ============================================================================
 
 TEST_CASE("JwtAuthzMiddleware 403 response format", "[jwt][authz][response]") {
-    auto router = std::make_shared<Router>();
     JwtAuthzMiddleware::Config config;
-    JwtAuthzMiddleware middleware(config, router);
+    JwtAuthzMiddleware middleware(config);
 
     SECTION("403 response includes JSON error body") {
         TestContext tc;
         auto& ctx = tc.ctx;
-        ctx.set_metadata("route_auth_required", "true");
+        ctx.route_match.auth_required = true;
+        ctx.route_match.required_scopes = {"read:users"};
         ctx.set_metadata("jwt_scope", "read:posts");
-        ctx.set_metadata("route_required_scopes", "read:users");
 
         auto result = middleware.process_request(ctx);
         REQUIRE(result == MiddlewareResult::Stop);
@@ -394,9 +389,9 @@ TEST_CASE("JwtAuthzMiddleware 403 response format", "[jwt][authz][response]") {
     SECTION("Error is set in context") {
         TestContext tc;
         auto& ctx = tc.ctx;
-        ctx.set_metadata("route_auth_required", "true");
+        ctx.route_match.auth_required = true;
+        ctx.route_match.required_scopes = {"read:users"};
         ctx.set_metadata("jwt_scope", "read:posts");
-        ctx.set_metadata("route_required_scopes", "read:users");
 
         middleware.process_request(ctx);
 
