@@ -113,8 +113,8 @@ TEST_CASE("UUID validation", "[logging][validation]") {
         REQUIRE_FALSE(is_valid_uuid("550e8400-e29b-41d4-a716-446655440000#12a"));
 
         // Wrong UUID length
-        REQUIRE_FALSE(is_valid_uuid("550e8400-e29b-41d4-a716-44665544000#0"));  // Too short
-        REQUIRE_FALSE(is_valid_uuid("550e8400-e29b-41d4-a716-4466554400000#0")); // Too long
+        REQUIRE_FALSE(is_valid_uuid("550e8400-e29b-41d4-a716-44665544000#0"));    // Too short
+        REQUIRE_FALSE(is_valid_uuid("550e8400-e29b-41d4-a716-4466554400000#0"));  // Too long
 
         // Missing hyphens
         REQUIRE_FALSE(is_valid_uuid("550e8400e29b41d4a716446655440000#0"));
@@ -127,9 +127,9 @@ TEST_CASE("UUID validation", "[logging][validation]") {
         REQUIRE_FALSE(is_valid_uuid("550e8400-e29b-51d4-a716-446655440000#0"));
 
         // Wrong variant (not 8, 9, a, b)
-        REQUIRE_FALSE(is_valid_uuid("550e8400-e29b-41d4-0716-446655440000#0")); // variant 0
-        REQUIRE_FALSE(is_valid_uuid("550e8400-e29b-41d4-c716-446655440000#0")); // variant c
-        REQUIRE_FALSE(is_valid_uuid("550e8400-e29b-41d4-f716-446655440000#0")); // variant f
+        REQUIRE_FALSE(is_valid_uuid("550e8400-e29b-41d4-0716-446655440000#0"));  // variant 0
+        REQUIRE_FALSE(is_valid_uuid("550e8400-e29b-41d4-c716-446655440000#0"));  // variant c
+        REQUIRE_FALSE(is_valid_uuid("550e8400-e29b-41d4-f716-446655440000#0"));  // variant f
 
         // Non-hex characters in UUID
         REQUIRE_FALSE(is_valid_uuid("550g8400-e29b-41d4-a716-446655440000#0"));

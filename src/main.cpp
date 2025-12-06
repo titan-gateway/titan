@@ -23,9 +23,9 @@
 #include <string>
 
 #include "control/config.hpp"
-#include "runtime/orchestrator.hpp"
-#include "core/tls.hpp"
 #include "core/logging.hpp"
+#include "core/tls.hpp"
+#include "runtime/orchestrator.hpp"
 
 namespace titan::core {
 std::atomic<bool> g_server_running{true};

@@ -19,17 +19,17 @@
 
 #include "jwks_fetcher.hpp"
 
-#include <algorithm>
-#include <chrono>
-#include <cmath>
-#include <ctime>
-
 #include <httplib.h>
-#include <nlohmann/json.hpp>
 #include <openssl/bn.h>
 #include <openssl/ec.h>
 #include <openssl/evp.h>
 #include <openssl/rsa.h>
+
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <ctime>
+#include <nlohmann/json.hpp>
 
 namespace titan::core {
 
@@ -104,7 +104,8 @@ void JwksFetcher::fetch_loop() {
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
 
-        if (!running_) break;
+        if (!running_)
+            break;
 
         // Fetch keys
         fetch_keys();

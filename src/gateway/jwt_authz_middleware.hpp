@@ -38,10 +38,10 @@ class JwtAuthzMiddleware : public Middleware {
 public:
     struct Config {
         bool enabled = true;
-        std::string scope_claim = "scope";   // JWT claim containing scopes
-        std::string roles_claim = "roles";   // JWT claim containing roles (optional)
-        bool require_all_scopes = false;     // true = AND, false = OR
-        bool require_all_roles = false;      // true = AND, false = OR
+        std::string scope_claim = "scope";  // JWT claim containing scopes
+        std::string roles_claim = "roles";  // JWT claim containing roles (optional)
+        bool require_all_scopes = false;    // true = AND, false = OR
+        bool require_all_roles = false;     // true = AND, false = OR
     };
 
     explicit JwtAuthzMiddleware(Config config);
@@ -59,11 +59,11 @@ private:
 
     /// Check if user has required scopes
     [[nodiscard]] bool has_required_scopes(std::string_view user_scopes,
-                                            const std::vector<std::string>& required_scopes) const;
+                                           const std::vector<std::string>& required_scopes) const;
 
     /// Check if user has required roles
     [[nodiscard]] bool has_required_roles(std::string_view user_roles,
-                                           const std::vector<std::string>& required_roles) const;
+                                          const std::vector<std::string>& required_roles) const;
 
     /// Parse space-separated scope/role string into set (with count limit)
     [[nodiscard]] std::vector<std::string> parse_space_separated(

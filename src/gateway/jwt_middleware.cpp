@@ -143,9 +143,8 @@ MiddlewareResult JwtAuthMiddleware::send_401(RequestContext& ctx, std::string_vi
         // Set generic error body (don't leak validation details)
         static constexpr const char* error_body =
             R"({"error":"unauthorized","message":"Authentication required"})";
-        ctx.response->body =
-            std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(error_body),
-                                     std::char_traits<char>::length(error_body));
+        ctx.response->body = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(error_body),
+                                                      std::char_traits<char>::length(error_body));
         ctx.response->add_header("Content-Type", "application/json");
     }
 

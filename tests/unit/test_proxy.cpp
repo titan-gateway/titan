@@ -27,8 +27,8 @@ public:
           router_(gateway::build_router(config_)),
           upstream_manager_(gateway::build_upstream_manager(config_)),
           pipeline_(gateway::build_pipeline(config_, upstream_manager_.get(), nullptr, nullptr)),
-          server_(config_, std::move(router_), std::move(upstream_manager_),
-                  std::move(pipeline_)) {}
+          server_(config_, std::move(router_), std::move(upstream_manager_), std::move(pipeline_)) {
+    }
 
     // Wrapper methods to access private Server methods
     std::string test_build_backend_request(const Request& req) {

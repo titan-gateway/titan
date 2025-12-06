@@ -14,18 +14,18 @@
  * limitations under the License.
  */
 
-#include <catch2/catch_test_macros.hpp>
-#include <chrono>
-#include <fstream>
-#include <thread>
-
 #include <openssl/bio.h>
 #include <openssl/ec.h>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 
-#include "core/jwt.hpp"
+#include <catch2/catch_test_macros.hpp>
+#include <chrono>
+#include <fstream>
+#include <thread>
+
 #include "core/jwks_fetcher.hpp"
+#include "core/jwt.hpp"
 
 using namespace titan::core;
 
@@ -433,7 +433,7 @@ TEST_CASE("Thread-local token cache size enforcement", "[jwt][cache][security]")
         }
 
         // Should evict by size, not count
-        REQUIRE(cache.size() < 10);  // Some were evicted
+        REQUIRE(cache.size() < 10);                 // Some were evicted
         REQUIRE(cache.total_size_bytes() <= 1024);  // Size limit enforced
     }
 
@@ -457,7 +457,7 @@ TEST_CASE("Thread-local token cache size enforcement", "[jwt][cache][security]")
 
         // At least one small token should be evicted to make room for large token
         // The key test: size-based eviction happened
-        REQUIRE(cache.size() < 3);  // Some eviction occurred
+        REQUIRE(cache.size() < 3);                      // Some eviction occurred
         REQUIRE(cache.total_size_bytes() <= 5 * 1024);  // Size limit enforced
         REQUIRE(cache.get("large_token").has_value());  // Large token was added
     }
@@ -863,7 +863,8 @@ TEST_CASE("VerificationKey ES256 key loading", "[jwt][es256][key]") {
     }
 
     SECTION("Reject invalid PEM file path") {
-        auto key = VerificationKey::load_public_key(JwtAlgorithm::ES256, "test-key", "/nonexistent/path.pem");
+        auto key = VerificationKey::load_public_key(JwtAlgorithm::ES256, "test-key",
+                                                    "/nonexistent/path.pem");
         REQUIRE(!key.has_value());
     }
 }

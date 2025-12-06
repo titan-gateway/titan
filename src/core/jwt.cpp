@@ -18,12 +18,6 @@
 
 #include "jwt.hpp"
 
-#include <algorithm>
-#include <cassert>
-#include <cstring>
-#include <fstream>
-#include <sstream>
-
 #include <openssl/bio.h>
 #include <openssl/buffer.h>
 #include <openssl/ec.h>
@@ -32,6 +26,12 @@
 #include <openssl/hmac.h>
 #include <openssl/pem.h>
 #include <openssl/rsa.h>
+
+#include <algorithm>
+#include <cassert>
+#include <cstring>
+#include <fstream>
+#include <sstream>
 
 #include "jwks_fetcher.hpp"
 
@@ -262,8 +262,8 @@ VerificationKey& VerificationKey::operator=(VerificationKey&& other) noexcept {
 }
 
 std::optional<VerificationKey> VerificationKey::load_public_key(JwtAlgorithm alg,
-                                                                 std::string_view key_id,
-                                                                 std::string_view pem_path) {
+                                                                std::string_view key_id,
+                                                                std::string_view pem_path) {
     // Open PEM file
     FILE* fp = fopen(std::string(pem_path).c_str(), "r");
     if (!fp) {
@@ -298,7 +298,7 @@ std::optional<VerificationKey> VerificationKey::load_public_key(JwtAlgorithm alg
 }
 
 std::optional<VerificationKey> VerificationKey::load_hmac_secret(std::string_view key_id,
-                                                                  std::string_view secret) {
+                                                                 std::string_view secret) {
     // Decode base64-encoded secret
     auto decoded = base64url_decode(secret);
     if (!decoded || decoded->empty()) {
@@ -393,8 +393,7 @@ void ThreadLocalTokenCache::put(std::string_view token, JwtClaims claims) {
     }
 
     // Evict entries until we have space (by count or size)
-    while ((cache_.size() >= capacity_) ||
-           (total_size_bytes_ + token_size > max_size_bytes_)) {
+    while ((cache_.size() >= capacity_) || (total_size_bytes_ + token_size > max_size_bytes_)) {
         if (lru_list_.empty()) {
             break;  // Can't evict anything
         }
@@ -422,7 +421,7 @@ void ThreadLocalTokenCache::clear() {
 }
 
 size_t ThreadLocalTokenCache::calculate_token_size(std::string_view token,
-                                                     const JwtClaims& claims) const {
+                                                   const JwtClaims& claims) const {
     size_t size = token.size();  // Token string
 
     // Claims size estimation
@@ -557,7 +556,7 @@ ValidationResult JwtValidator::validate_uncached(std::string_view token) {
 }
 
 bool JwtValidator::verify_signature(JwtAlgorithm alg, std::string_view message,
-                                     std::string_view signature, const VerificationKey* key) {
+                                    std::string_view signature, const VerificationKey* key) {
     if (!key) {
         return false;
     }

@@ -35,11 +35,11 @@ public:
         std::string header = "Authorization";  // Header name
         std::string scheme = "Bearer";         // "Bearer <token>"
         bool enabled = true;
-        bool revocation_enabled = true;        // Enable token revocation checking
+        bool revocation_enabled = true;  // Enable token revocation checking
     };
 
     explicit JwtAuthMiddleware(Config config, std::shared_ptr<core::JwtValidator> validator,
-                                core::RevocationQueue* revocation_queue = nullptr);
+                               core::RevocationQueue* revocation_queue = nullptr);
     ~JwtAuthMiddleware() override = default;
 
     /// Process request phase (validate JWT token)
