@@ -154,6 +154,6 @@ jobs:
         with:
           urls: |
             http://localhost:3000/titan/
-            http://localhost:3000/titan/docs/intro
+            http://localhost:3000/titan/docs/
           uploadArtifacts: true
           temporaryPublicStorage: true
