@@ -18,12 +18,6 @@
 
 #include "jwt.hpp"
 
-#include <algorithm>
-#include <cassert>
-#include <cstring>
-#include <fstream>
-#include <sstream>
-
 #include <openssl/bio.h>
 #include <openssl/buffer.h>
 #include <openssl/ec.h>
@@ -32,6 +26,12 @@
 #include <openssl/hmac.h>
 #include <openssl/pem.h>
 #include <openssl/rsa.h>
+
+#include <algorithm>
+#include <cassert>
+#include <cstring>
+#include <fstream>
+#include <sstream>
 
 #include "jwks_fetcher.hpp"
 
@@ -169,6 +169,19 @@ std::optional<JwtHeader> JwtHeader::parse(std::string_view json) {
 // JwtClaims Implementation
 // ============================================================================
 
+// Helper: Validate that scope/role claim contains only valid characters
+// Security: Prevent privilege escalation via control character injection
+static bool is_valid_claim_string(std::string_view claim) {
+    for (char c : claim) {
+        // Allow: space, printable ASCII (no control characters)
+        // Reject: newline, tab, carriage return, null byte, etc.
+        if (c < 32 || c > 126) {
+            return false;  // Control character or non-ASCII
+        }
+    }
+    return true;
+}
+
 std::optional<JwtClaims> JwtClaims::parse(std::string_view json) {
     try {
         auto j = nlohmann::json::parse(json);
@@ -186,6 +199,25 @@ std::optional<JwtClaims> JwtClaims::parse(std::string_view json) {
 
         // Parse custom claims
         claims.scope = j.value("scope", "");
+        claims.roles = j.value("roles", "");
+
+        // Security: Validate claim sizes (DoS prevention)
+        if (claims.scope.size() > MAX_JWT_CLAIM_SIZE) {
+            return std::nullopt;  // Reject tokens with excessive scope claims
+        }
+        if (claims.roles.size() > MAX_JWT_CLAIM_SIZE) {
+            return std::nullopt;  // Reject tokens with excessive role claims
+        }
+
+        // Security: Validate scope/roles contain no control characters
+        // This prevents privilege escalation via newline/tab injection
+        if (!claims.scope.empty() && !is_valid_claim_string(claims.scope)) {
+            return std::nullopt;  // Reject tokens with malformed scope claim
+        }
+        if (!claims.roles.empty() && !is_valid_claim_string(claims.roles)) {
+            return std::nullopt;  // Reject tokens with malformed roles claim
+        }
+
         claims.custom = j;  // Store full JSON for advanced use
 
         return claims;
@@ -230,8 +262,8 @@ VerificationKey& VerificationKey::operator=(VerificationKey&& other) noexcept {
 }
 
 std::optional<VerificationKey> VerificationKey::load_public_key(JwtAlgorithm alg,
-                                                                 std::string_view key_id,
-                                                                 std::string_view pem_path) {
+                                                                std::string_view key_id,
+                                                                std::string_view pem_path) {
     // Open PEM file
     FILE* fp = fopen(std::string(pem_path).c_str(), "r");
     if (!fp) {
@@ -266,7 +298,7 @@ std::optional<VerificationKey> VerificationKey::load_public_key(JwtAlgorithm alg
 }
 
 std::optional<VerificationKey> VerificationKey::load_hmac_secret(std::string_view key_id,
-                                                                  std::string_view secret) {
+                                                                 std::string_view secret) {
     // Decode base64-encoded secret
     auto decoded = base64url_decode(secret);
     if (!decoded || decoded->empty()) {
@@ -322,7 +354,8 @@ const VerificationKey* KeyManager::get_key(JwtAlgorithm alg, std::string_view ke
 // ThreadLocalTokenCache Implementation
 // ============================================================================
 
-ThreadLocalTokenCache::ThreadLocalTokenCache(size_t capacity) : capacity_(capacity) {}
+ThreadLocalTokenCache::ThreadLocalTokenCache(size_t capacity, size_t max_size_bytes)
+    : capacity_(capacity), max_size_bytes_(max_size_bytes) {}
 
 std::optional<ThreadLocalTokenCache::CachedToken> ThreadLocalTokenCache::get(
     std::string_view token) {
@@ -341,33 +374,78 @@ std::optional<ThreadLocalTokenCache::CachedToken> ThreadLocalTokenCache::get(
 
 void ThreadLocalTokenCache::put(std::string_view token, JwtClaims claims) {
     std::string token_str(token);
+    size_t token_size = calculate_token_size(token, claims);
 
     // Check if already exists
     auto it = cache_.find(token_str);
     if (it != cache_.end()) {
+        // Calculate old size for accurate tracking
+        size_t old_size = calculate_token_size(it->second->first, it->second->second.claims);
+
         // Update existing entry
         lru_list_.splice(lru_list_.begin(), lru_list_, it->second);
         it->second->second.claims = std::move(claims);
         it->second->second.cached_at = std::time(nullptr);
+
+        // Update size tracking (new size - old size)
+        total_size_bytes_ = total_size_bytes_ - old_size + token_size;
         return;
     }
 
-    // Evict oldest if at capacity
-    if (cache_.size() >= capacity_) {
+    // Evict entries until we have space (by count or size)
+    while ((cache_.size() >= capacity_) || (total_size_bytes_ + token_size > max_size_bytes_)) {
+        if (lru_list_.empty()) {
+            break;  // Can't evict anything
+        }
+
+        // Evict oldest entry
         auto& oldest = lru_list_.back();
+        size_t oldest_size = calculate_token_size(oldest.first, oldest.second.claims);
+
         cache_.erase(oldest.first);
         lru_list_.pop_back();
+        total_size_bytes_ -= oldest_size;
     }
 
     // Insert new entry at front
     CachedToken cached{std::move(claims), std::time(nullptr)};
     lru_list_.emplace_front(token_str, std::move(cached));
     cache_[token_str] = lru_list_.begin();
+    total_size_bytes_ += token_size;
 }
 
 void ThreadLocalTokenCache::clear() {
     cache_.clear();
     lru_list_.clear();
+    total_size_bytes_ = 0;
+}
+
+size_t ThreadLocalTokenCache::calculate_token_size(std::string_view token,
+                                                   const JwtClaims& claims) const {
+    size_t size = token.size();  // Token string
+
+    // Claims size estimation
+    size += claims.sub.size();
+    size += claims.iss.size();
+    size += claims.aud.size();
+    size += claims.jti.size();
+    size += claims.scope.size();
+    size += claims.roles.size();
+
+    // Custom JSON size (rough estimate)
+    if (!claims.custom.empty()) {
+        size += claims.custom.dump().size();
+    }
+
+    // Struct overhead (rough estimate)
+    size += sizeof(CachedToken);
+    size += sizeof(std::time_t);
+    size += sizeof(JwtClaims);
+
+    // Hash map and list overhead
+    size += sizeof(std::pair<std::string, CachedToken>);
+
+    return size;
 }
 
 // ============================================================================
@@ -477,8 +555,63 @@ ValidationResult JwtValidator::validate_uncached(std::string_view token) {
     return validate_claims(*claims);
 }
 
+// Helper: Convert IEEE P1363 ECDSA signature to ASN.1 DER format
+// PyJWT library generates P1363 format (64 bytes: r||s concatenated)
+// OpenSSL expects ASN.1 DER format
+static std::optional<std::vector<unsigned char>> convert_ecdsa_p1363_to_der(
+    std::string_view p1363_sig) {
+    // P-256 signatures are 64 bytes (32 bytes r + 32 bytes s)
+    if (p1363_sig.size() != 64) {
+        return std::nullopt;
+    }
+
+    // Extract r and s components
+    const unsigned char* r_bytes = reinterpret_cast<const unsigned char*>(p1363_sig.data());
+    const unsigned char* s_bytes = r_bytes + 32;
+
+    // Create BIGNUM for r and s
+    BIGNUM* r = BN_bin2bn(r_bytes, 32, nullptr);
+    BIGNUM* s = BN_bin2bn(s_bytes, 32, nullptr);
+    if (!r || !s) {
+        BN_free(r);
+        BN_free(s);
+        return std::nullopt;
+    }
+
+    // Create ECDSA_SIG structure
+    ECDSA_SIG* sig = ECDSA_SIG_new();
+    if (!sig) {
+        BN_free(r);
+        BN_free(s);
+        return std::nullopt;
+    }
+
+    // Set r and s (ECDSA_SIG takes ownership)
+    if (ECDSA_SIG_set0(sig, r, s) != 1) {
+        BN_free(r);
+        BN_free(s);
+        ECDSA_SIG_free(sig);
+        return std::nullopt;
+    }
+
+    // Convert to DER format
+    unsigned char* der_sig = nullptr;
+    int der_len = i2d_ECDSA_SIG(sig, &der_sig);
+    ECDSA_SIG_free(sig);
+
+    if (der_len <= 0 || !der_sig) {
+        return std::nullopt;
+    }
+
+    // Copy to vector and free OpenSSL memory
+    std::vector<unsigned char> result(der_sig, der_sig + der_len);
+    OPENSSL_free(der_sig);
+
+    return result;
+}
+
 bool JwtValidator::verify_signature(JwtAlgorithm alg, std::string_view message,
-                                     std::string_view signature, const VerificationKey* key) {
+                                    std::string_view signature, const VerificationKey* key) {
     if (!key) {
         return false;
     }
@@ -508,6 +641,12 @@ bool JwtValidator::verify_signature(JwtAlgorithm alg, std::string_view message,
 
         case JwtAlgorithm::ES256: {
             // ECDSA-SHA256 verification
+            // Convert IEEE P1363 signature (from PyJWT) to ASN.1 DER format (for OpenSSL)
+            auto der_sig = convert_ecdsa_p1363_to_der(signature);
+            if (!der_sig) {
+                return false;  // Invalid signature format
+            }
+
             EVP_MD_CTX* ctx = EVP_MD_CTX_new();
             if (!ctx) {
                 return false;
@@ -516,9 +655,7 @@ bool JwtValidator::verify_signature(JwtAlgorithm alg, std::string_view message,
             bool valid = false;
             if (EVP_DigestVerifyInit(ctx, nullptr, EVP_sha256(), nullptr, key->public_key) == 1) {
                 if (EVP_DigestVerifyUpdate(ctx, message.data(), message.size()) == 1) {
-                    if (EVP_DigestVerifyFinal(
-                            ctx, reinterpret_cast<const unsigned char*>(signature.data()),
-                            signature.size()) == 1) {
+                    if (EVP_DigestVerifyFinal(ctx, der_sig->data(), der_sig->size()) == 1) {
                         valid = true;
                     }
                 }

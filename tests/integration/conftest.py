@@ -221,3 +221,160 @@ def http_session():
     session.headers.update({"User-Agent": "Titan-Integration-Test/1.0"})
     yield session
     session.close()
+
+
+# JWT Testing Fixtures
+
+
+@pytest.fixture(scope="session")
+def jwt_test_keys(tmp_path_factory):
+    """
+    Generate ephemeral JWT test keys (NOT stored in repo)
+    Keys are created fresh for each test session and auto-deleted after
+
+    This avoids security scanner false positives from keys in repo
+    """
+    from cryptography.hazmat.primitives.asymmetric import rsa, ec
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.backends import default_backend
+    import os
+    import base64
+
+    keys_dir = tmp_path_factory.mktemp("jwt_keys")
+
+    # Generate RSA 2048-bit key pair for RS256 (~50ms)
+    rsa_private = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+        backend=default_backend()
+    )
+
+    rsa_private_pem = rsa_private.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption()
+    )
+
+    rsa_public_pem = rsa_private.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+
+    # Generate ECDSA P-256 key pair for ES256 (~10ms)
+    ec_private = ec.generate_private_key(
+        ec.SECP256R1(),
+        backend=default_backend()
+    )
+
+    ec_private_pem = ec_private.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption()
+    )
+
+    ec_public_pem = ec_private.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+
+    # Generate HMAC secret for HS256
+    hmac_secret = os.urandom(32)  # 256-bit secret
+
+    # Write keys to temp directory
+    rsa_private_path = keys_dir / "rsa_private.pem"
+    rsa_public_path = keys_dir / "rsa_public.pem"
+    ec_private_path = keys_dir / "ec_private.pem"
+    ec_public_path = keys_dir / "ec_public.pem"
+
+    rsa_private_path.write_bytes(rsa_private_pem)
+    rsa_public_path.write_bytes(rsa_public_pem)
+    ec_private_path.write_bytes(ec_private_pem)
+    ec_public_path.write_bytes(ec_public_pem)
+
+    return {
+        "dir": keys_dir,
+        "rsa_private_key": rsa_private,
+        "rsa_private_path": rsa_private_path,
+        "rsa_public_path": rsa_public_path,
+        "rsa_private_pem": rsa_private_pem,
+        "rsa_public_pem": rsa_public_pem,
+        "ec_private_key": ec_private,
+        "ec_private_path": ec_private_path,
+        "ec_public_path": ec_public_path,
+        "ec_private_pem": ec_private_pem,
+        "ec_public_pem": ec_public_pem,
+        "hmac_secret": base64.b64encode(hmac_secret).decode('ascii'),
+    }
+
+
+@pytest.fixture
+def create_jwt_token(jwt_test_keys):
+    """
+    Factory to create JWT tokens with custom claims
+
+    Usage:
+        token = create_jwt_token(scopes=["read:users"], roles=["admin"])
+        token = create_jwt_token(algorithm="ES256", exp_delta=3600)
+    """
+    import jwt
+    import time
+
+    def _create(
+        algorithm="RS256",
+        scopes=None,
+        roles=None,
+        exp_delta=3600,
+        jti=None,
+        **extra_claims
+    ):
+        """
+        Create a JWT token for testing
+
+        Args:
+            algorithm: RS256, ES256, or HS256
+            scopes: List of OAuth 2.0 scopes
+            roles: List of RBAC roles
+            exp_delta: Expiration time in seconds from now
+            jti: JWT ID (for revocation testing)
+            **extra_claims: Additional claims to include
+        """
+        now = int(time.time())
+
+        payload = {
+            "iss": "https://test.auth.titan.com",
+            "sub": "test-user-123",
+            "aud": "titan-api",
+            "iat": now,
+            "exp": now + exp_delta,
+            "nbf": now - 60,  # Valid from 1 minute ago
+        }
+
+        # Add scopes and roles
+        if scopes:
+            payload["scope"] = " ".join(scopes)
+        if roles:
+            payload["roles"] = " ".join(roles)
+        if jti:
+            payload["jti"] = jti
+
+        # Add any extra claims
+        payload.update(extra_claims)
+
+        # Choose signing key and kid based on algorithm
+        import base64
+        if algorithm == "RS256":
+            signing_key = jwt_test_keys["rsa_private_pem"]
+            kid = "test-rsa-key"
+        elif algorithm == "ES256":
+            signing_key = jwt_test_keys["ec_private_pem"]
+            kid = "test-ec-key"
+        elif algorithm == "HS256":
+            # Decode base64-encoded HMAC secret
+            signing_key = base64.b64decode(jwt_test_keys["hmac_secret"])
+            kid = "test-hmac-key"
+        else:
+            raise ValueError(f"Unsupported algorithm: {algorithm}")
+
+        return jwt.encode(payload, signing_key, algorithm=algorithm, headers={"kid": kid})
+
+    return _create

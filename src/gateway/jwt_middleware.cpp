@@ -101,6 +101,9 @@ MiddlewareResult JwtAuthMiddleware::process_request(RequestContext& ctx) {
     if (!result.claims.scope.empty()) {
         ctx.set_metadata("jwt_scope", result.claims.scope);
     }
+    if (!result.claims.roles.empty()) {
+        ctx.set_metadata("jwt_roles", result.claims.roles);
+    }
     if (!result.claims.iss.empty()) {
         ctx.set_metadata("jwt_iss", result.claims.iss);
     }
@@ -127,20 +130,21 @@ MiddlewareResult JwtAuthMiddleware::send_401(RequestContext& ctx, std::string_vi
         ctx.response->status = http::StatusCode::Unauthorized;
 
         // Add WWW-Authenticate header (RFC 6750)
+        // Store in metadata to ensure string persists beyond function scope
         std::string auth_challenge = config_.scheme + " realm=\"titan\"";
         if (!error.empty()) {
             // Only include error in development mode (don't leak details in production)
             // TODO: Make this configurable via environment variable or config
             // auth_challenge += ", error=\"" + std::string(error) + "\"";
         }
-        ctx.response->add_header("WWW-Authenticate", auth_challenge);
+        ctx.set_metadata("www-authenticate", auth_challenge);
+        ctx.response->add_header("WWW-Authenticate", ctx.get_metadata("www-authenticate"));
 
         // Set generic error body (don't leak validation details)
         static constexpr const char* error_body =
             R"({"error":"unauthorized","message":"Authentication required"})";
-        ctx.response->body =
-            std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(error_body),
-                                     std::char_traits<char>::length(error_body));
+        ctx.response->body = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(error_body),
+                                                      std::char_traits<char>::length(error_body));
         ctx.response->add_header("Content-Type", "application/json");
     }
 

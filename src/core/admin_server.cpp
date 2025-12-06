@@ -20,7 +20,6 @@
 #include "admin_server.hpp"
 
 #include <atomic>
-
 #include <nlohmann/json.hpp>
 
 #include "../control/prometheus.hpp"
@@ -171,8 +170,9 @@ void AdminServer::handle_connection(int client_fd) {
         if (req.path == "/_admin/jwt/revoke") {
             // JWT revocation endpoint
             if (!revocation_queue_) {
-                send_response(client_fd, 503, "application/json",
-                              R"({"error":"service_unavailable","message":"Revocation not enabled"})");
+                send_response(
+                    client_fd, 503, "application/json",
+                    R"({"error":"service_unavailable","message":"Revocation not enabled"})");
                 return;
             }
 
@@ -191,15 +191,17 @@ void AdminServer::handle_connection(int client_fd) {
 
                 // Extract jti (required)
                 if (!json.contains("jti") || !json["jti"].is_string()) {
-                    send_response(client_fd, 400, "application/json",
-                                  R"({"error":"bad_request","message":"Missing or invalid 'jti' field"})");
+                    send_response(
+                        client_fd, 400, "application/json",
+                        R"({"error":"bad_request","message":"Missing or invalid 'jti' field"})");
                     return;
                 }
 
                 // Extract exp (required)
                 if (!json.contains("exp") || !json["exp"].is_number_unsigned()) {
-                    send_response(client_fd, 400, "application/json",
-                                  R"json({"error":"bad_request","message":"Missing or invalid 'exp' field (must be Unix timestamp)"})json");
+                    send_response(
+                        client_fd, 400, "application/json",
+                        R"json({"error":"bad_request","message":"Missing or invalid 'exp' field (must be Unix timestamp)"})json");
                     return;
                 }
 

@@ -1,9 +1,9 @@
 // Titan Unit Tests - Main Entry Point
-#include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_session.hpp>
+#include <catch2/catch_test_macros.hpp>
 
-#include "../../src/core/logging.hpp"
 #include "../../src/control/config.hpp"
+#include "../../src/core/logging.hpp"
 
 // Global test fixture - runs once before all tests
 struct GlobalSetup {

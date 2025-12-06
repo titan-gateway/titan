@@ -124,8 +124,8 @@ MiddlewareResult RateLimitMiddleware::process_request(RequestContext& ctx) {
         // Log rate limit violation (branchless in release builds)
         auto* logger = logging::get_current_logger();
         assert(logger && "Logger must be initialized");
-        LOG_ERROR(logger, "Rate limit exceeded: client_ip={}, correlation_id={}",
-                  ctx.client_ip, ctx.correlation_id);
+        LOG_ERROR(logger, "Rate limit exceeded: client_ip={}, correlation_id={}", ctx.client_ip,
+                  ctx.correlation_id);
 
         return MiddlewareResult::Stop;
     }

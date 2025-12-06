@@ -19,17 +19,17 @@
 
 #include "jwks_fetcher.hpp"
 
-#include <algorithm>
-#include <chrono>
-#include <cmath>
-#include <ctime>
-
 #include <httplib.h>
-#include <nlohmann/json.hpp>
 #include <openssl/bn.h>
 #include <openssl/ec.h>
 #include <openssl/evp.h>
 #include <openssl/rsa.h>
+
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <ctime>
+#include <nlohmann/json.hpp>
 
 namespace titan::core {
 
@@ -104,7 +104,8 @@ void JwksFetcher::fetch_loop() {
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
 
-        if (!running_) break;
+        if (!running_)
+            break;
 
         // Fetch keys
         fetch_keys();
@@ -236,7 +237,7 @@ std::optional<VerificationKey> JwksFetcher::jwk_to_verification_key(const JsonWe
 }
 
 EVP_PKEY* JwksFetcher::rsa_jwk_to_evp_pkey(const JsonWebKey& jwk) {
-    // Decode base64url n and e
+    // Decode base64url n (modulus) and e (exponent)
     auto n_bin = base64url_decode(jwk.n);
     auto e_bin = base64url_decode(jwk.e);
 
@@ -244,47 +245,32 @@ EVP_PKEY* JwksFetcher::rsa_jwk_to_evp_pkey(const JsonWebKey& jwk) {
         return nullptr;
     }
 
-    // Convert to BIGNUM
-    BIGNUM* n_bn = BN_bin2bn(reinterpret_cast<const unsigned char*>(n_bin->data()),
-                             static_cast<int>(n_bin->size()), nullptr);
-    BIGNUM* e_bn = BN_bin2bn(reinterpret_cast<const unsigned char*>(e_bin->data()),
-                             static_cast<int>(e_bin->size()), nullptr);
-
-    if (n_bn == nullptr || e_bn == nullptr) {
-        BN_free(n_bn);
-        BN_free(e_bn);
+    // OpenSSL 3.0+ EVP API: Use EVP_PKEY_fromdata to build RSA key directly
+    EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_from_name(nullptr, "RSA", nullptr);
+    if (ctx == nullptr) {
         return nullptr;
     }
 
-    // Create RSA key
-    RSA* rsa = RSA_new();
-    if (rsa == nullptr) {
-        BN_free(n_bn);
-        BN_free(e_bn);
+    if (EVP_PKEY_fromdata_init(ctx) != 1) {
+        EVP_PKEY_CTX_free(ctx);
         return nullptr;
     }
 
-    // Set RSA parameters (OpenSSL 3.x API)
-    if (RSA_set0_key(rsa, n_bn, e_bn, nullptr) != 1) {
-        RSA_free(rsa);
-        BN_free(n_bn);
-        BN_free(e_bn);
+    // Build OSSL_PARAM array with modulus (n) and exponent (e)
+    OSSL_PARAM params[3];
+    params[0] = OSSL_PARAM_construct_BN("n", reinterpret_cast<unsigned char*>(n_bin->data()),
+                                        n_bin->size());
+    params[1] = OSSL_PARAM_construct_BN("e", reinterpret_cast<unsigned char*>(e_bin->data()),
+                                        e_bin->size());
+    params[2] = OSSL_PARAM_construct_end();
+
+    EVP_PKEY* pkey = nullptr;
+    if (EVP_PKEY_fromdata(ctx, &pkey, EVP_PKEY_PUBLIC_KEY, params) != 1) {
+        EVP_PKEY_CTX_free(ctx);
         return nullptr;
     }
 
-    // Convert RSA to EVP_PKEY
-    EVP_PKEY* pkey = EVP_PKEY_new();
-    if (pkey == nullptr) {
-        RSA_free(rsa);
-        return nullptr;
-    }
-
-    if (EVP_PKEY_assign_RSA(pkey, rsa) != 1) {
-        EVP_PKEY_free(pkey);
-        RSA_free(rsa);
-        return nullptr;
-    }
-
+    EVP_PKEY_CTX_free(ctx);
     return pkey;
 }
 
@@ -294,7 +280,7 @@ EVP_PKEY* JwksFetcher::ec_jwk_to_evp_pkey(const JsonWebKey& jwk) {
         return nullptr;
     }
 
-    // Decode base64url x and y
+    // Decode base64url x and y coordinates
     auto x_bin = base64url_decode(jwk.x);
     auto y_bin = base64url_decode(jwk.y);
 
@@ -302,71 +288,39 @@ EVP_PKEY* JwksFetcher::ec_jwk_to_evp_pkey(const JsonWebKey& jwk) {
         return nullptr;
     }
 
-    // Convert to BIGNUM
-    BIGNUM* x_bn = BN_bin2bn(reinterpret_cast<const unsigned char*>(x_bin->data()),
-                             static_cast<int>(x_bin->size()), nullptr);
-    BIGNUM* y_bn = BN_bin2bn(reinterpret_cast<const unsigned char*>(y_bin->data()),
-                             static_cast<int>(y_bin->size()), nullptr);
+    // OpenSSL 3.0+ EVP API: Build uncompressed point format (0x04 || x || y)
+    // This is the standard SEC1 uncompressed point encoding for EC public keys
+    std::vector<unsigned char> pub_key;
+    pub_key.reserve(1 + x_bin->size() + y_bin->size());
+    pub_key.push_back(0x04);  // Uncompressed point prefix
+    pub_key.insert(pub_key.end(), x_bin->begin(), x_bin->end());
+    pub_key.insert(pub_key.end(), y_bin->begin(), y_bin->end());
 
-    if (x_bn == nullptr || y_bn == nullptr) {
-        BN_free(x_bn);
-        BN_free(y_bn);
+    // Create EVP_PKEY directly using modern EVP_PKEY_fromdata API (OpenSSL 3.0+)
+    EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_from_name(nullptr, "EC", nullptr);
+    if (ctx == nullptr) {
         return nullptr;
     }
 
-    // Create EC key with P-256 curve
-    EC_KEY* ec_key = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
-    if (ec_key == nullptr) {
-        BN_free(x_bn);
-        BN_free(y_bn);
+    if (EVP_PKEY_fromdata_init(ctx) != 1) {
+        EVP_PKEY_CTX_free(ctx);
         return nullptr;
     }
 
-    // Create point on curve
-    const EC_GROUP* group = EC_KEY_get0_group(ec_key);
-    EC_POINT* point = EC_POINT_new(group);
-    if (point == nullptr) {
-        EC_KEY_free(ec_key);
-        BN_free(x_bn);
-        BN_free(y_bn);
+    // Build OSSL_PARAM array with curve and public key
+    OSSL_PARAM params[3];
+    const char* group_name = "prime256v1";  // P-256 curve (NIST P-256 / secp256r1)
+    params[0] = OSSL_PARAM_construct_utf8_string("group", const_cast<char*>(group_name), 0);
+    params[1] = OSSL_PARAM_construct_octet_string("pub", pub_key.data(), pub_key.size());
+    params[2] = OSSL_PARAM_construct_end();
+
+    EVP_PKEY* pkey = nullptr;
+    if (EVP_PKEY_fromdata(ctx, &pkey, EVP_PKEY_PUBLIC_KEY, params) != 1) {
+        EVP_PKEY_CTX_free(ctx);
         return nullptr;
     }
 
-    // Set point coordinates
-    if (EC_POINT_set_affine_coordinates(group, point, x_bn, y_bn, nullptr) != 1) {
-        EC_POINT_free(point);
-        EC_KEY_free(ec_key);
-        BN_free(x_bn);
-        BN_free(y_bn);
-        return nullptr;
-    }
-
-    // Set public key
-    if (EC_KEY_set_public_key(ec_key, point) != 1) {
-        EC_POINT_free(point);
-        EC_KEY_free(ec_key);
-        BN_free(x_bn);
-        BN_free(y_bn);
-        return nullptr;
-    }
-
-    EC_POINT_free(point);
-    BN_free(x_bn);
-    BN_free(y_bn);
-
-    // Convert EC_KEY to EVP_PKEY
-    EVP_PKEY* pkey = EVP_PKEY_new();
-    if (pkey == nullptr) {
-        EC_KEY_free(ec_key);
-        return nullptr;
-    }
-
-    if (EVP_PKEY_assign_EC_KEY(pkey, ec_key) != 1) {
-        EVP_PKEY_free(pkey);
-        EC_KEY_free(ec_key);
-        return nullptr;
-    }
-
+    EVP_PKEY_CTX_free(ctx);
     return pkey;
 }
 

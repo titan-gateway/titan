@@ -22,10 +22,10 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include "../core/logging.hpp"
 #include "../core/admin_server.hpp"
-#include "../core/socket.hpp"
 #include "../core/jwt_revocation.hpp"
+#include "../core/logging.hpp"
+#include "../core/socket.hpp"
 #include "../gateway/factory.hpp"
 
 #ifdef __linux__
@@ -43,7 +43,7 @@ namespace titan::core {
 extern std::atomic<bool> g_server_running;
 extern std::atomic<bool> g_graceful_shutdown;
 extern std::atomic<const gateway::UpstreamManager*> g_upstream_manager_for_metrics;
-}
+}  // namespace titan::core
 
 namespace titan::runtime {
 
@@ -83,7 +83,8 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
         gateway::build_pipeline(config, upstream_manager_ptr, g_revocation_queue, jwt_validator);
 
     // Create server with pre-built components
-    core::Server server(config, std::move(router), std::move(upstream_manager), std::move(pipeline));
+    core::Server server(config, std::move(router), std::move(upstream_manager),
+                        std::move(pipeline));
     server.set_logger(logger);
     if (auto ec = server.start(); ec) {
         return;
@@ -91,7 +92,8 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
 
     // Worker 0 shares its upstream_manager for admin server metrics
     if (worker_id == 0) {
-        core::g_upstream_manager_for_metrics.store(server.upstream_manager(), std::memory_order_release);
+        core::g_upstream_manager_for_metrics.store(server.upstream_manager(),
+                                                   std::memory_order_release);
     }
 
     int listen_fd = server.listen_fd();
@@ -279,14 +281,16 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
         gateway::build_pipeline(config, upstream_manager_ptr, g_revocation_queue, jwt_validator);
 
     // Create server with pre-built components
-    core::Server server(config, std::move(router), std::move(upstream_manager), std::move(pipeline));
+    core::Server server(config, std::move(router), std::move(upstream_manager),
+                        std::move(pipeline));
     if (auto ec = server.start(); ec) {
         return;
     }
 
     // Worker 0 shares its upstream_manager for admin server metrics
     if (worker_id == 0) {
-        core::g_upstream_manager_for_metrics.store(server.upstream_manager(), std::memory_order_release);
+        core::g_upstream_manager_for_metrics.store(server.upstream_manager(),
+                                                   std::memory_order_release);
     }
 
     int listen_fd = server.listen_fd();
@@ -475,7 +479,8 @@ std::error_code run_simple_server(const control::Config& config) {
         gateway::build_pipeline(config, upstream_manager_ptr, g_revocation_queue, jwt_validator);
 
     // Create server with pre-built components
-    core::Server server(config, std::move(router), std::move(upstream_manager), std::move(pipeline));
+    core::Server server(config, std::move(router), std::move(upstream_manager),
+                        std::move(pipeline));
 
     if (auto ec = server.start(); ec) {
         return ec;
@@ -631,7 +636,8 @@ std::error_code run_simple_server(const control::Config& config) {
         gateway::build_pipeline(config, upstream_manager_ptr, g_revocation_queue, jwt_validator);
 
     // Create server with pre-built components
-    core::Server server(config, std::move(router), std::move(upstream_manager), std::move(pipeline));
+    core::Server server(config, std::move(router), std::move(upstream_manager),
+                        std::move(pipeline));
 
     if (auto ec = server.start(); ec) {
         return ec;

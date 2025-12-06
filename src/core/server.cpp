@@ -18,8 +18,6 @@
 
 #include "server.hpp"
 
-#include "logging.hpp"
-
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/tcp.h>
@@ -30,6 +28,8 @@
 #include <cerrno>
 #include <cstring>
 #include <iostream>
+
+#include "logging.hpp"
 
 #ifdef __linux__
 #include <sys/epoll.h>
@@ -1281,7 +1281,6 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
 
         // Handle error cases - send 502 Bad Gateway to client
         if (should_send_error) {
-
             // Send error response using existing client_conn reference
             client_conn.response.status = http::StatusCode::BadGateway;
             client_conn.response.reason_phrase = "Bad Gateway";
@@ -1297,173 +1296,173 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
         }
 
         if (response_complete) {
-                // Response complete - copy response to client connection
+            // Response complete - copy response to client connection
 
-                // Copy status and reason
-                client_conn.response.status = response.status;
-                client_conn.response.reason_phrase = response.reason_phrase;
+            // Copy status and reason
+            client_conn.response.status = response.status;
+            client_conn.response.reason_phrase = response.reason_phrase;
 
-                // CRITICAL: Convert headers from string_views (pointing into backend recv_buffer)
-                // to owned strings stored in Connection, BEFORE we reset backend_conn
-                client_conn.response_header_storage.clear();
-                client_conn.response_header_storage.reserve(response.headers.size());
-                for (const auto& h : response.headers) {
-                    client_conn.response_header_storage.emplace_back(std::string(h.name),
-                                                                     std::string(h.value));
+            // CRITICAL: Convert headers from string_views (pointing into backend recv_buffer)
+            // to owned strings stored in Connection, BEFORE we reset backend_conn
+            client_conn.response_header_storage.clear();
+            client_conn.response_header_storage.reserve(response.headers.size());
+            for (const auto& h : response.headers) {
+                client_conn.response_header_storage.emplace_back(std::string(h.name),
+                                                                 std::string(h.value));
+            }
+
+            // Now create Headers with string_views pointing to our owned storage
+            client_conn.response.headers.clear();
+            client_conn.response.headers.reserve(client_conn.response_header_storage.size());
+            for (const auto& [name, value] : client_conn.response_header_storage) {
+                client_conn.response.headers.push_back({name, value});
+            }
+
+            // Copy body to owned buffer
+            client_conn.response_body.assign(response.body.begin(), response.body.end());
+            client_conn.response.body = client_conn.response_body;
+
+            // Execute response middleware
+            gateway::ResponseContext resp_ctx;
+            resp_ctx.request = &client_conn.request;
+            resp_ctx.response = &client_conn.response;
+            resp_ctx.correlation_id = backend_conn->metadata["correlation_id"];
+            resp_ctx.client_ip = client_conn.remote_ip;
+            resp_ctx.client_port = client_conn.remote_port;
+            resp_ctx.start_time = backend_conn->start_time;
+            resp_ctx.metadata = backend_conn->metadata;
+
+            // Populate backend for circuit breaker feedback
+            auto* upstream = upstream_manager_->get_upstream(backend_conn->upstream_name);
+            if (upstream) {
+                // Find the backend by host:port
+                for (auto& backend : upstream->backends()) {
+                    if (backend.host == backend_conn->backend_host &&
+                        backend.port == backend_conn->backend_port) {
+                        resp_ctx.backend = const_cast<gateway::Backend*>(&backend);
+                        break;
+                    }
                 }
+            }
 
-                // Now create Headers with string_views pointing to our owned storage
-                client_conn.response.headers.clear();
-                client_conn.response.headers.reserve(client_conn.response_header_storage.size());
-                for (const auto& [name, value] : client_conn.response_header_storage) {
-                    client_conn.response.headers.push_back({name, value});
-                }
+            (void)pipeline_->execute_response(resp_ctx);
 
-                // Copy body to owned buffer
-                client_conn.response_body.assign(response.body.begin(), response.body.end());
-                client_conn.response.body = client_conn.response_body;
+            // Return backend connection to pool (or close if not keep-alive)
+            // CRITICAL: Remove from epoll BEFORE returning to pool!
+            // Reuse upstream from above (already looked up for circuit breaker)
+            if (upstream) {
+                // Remove from epoll so pooled connections don't generate spurious events
+                (void)remove_backend_from_epoll(backend_fd);
 
-                // Execute response middleware
-                gateway::ResponseContext resp_ctx;
-                resp_ctx.request = &client_conn.request;
-                resp_ctx.response = &client_conn.response;
-                resp_ctx.correlation_id = backend_conn->metadata["correlation_id"];
-                resp_ctx.client_ip = client_conn.remote_ip;
-                resp_ctx.client_port = client_conn.remote_port;
-                resp_ctx.start_time = backend_conn->start_time;
-                resp_ctx.metadata = backend_conn->metadata;
-
-                // Populate backend for circuit breaker feedback
-                auto* upstream = upstream_manager_->get_upstream(backend_conn->upstream_name);
-                if (upstream) {
-                    // Find the backend by host:port
-                    for (auto& backend : upstream->backends()) {
-                        if (backend.host == backend_conn->backend_host &&
-                            backend.port == backend_conn->backend_port) {
-                            resp_ctx.backend = const_cast<gateway::Backend*>(&backend);
+                // Check if backend wants to close the connection
+                bool should_close = false;
+                for (const auto& [name, value] : response.headers) {
+                    if (name == "Connection" || name == "connection") {
+                        if (value == "close" || value == "Close") {
+                            should_close = true;
                             break;
                         }
                     }
                 }
 
-                (void)pipeline_->execute_response(resp_ctx);
-
-                // Return backend connection to pool (or close if not keep-alive)
-                // CRITICAL: Remove from epoll BEFORE returning to pool!
-                // Reuse upstream from above (already looked up for circuit breaker)
-                if (upstream) {
-                    // Remove from epoll so pooled connections don't generate spurious events
-                    (void)remove_backend_from_epoll(backend_fd);
-
-                    // Check if backend wants to close the connection
-                    bool should_close = false;
-                    for (const auto& [name, value] : response.headers) {
-                        if (name == "Connection" || name == "connection") {
-                            if (value == "close" || value == "Close") {
-                                should_close = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    if (should_close) {
-                        // Backend sent Connection: close - don't pool, just close
-                        close(backend_fd);
-                    } else {
-                        // Safe to return to pool for reuse
-                        upstream->backend_pool().release(backend_fd, backend_conn->backend_host,
-                                                         backend_conn->backend_port);
-                    }
-                } else {
-                    // Upstream not found - just close
+                if (should_close) {
+                    // Backend sent Connection: close - don't pool, just close
                     close(backend_fd);
-                }
-
-                // Cleanup backend connection
-                backend_connections_.erase(it);
-                int32_t stream_id = backend_conn->stream_id;  // Save before reset
-
-                // HTTP/2 FIX: Remove from correct location based on protocol
-                if (stream_id >= 0) {
-                    // HTTP/2: Remove from per-stream backends
-                    client_conn.h2_stream_backends.erase(stream_id);
                 } else {
-                    // HTTP/1.1: Remove from single backend connection
-                    client_conn.backend_conn.reset();
+                    // Safe to return to pool for reuse
+                    upstream->backend_pool().release(backend_fd, backend_conn->backend_host,
+                                                     backend_conn->backend_port);
                 }
+            } else {
+                // Upstream not found - just close
+                close(backend_fd);
+            }
 
-                // Send response to client
-                if (client_conn.protocol == Protocol::HTTP_2) {
-                    // HTTP/2 - submit response to H2 session
-                    if (client_conn.h2_session && stream_id >= 0) {
-                        auto* stream = client_conn.h2_session->get_stream(stream_id);
-                        if (stream) {
-                            // Copy response (headers contain string_views that must be converted to
-                            // owned strings)
-                            stream->response.status = client_conn.response.status;
-                            stream->response.reason_phrase = client_conn.response.reason_phrase;
+            // Cleanup backend connection
+            backend_connections_.erase(it);
+            int32_t stream_id = backend_conn->stream_id;  // Save before reset
 
-                            // Store headers in persistent storage, then create views to them
-                            stream->response_header_storage.clear();
-                            stream->response_header_storage.reserve(
-                                client_conn.response.headers.size());  // Prevent reallocation
-                            stream->response.headers.clear();
-                            stream->response.headers.reserve(client_conn.response.headers.size());
-                            for (const auto& h : client_conn.response.headers) {
-                                stream->response_header_storage.emplace_back(std::string(h.name),
-                                                                             std::string(h.value));
-                                const auto& stored = stream->response_header_storage.back();
-                                stream->response.headers.push_back({stored.first, stored.second});
-                            }
+            // HTTP/2 FIX: Remove from correct location based on protocol
+            if (stream_id >= 0) {
+                // HTTP/2: Remove from per-stream backends
+                client_conn.h2_stream_backends.erase(stream_id);
+            } else {
+                // HTTP/1.1: Remove from single backend connection
+                client_conn.backend_conn.reset();
+            }
 
-                            // Copy body
-                            stream->response_body = std::move(client_conn.response_body);
-                            stream->response.body = stream->response_body;
-                            stream->response_complete = true;
+            // Send response to client
+            if (client_conn.protocol == Protocol::HTTP_2) {
+                // HTTP/2 - submit response to H2 session
+                if (client_conn.h2_session && stream_id >= 0) {
+                    auto* stream = client_conn.h2_session->get_stream(stream_id);
+                    if (stream) {
+                        // Copy response (headers contain string_views that must be converted to
+                        // owned strings)
+                        stream->response.status = client_conn.response.status;
+                        stream->response.reason_phrase = client_conn.response.reason_phrase;
 
-                            // Filter out HTTP/1.1-specific headers forbidden in HTTP/2
-                            // Per RFC 7540 Section 8.1.2: connection-specific headers must not be
-                            // included Also filter out empty headers
-                            auto& headers = stream->response.headers;
-                            headers.erase(
-                                std::remove_if(headers.begin(), headers.end(),
-                                               [](const http::Header& h) {
-                                                   // Remove empty headers
-                                                   if (h.name.empty() || h.value.empty()) {
-                                                       return true;
-                                                   }
-                                                   std::string name_lower(h.name);
-                                                   std::transform(name_lower.begin(),
-                                                                  name_lower.end(),
-                                                                  name_lower.begin(), ::tolower);
-                                                   return name_lower == "connection" ||
-                                                          name_lower == "keep-alive" ||
-                                                          name_lower == "proxy-connection" ||
-                                                          name_lower == "transfer-encoding" ||
-                                                          name_lower == "upgrade";
-                                               }),
-                                headers.end());
+                        // Store headers in persistent storage, then create views to them
+                        stream->response_header_storage.clear();
+                        stream->response_header_storage.reserve(
+                            client_conn.response.headers.size());  // Prevent reallocation
+                        stream->response.headers.clear();
+                        stream->response.headers.reserve(client_conn.response.headers.size());
+                        for (const auto& h : client_conn.response.headers) {
+                            stream->response_header_storage.emplace_back(std::string(h.name),
+                                                                         std::string(h.value));
+                            const auto& stored = stream->response_header_storage.back();
+                            stream->response.headers.push_back({stored.first, stored.second});
+                        }
 
-                            // Submit response to HTTP/2 session
-                            auto ec = client_conn.h2_session->submit_response(stream_id,
-                                                                              stream->response);
-                            (void)ec;  // Suppress unused variable warning
+                        // Copy body
+                        stream->response_body = std::move(client_conn.response_body);
+                        stream->response.body = stream->response_body;
+                        stream->response_complete = true;
 
-                            // Serialize and send HTTP/2 frames
-                            auto data = client_conn.h2_session->send_data();
-                            if (!data.empty() && client_conn.tls_enabled) {
-                                ssize_t sent = ssl_write_nonblocking(client_conn.ssl, data);
-                                (void)sent;  // Suppress unused variable warning
-                                client_conn.h2_session->consume_send_buffer(data.size());
-                            }
+                        // Filter out HTTP/1.1-specific headers forbidden in HTTP/2
+                        // Per RFC 7540 Section 8.1.2: connection-specific headers must not be
+                        // included Also filter out empty headers
+                        auto& headers = stream->response.headers;
+                        headers.erase(std::remove_if(headers.begin(), headers.end(),
+                                                     [](const http::Header& h) {
+                                                         // Remove empty headers
+                                                         if (h.name.empty() || h.value.empty()) {
+                                                             return true;
+                                                         }
+                                                         std::string name_lower(h.name);
+                                                         std::transform(
+                                                             name_lower.begin(), name_lower.end(),
+                                                             name_lower.begin(), ::tolower);
+                                                         return name_lower == "connection" ||
+                                                                name_lower == "keep-alive" ||
+                                                                name_lower == "proxy-connection" ||
+                                                                name_lower == "transfer-encoding" ||
+                                                                name_lower == "upgrade";
+                                                     }),
+                                      headers.end());
+
+                        // Submit response to HTTP/2 session
+                        auto ec =
+                            client_conn.h2_session->submit_response(stream_id, stream->response);
+                        (void)ec;  // Suppress unused variable warning
+
+                        // Serialize and send HTTP/2 frames
+                        auto data = client_conn.h2_session->send_data();
+                        if (!data.empty() && client_conn.tls_enabled) {
+                            ssize_t sent = ssl_write_nonblocking(client_conn.ssl, data);
+                            (void)sent;  // Suppress unused variable warning
+                            client_conn.h2_session->consume_send_buffer(data.size());
                         }
                     }
-                } else {
-                    // HTTP/1.1 - use existing send_response
-                    send_response(client_conn, client_conn.keep_alive);
                 }
+            } else {
+                // HTTP/1.1 - use existing send_response
+                send_response(client_conn, client_conn.keep_alive);
+            }
         }
-        // If !response_complete: either EAGAIN (wait for more data) or error (already handled in loop)
+        // If !response_complete: either EAGAIN (wait for more data) or error (already handled in
+        // loop)
     }
 }
 

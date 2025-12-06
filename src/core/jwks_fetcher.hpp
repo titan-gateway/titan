@@ -34,35 +34,35 @@ namespace titan::core {
 
 /// JWKS fetcher configuration
 struct JwksConfig {
-    std::string url;                          // JWKS endpoint URL
-    uint32_t refresh_interval_seconds = 3600; // Default: 1 hour
-    uint32_t timeout_seconds = 10;            // HTTP timeout
-    uint32_t retry_max = 3;                   // Max retries before circuit break
-    uint32_t circuit_breaker_seconds = 300;   // Cooldown after failures (5 min)
+    std::string url;                           // JWKS endpoint URL
+    uint32_t refresh_interval_seconds = 3600;  // Default: 1 hour
+    uint32_t timeout_seconds = 10;             // HTTP timeout
+    uint32_t retry_max = 3;                    // Max retries before circuit break
+    uint32_t circuit_breaker_seconds = 300;    // Cooldown after failures (5 min)
 };
 
 /// JWKS fetcher state
 enum class JwksFetcherState {
-    Healthy,      // Successfully fetching keys
-    Degraded,     // Using cached keys, fetch failing
-    CircuitOpen   // Circuit breaker open, using static fallback
+    Healthy,     // Successfully fetching keys
+    Degraded,    // Using cached keys, fetch failing
+    CircuitOpen  // Circuit breaker open, using static fallback
 };
 
 /// JWK (JSON Web Key) parsed from JWKS endpoint
 struct JsonWebKey {
-    std::string kty;   // Key type: "RSA" or "EC"
-    std::string alg;   // Algorithm: "RS256", "ES256"
-    std::string kid;   // Key ID
-    std::string use;   // Key use: "sig" for signature
+    std::string kty;  // Key type: "RSA" or "EC"
+    std::string alg;  // Algorithm: "RS256", "ES256"
+    std::string kid;  // Key ID
+    std::string use;  // Key use: "sig" for signature
 
     // RSA-specific fields
-    std::string n;     // Modulus (base64url)
-    std::string e;     // Exponent (base64url)
+    std::string n;  // Modulus (base64url)
+    std::string e;  // Exponent (base64url)
 
     // EC-specific fields
-    std::string crv;   // Curve: "P-256" for ES256
-    std::string x;     // X coordinate (base64url)
-    std::string y;     // Y coordinate (base64url)
+    std::string crv;  // Curve: "P-256" for ES256
+    std::string x;    // X coordinate (base64url)
+    std::string y;    // Y coordinate (base64url)
 
     [[nodiscard]] static std::optional<JsonWebKey> parse(const std::string& json);
 };

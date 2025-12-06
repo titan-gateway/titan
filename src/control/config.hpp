@@ -153,19 +153,19 @@ struct AuthConfig {
 
 /// JWT key configuration
 struct JwtKeyConfig {
-    std::string algorithm;          // "RS256", "ES256", "HS256"
-    std::string key_id;             // Optional kid for rotation
-    std::string public_key_path;    // PEM file for RS256/ES256
-    std::string secret;             // For HS256 (base64-encoded)
+    std::string algorithm;        // "RS256", "ES256", "HS256"
+    std::string key_id;           // Optional kid for rotation
+    std::string public_key_path;  // PEM file for RS256/ES256
+    std::string secret;           // For HS256 (base64-encoded)
 };
 
 /// JWKS (JSON Web Key Set) fetcher configuration
 struct JwksConfigSchema {
-    std::string url;                          // JWKS endpoint URL
-    uint32_t refresh_interval_seconds = 3600; // Default: 1 hour
-    uint32_t timeout_seconds = 10;            // HTTP timeout
-    uint32_t retry_max = 3;                   // Max retries before circuit break
-    uint32_t circuit_breaker_seconds = 300;   // Cooldown after failures (5 min)
+    std::string url;                           // JWKS endpoint URL
+    uint32_t refresh_interval_seconds = 3600;  // Default: 1 hour
+    uint32_t timeout_seconds = 10;             // HTTP timeout
+    uint32_t retry_max = 3;                    // Max retries before circuit break
+    uint32_t circuit_breaker_seconds = 300;    // Cooldown after failures (5 min)
 };
 
 /// JWT authentication configuration
@@ -199,17 +199,17 @@ struct JwtConfig {
 
 /// JWT authorization configuration
 struct JwtAuthzConfig {
-    bool enabled = true;                     // Enable authorization middleware
-    std::string scope_claim = "scope";       // JWT claim containing scopes
-    std::string roles_claim = "roles";       // JWT claim containing roles
-    bool require_all_scopes = false;         // true = AND, false = OR
-    bool require_all_roles = false;          // true = AND, false = OR
+    bool enabled = true;                // Enable authorization middleware
+    std::string scope_claim = "scope";  // JWT claim containing scopes
+    std::string roles_claim = "roles";  // JWT claim containing roles
+    bool require_all_scopes = false;    // true = AND, false = OR
+    bool require_all_roles = false;     // true = AND, false = OR
 };
 
 /// Logging configuration
 struct LogConfig {
-    std::string level = "info";   // debug, info, warning, error
-    std::string format = "json";  // json, text
+    std::string level = "info";             // debug, info, warning, error
+    std::string format = "json";            // json, text
     std::string output = "/var/log/titan";  // Log directory (worker_N.log appended)
     bool log_requests = true;
     bool log_responses = false;

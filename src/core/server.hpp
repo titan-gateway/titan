@@ -21,6 +21,7 @@
 
 #include <netinet/in.h>
 #include <openssl/ssl.h>
+#include <quill/Logger.h>
 
 #include <memory>
 #include <optional>
@@ -38,8 +39,6 @@
 #include "core.hpp"
 #include "socket.hpp"
 #include "tls.hpp"
-
-#include <quill/Logger.h>
 
 // Forward declaration for test access
 class ProxyTestFixture;

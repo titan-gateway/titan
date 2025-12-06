@@ -39,13 +39,13 @@ struct RouteParam {
 
 /// Match result from router
 struct RouteMatch {
-    std::string_view handler_id;                // Unique identifier for matched route
-    std::vector<RouteParam> params;             // Extracted path parameters
-    std::string_view wildcard;                  // Wildcard match (if any)
-    std::string_view upstream_name;             // Upstream name for this route
-    bool auth_required = false;                 // Whether this route requires JWT authentication
-    std::vector<std::string> required_scopes;   // Required OAuth 2.0 scopes for authorization
-    std::vector<std::string> required_roles;    // Required roles for authorization
+    std::string_view handler_id;               // Unique identifier for matched route
+    std::vector<RouteParam> params;            // Extracted path parameters
+    std::string_view wildcard;                 // Wildcard match (if any)
+    std::string_view upstream_name;            // Upstream name for this route
+    bool auth_required = false;                // Whether this route requires JWT authentication
+    std::vector<std::string> required_scopes;  // Required OAuth 2.0 scopes for authorization
+    std::vector<std::string> required_roles;   // Required roles for authorization
 
     [[nodiscard]] bool matched() const noexcept { return !handler_id.empty(); }
 
@@ -65,9 +65,9 @@ struct Route {
     std::string rewrite_path;   // Optional path rewriting
 
     // Authentication & Authorization
-    bool auth_required = false;                 // Require JWT authentication for this route
-    std::vector<std::string> required_scopes;   // Required OAuth 2.0 scopes
-    std::vector<std::string> required_roles;    // Required roles
+    bool auth_required = false;                // Require JWT authentication for this route
+    std::vector<std::string> required_scopes;  // Required OAuth 2.0 scopes
+    std::vector<std::string> required_roles;   // Required roles
 };
 
 /// Radix tree node (internal)

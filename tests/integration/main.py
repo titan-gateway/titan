@@ -40,6 +40,29 @@ async def api():
     return JSONResponse({"message": "Success", "backend": "mock"})
 
 
+@app.get("/public")
+async def public_endpoint():
+    """Public endpoint for JWT testing (no auth required)"""
+    return JSONResponse({"message": "Public content", "auth": "not_required"})
+
+
+@app.get("/protected")
+async def protected_endpoint():
+    """Protected endpoint for JWT testing (auth required)"""
+    return JSONResponse({"message": "Protected content", "auth": "required"})
+
+
+@app.get("/api/users")
+async def get_users():
+    """User list endpoint for JWT authz testing (requires read:users scope)"""
+    return JSONResponse({
+        "users": [
+            {"id": "1", "name": "Alice"},
+            {"id": "2", "name": "Bob"}
+        ]
+    })
+
+
 @app.get("/api/users/{user_id}")
 async def get_user(user_id: str):
     """Simulated user lookup - returns string user_id for compatibility"""
@@ -49,6 +72,41 @@ async def get_user(user_id: str):
         "email": f"user{user_id}@example.com",
         "port": int(os.getenv("PORT", "3001"))
     })
+
+
+@app.get("/api/posts")
+async def get_posts():
+    """Posts endpoint for JWT authz testing (requires read:posts or read:all scope)"""
+    return JSONResponse({
+        "posts": [
+            {"id": "1", "title": "First Post"},
+            {"id": "2", "title": "Second Post"}
+        ]
+    })
+
+
+@app.delete("/api/admin/users")
+async def delete_users():
+    """Admin delete users endpoint (requires delete:users AND admin:access scopes)"""
+    return JSONResponse({"message": "Users deleted", "admin": True})
+
+
+@app.post("/api/admin/posts")
+async def create_admin_post():
+    """Admin create post endpoint (requires write:posts scope AND admin role)"""
+    return JSONResponse({"message": "Post created by admin", "id": "new-post"})
+
+
+@app.get("/admin/dashboard")
+async def admin_dashboard():
+    """Admin dashboard endpoint (requires admin role)"""
+    return JSONResponse({"message": "Admin dashboard", "role": "admin"})
+
+
+@app.get("/admin/settings")
+async def admin_settings():
+    """Admin settings endpoint (requires admin OR moderator role)"""
+    return JSONResponse({"message": "Admin settings", "roles": ["admin", "moderator"]})
 
 
 @app.post("/api/data")

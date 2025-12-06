@@ -40,8 +40,8 @@ namespace titan::core {
 
 /// Entry in the revocation queue (cross-thread communication)
 struct RevocationEntry {
-    std::string jti;   // JWT ID claim
-    uint64_t exp;      // Expiration timestamp (Unix epoch)
+    std::string jti;  // JWT ID claim
+    uint64_t exp;     // Expiration timestamp (Unix epoch)
 };
 
 /// Lock-free queue for broadcasting revocations to all workers

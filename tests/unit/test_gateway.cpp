@@ -132,6 +132,53 @@ TEST_CASE("Router stats", "[gateway][router]") {
     REQUIRE(stats.total_nodes > 0);
 }
 
+TEST_CASE("Router routes with common prefixes (radix tree splitting)", "[gateway][router]") {
+    Router router;
+
+    // These routes share common prefixes and require radix tree node splitting
+    router.add_route(Route{"/public", Method::GET, "public"});
+    router.add_route(Route{"/protected", Method::GET, "protected"});
+    router.add_route(Route{"/privacy", Method::GET, "privacy"});
+
+    SECTION("Match routes with shared prefix 'p'") {
+        auto match1 = router.match(Method::GET, "/public");
+        REQUIRE(match1.matched());
+        REQUIRE(match1.handler_id == "public");
+
+        auto match2 = router.match(Method::GET, "/protected");
+        REQUIRE(match2.matched());
+        REQUIRE(match2.handler_id == "protected");
+
+        auto match3 = router.match(Method::GET, "/privacy");
+        REQUIRE(match3.matched());
+        REQUIRE(match3.handler_id == "privacy");
+    }
+
+    SECTION("More complex common prefixes") {
+        Router r2;
+        r2.add_route(Route{"/api/users", Method::GET, "list_users"});
+        r2.add_route(Route{"/api/posts", Method::GET, "list_posts"});
+        r2.add_route(Route{"/api/user/:id", Method::GET, "get_user"});
+
+        auto match1 = r2.match(Method::GET, "/api/users");
+        REQUIRE(match1.matched());
+        REQUIRE(match1.handler_id == "list_users");
+
+        auto match2 = r2.match(Method::GET, "/api/posts");
+        REQUIRE(match2.matched());
+        REQUIRE(match2.handler_id == "list_posts");
+
+        auto match3 = r2.match(Method::GET, "/api/user/123");
+        REQUIRE(match3.matched());
+        REQUIRE(match3.handler_id == "get_user");
+    }
+
+    SECTION("Non-matching routes should return empty") {
+        auto no_match = router.match(Method::GET, "/private");
+        REQUIRE_FALSE(no_match.matched());
+    }
+}
+
 TEST_CASE("Extract param names from pattern", "[gateway][router]") {
     auto params = extract_param_names("/users/:id");
     REQUIRE(params.size() == 1);
