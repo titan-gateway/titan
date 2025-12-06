@@ -15,8 +15,8 @@
  */
 
 #include <catch2/catch_test_macros.hpp>
-#include <thread>
 #include <chrono>
+#include <thread>
 
 #include "core/jwks_fetcher.hpp"
 #include "core/jwt.hpp"
@@ -174,7 +174,7 @@ TEST_CASE("JsonWebKey parsing - Error cases", "[jwks][parse]") {
 
     SECTION("Parse empty JSON object") {
         auto jwk = JsonWebKey::parse("{}");
-        REQUIRE(jwk.has_value());  // Parsing succeeds
+        REQUIRE(jwk.has_value());   // Parsing succeeds
         REQUIRE(jwk->kty.empty());  // But fields are empty
     }
 
@@ -233,7 +233,7 @@ TEST_CASE("JWK to VerificationKey conversion", "[jwks][conversion]") {
         REQUIRE(n_decoded.has_value());
         REQUIRE(e_decoded.has_value());
         REQUIRE(n_decoded->size() >= 256);  // 2048-bit key = at least 256 bytes
-        REQUIRE(e_decoded->size() >= 3);     // Typically 65537 = 3 bytes
+        REQUIRE(e_decoded->size() >= 3);    // Typically 65537 = 3 bytes
     }
 
     SECTION("Valid EC JWK should have valid base64url coordinates") {

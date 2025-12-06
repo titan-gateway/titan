@@ -192,6 +192,9 @@ benchmark-results/
 secrets/
 credentials/
 
+# Internal security documentation (not for public repo)
+docs/security_hardening_phase6-8.md
+
 # Keep example certs for development
 !certs/README.md
 

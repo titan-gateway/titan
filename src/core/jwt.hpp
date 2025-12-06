@@ -19,21 +19,29 @@
 
 #pragma once
 
+#include <openssl/evp.h>
+#include <openssl/rsa.h>
+
 #include <cstdint>
 #include <ctime>
 #include <list>
 #include <memory>
+#include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
 
-#include <nlohmann/json.hpp>
-#include <openssl/evp.h>
-#include <openssl/rsa.h>
-
 namespace titan::core {
+
+// Security limits (DoS prevention)
+constexpr size_t MAX_JWT_CLAIM_SIZE = 10 * 1024;                // 10KB max for scope/roles claims
+constexpr size_t MAX_JWT_TOKEN_SIZE = 64 * 1024;                // 64KB max total token size
+constexpr size_t MAX_SCOPE_ROLE_COUNT = 100;                    // Max tokens in scope/roles claim
+constexpr size_t MAX_JWT_CACHE_SIZE_BYTES = 100 * 1024 * 1024;  // 100MB per thread
+constexpr size_t MAX_REQUIRED_SCOPES_ROLES =
+    50;  // Max required scopes/roles per route (config validation)
 
 // Forward declaration
 class JwksFetcher;
@@ -49,8 +57,8 @@ enum class JwtAlgorithm {
 /// JWT header (decoded from first part)
 struct JwtHeader {
     JwtAlgorithm algorithm;
-    std::string type;     // Usually "JWT"
-    std::string key_id;   // Optional kid for key rotation
+    std::string type;    // Usually "JWT"
+    std::string key_id;  // Optional kid for key rotation
 
     [[nodiscard]] static std::optional<JwtHeader> parse(std::string_view json);
 };
@@ -58,16 +66,17 @@ struct JwtHeader {
 /// JWT claims (decoded from payload)
 struct JwtClaims {
     // Standard claims (RFC 7519)
-    std::string sub;   // Subject (user ID)
-    std::string iss;   // Issuer
-    std::string aud;   // Audience
-    int64_t exp = 0;   // Expiration time (Unix timestamp)
-    int64_t iat = 0;   // Issued at
-    int64_t nbf = 0;   // Not before
-    std::string jti;   // JWT ID (for revocation)
+    std::string sub;  // Subject (user ID)
+    std::string iss;  // Issuer
+    std::string aud;  // Audience
+    int64_t exp = 0;  // Expiration time (Unix timestamp)
+    int64_t iat = 0;  // Issued at
+    int64_t nbf = 0;  // Not before
+    std::string jti;  // JWT ID (for revocation)
 
     // Custom claims (application-specific)
-    std::string scope;      // e.g., "read:users write:posts"
+    std::string scope;      // OAuth 2.0 scopes: "read:users write:posts"
+    std::string roles;      // RBAC roles: "admin moderator"
     nlohmann::json custom;  // Store full claims for advanced use
 
     [[nodiscard]] static std::optional<JwtClaims> parse(std::string_view json);
@@ -79,8 +88,8 @@ struct VerificationKey {
     std::string key_id;
 
     // Key material (only one is set based on algorithm)
-    EVP_PKEY* public_key = nullptr;     // For RS256/ES256 (OpenSSL key)
-    std::vector<uint8_t> hmac_secret;   // For HS256
+    EVP_PKEY* public_key = nullptr;    // For RS256/ES256 (OpenSSL key)
+    std::vector<uint8_t> hmac_secret;  // For HS256
 
     ~VerificationKey();
 
@@ -94,12 +103,12 @@ struct VerificationKey {
 
     /// Load RSA/ECDSA public key from PEM file
     [[nodiscard]] static std::optional<VerificationKey> load_public_key(JwtAlgorithm alg,
-                                                                         std::string_view key_id,
-                                                                         std::string_view pem_path);
+                                                                        std::string_view key_id,
+                                                                        std::string_view pem_path);
 
     /// Load HMAC secret from base64-encoded string
     [[nodiscard]] static std::optional<VerificationKey> load_hmac_secret(std::string_view key_id,
-                                                                          std::string_view secret);
+                                                                         std::string_view secret);
 
     /// Clone this key (increments OpenSSL key reference count)
     [[nodiscard]] std::optional<VerificationKey> clone() const;
@@ -121,8 +130,7 @@ public:
     void add_key(VerificationKey key);
 
     /// Get key by algorithm and key ID
-    [[nodiscard]] const VerificationKey* get_key(JwtAlgorithm alg,
-                                                  std::string_view key_id) const;
+    [[nodiscard]] const VerificationKey* get_key(JwtAlgorithm alg, std::string_view key_id) const;
 
     /// Get key count
     [[nodiscard]] size_t key_count() const noexcept { return keys_.size(); }
@@ -155,10 +163,11 @@ struct ValidationResult {
     [[nodiscard]] explicit operator bool() const noexcept { return valid; }
 };
 
-/// Thread-local JWT token cache (LRU eviction)
+/// Thread-local JWT token cache (LRU eviction with size limits)
 class ThreadLocalTokenCache {
 public:
-    explicit ThreadLocalTokenCache(size_t capacity);
+    explicit ThreadLocalTokenCache(size_t capacity,
+                                   size_t max_size_bytes = MAX_JWT_CACHE_SIZE_BYTES);
     ~ThreadLocalTokenCache() = default;
 
     // Non-copyable, movable
@@ -176,7 +185,7 @@ public:
     /// Get cached token (returns nullopt on miss or expired)
     [[nodiscard]] std::optional<CachedToken> get(std::string_view token);
 
-    /// Put token in cache
+    /// Put token in cache (evicts by size or count)
     void put(std::string_view token, JwtClaims claims);
 
     /// Clear cache
@@ -185,9 +194,17 @@ public:
     /// Get cache statistics
     [[nodiscard]] size_t size() const noexcept { return cache_.size(); }
     [[nodiscard]] size_t capacity() const noexcept { return capacity_; }
+    [[nodiscard]] size_t total_size_bytes() const noexcept { return total_size_bytes_; }
+    [[nodiscard]] size_t max_size_bytes() const noexcept { return max_size_bytes_; }
 
 private:
-    size_t capacity_;
+    /// Calculate token size in bytes (token string + claims)
+    [[nodiscard]] size_t calculate_token_size(std::string_view token,
+                                              const JwtClaims& claims) const;
+
+    size_t capacity_;              // Max entry count
+    size_t max_size_bytes_;        // Max total size in bytes
+    size_t total_size_bytes_ = 0;  // Current total size in bytes
     std::list<std::pair<std::string, CachedToken>> lru_list_;
     std::unordered_map<std::string, decltype(lru_list_)::iterator> cache_;
 };
@@ -222,7 +239,9 @@ public:
     void set_key_manager(std::shared_ptr<KeyManager> keys) { static_keys_ = std::move(keys); }
 
     /// Set JWKS fetcher for dynamic key loading (optional)
-    void set_jwks_fetcher(std::shared_ptr<JwksFetcher> fetcher) { jwks_fetcher_ = std::move(fetcher); }
+    void set_jwks_fetcher(std::shared_ptr<JwksFetcher> fetcher) {
+        jwks_fetcher_ = std::move(fetcher);
+    }
 
     /// Validate JWT token (with caching)
     [[nodiscard]] ValidationResult validate(std::string_view token);
@@ -245,8 +264,8 @@ private:
     [[nodiscard]] std::shared_ptr<KeyManager> get_merged_keys();
 
     JwtValidatorConfig config_;
-    std::shared_ptr<KeyManager> static_keys_;      // Static keys from config
-    std::shared_ptr<JwksFetcher> jwks_fetcher_;    // Dynamic JWKS fetcher (optional)
+    std::shared_ptr<KeyManager> static_keys_;    // Static keys from config
+    std::shared_ptr<JwksFetcher> jwks_fetcher_;  // Dynamic JWKS fetcher (optional)
     std::unique_ptr<ThreadLocalTokenCache> cache_;
 };
 

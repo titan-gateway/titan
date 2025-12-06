@@ -23,6 +23,8 @@
 #include <nlohmann/json.hpp>
 #include <sstream>
 
+#include "../core/jwt.hpp"  // For security constants (MAX_REQUIRED_SCOPES_ROLES)
+
 namespace titan::control {
 
 // ConfigLoader implementation
@@ -138,6 +140,19 @@ ValidationResult ConfigLoader::validate(const Config& config) {
                 upstream_found = true;
                 break;
             }
+        }
+
+        // Security: Validate authorization requirements (DoS prevention)
+        if (route.required_scopes.size() > core::MAX_REQUIRED_SCOPES_ROLES) {
+            result.add_error("Route '" + route.path + "' has too many required_scopes (" +
+                             std::to_string(route.required_scopes.size()) + " > " +
+                             std::to_string(core::MAX_REQUIRED_SCOPES_ROLES) + ")");
+        }
+
+        if (route.required_roles.size() > core::MAX_REQUIRED_SCOPES_ROLES) {
+            result.add_error("Route '" + route.path + "' has too many required_roles (" +
+                             std::to_string(route.required_roles.size()) + " > " +
+                             std::to_string(core::MAX_REQUIRED_SCOPES_ROLES) + ")");
         }
 
         if (!upstream_found) {

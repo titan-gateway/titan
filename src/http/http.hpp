@@ -20,7 +20,9 @@
 #pragma once
 
 #include <cstdint>
+#include <deque>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -130,6 +132,11 @@ struct Response {
 
     // Headers (owned or arena-allocated)
     std::vector<Header> headers;
+
+    // Owned header values (to prevent dangling string_view in headers)
+    // When add_header() is called with temporary strings, we store them here
+    // Uses deque to prevent reference invalidation on growth (unlike vector)
+    std::deque<std::string> owned_header_values;
 
     // Body (may be owned or view)
     std::span<const uint8_t> body;

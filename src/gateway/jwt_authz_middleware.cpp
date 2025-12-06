@@ -72,10 +72,13 @@ MiddlewareResult JwtAuthzMiddleware::process_request(RequestContext& ctx) {
                 required_scopes_str += ctx.route_match.required_scopes[i];
             }
 
+            // Security: Sanitize user-controlled scopes before logging
+            std::string safe_scopes = sanitize_for_logging(jwt_scope);
+
             LOG_WARNING(logger,
                         "Authorization failed: missing scopes, user_scopes={}, "
                         "required_scopes={}, client_ip={}, correlation_id={}",
-                        jwt_scope, required_scopes_str, ctx.client_ip, ctx.correlation_id);
+                        safe_scopes, required_scopes_str, ctx.client_ip, ctx.correlation_id);
 
             return send_403(ctx, "Insufficient permissions");
         }
@@ -95,10 +98,13 @@ MiddlewareResult JwtAuthzMiddleware::process_request(RequestContext& ctx) {
                 required_roles_str += ctx.route_match.required_roles[i];
             }
 
+            // Security: Sanitize user-controlled roles before logging
+            std::string safe_roles = sanitize_for_logging(jwt_roles);
+
             LOG_WARNING(logger,
                         "Authorization failed: missing roles, user_roles={}, "
                         "required_roles={}, client_ip={}, correlation_id={}",
-                        jwt_roles, required_roles_str, ctx.client_ip, ctx.correlation_id);
+                        safe_roles, required_roles_str, ctx.client_ip, ctx.correlation_id);
 
             return send_403(ctx, "Insufficient permissions");
         }
@@ -115,9 +121,8 @@ MiddlewareResult JwtAuthzMiddleware::send_403(RequestContext& ctx, std::string_v
         // Set generic error body (don't leak authorization details)
         static constexpr const char* error_body =
             R"({"error":"forbidden","message":"Insufficient permissions"})";
-        ctx.response->body =
-            std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(error_body),
-                                     std::char_traits<char>::length(error_body));
+        ctx.response->body = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(error_body),
+                                                      std::char_traits<char>::length(error_body));
         ctx.response->add_header("Content-Type", "application/json");
     }
 
@@ -125,31 +130,31 @@ MiddlewareResult JwtAuthzMiddleware::send_403(RequestContext& ctx, std::string_v
     return MiddlewareResult::Stop;
 }
 
-bool JwtAuthzMiddleware::has_required_scopes(std::string_view user_scopes,
-                                               const std::vector<std::string>& required_scopes) const {
+bool JwtAuthzMiddleware::has_required_scopes(
+    std::string_view user_scopes, const std::vector<std::string>& required_scopes) const {
     if (required_scopes.empty()) {
         return true;  // No scopes required
     }
 
-    // Parse user scopes (space-separated, OAuth 2.0 standard)
-    auto user_scope_list = parse_space_separated(user_scopes);
+    // Parse user scopes into hash set for O(1) lookup (OAuth 2.0 standard: space-separated)
+    // Complexity: O(n) where n = user scope count
+    auto user_scope_set = parse_space_separated_set(user_scopes);
 
     if (config_.require_all_scopes) {
         // AND logic: user must have ALL required scopes
+        // Complexity: O(m) where m = required scope count
+        // Total: O(n + m) instead of O(n × m)
         for (const auto& required : required_scopes) {
-            bool found = std::find(user_scope_list.begin(), user_scope_list.end(), required) !=
-                         user_scope_list.end();
-            if (!found) {
+            if (user_scope_set.find(required) == user_scope_set.end()) {
                 return false;
             }
         }
         return true;
     } else {
         // OR logic: user must have AT LEAST ONE required scope
+        // Complexity: O(m) in worst case, O(1) best case
         for (const auto& required : required_scopes) {
-            bool found = std::find(user_scope_list.begin(), user_scope_list.end(), required) !=
-                         user_scope_list.end();
-            if (found) {
+            if (user_scope_set.find(required) != user_scope_set.end()) {
                 return true;
             }
         }
@@ -158,30 +163,30 @@ bool JwtAuthzMiddleware::has_required_scopes(std::string_view user_scopes,
 }
 
 bool JwtAuthzMiddleware::has_required_roles(std::string_view user_roles,
-                                              const std::vector<std::string>& required_roles) const {
+                                            const std::vector<std::string>& required_roles) const {
     if (required_roles.empty()) {
         return true;  // No roles required
     }
 
-    // Parse user roles (space-separated or JSON array - for now space-separated)
-    auto user_role_list = parse_space_separated(user_roles);
+    // Parse user roles into hash set for O(1) lookup (space-separated or JSON array - for now
+    // space-separated) Complexity: O(n) where n = user role count
+    auto user_role_set = parse_space_separated_set(user_roles);
 
     if (config_.require_all_roles) {
         // AND logic: user must have ALL required roles
+        // Complexity: O(m) where m = required role count
+        // Total: O(n + m) instead of O(n × m)
         for (const auto& required : required_roles) {
-            bool found = std::find(user_role_list.begin(), user_role_list.end(), required) !=
-                         user_role_list.end();
-            if (!found) {
+            if (user_role_set.find(required) == user_role_set.end()) {
                 return false;
             }
         }
         return true;
     } else {
         // OR logic: user must have AT LEAST ONE required role
+        // Complexity: O(m) in worst case, O(1) best case
         for (const auto& required : required_roles) {
-            bool found = std::find(user_role_list.begin(), user_role_list.end(), required) !=
-                         user_role_list.end();
-            if (found) {
+            if (user_role_set.find(required) != user_role_set.end()) {
                 return true;
             }
         }
@@ -189,7 +194,8 @@ bool JwtAuthzMiddleware::has_required_roles(std::string_view user_roles,
     }
 }
 
-std::vector<std::string> JwtAuthzMiddleware::parse_space_separated(std::string_view input) const {
+std::vector<std::string> JwtAuthzMiddleware::parse_space_separated(std::string_view input,
+                                                                   size_t max_tokens) const {
     std::vector<std::string> result;
 
     if (input.empty()) {
@@ -199,10 +205,91 @@ std::vector<std::string> JwtAuthzMiddleware::parse_space_separated(std::string_v
     std::string input_str{input};  // Convert to string
     std::istringstream ss{input_str};
     std::string token;
+    size_t count = 0;
+
     while (ss >> token) {
         if (!token.empty()) {
             result.push_back(token);
+            count++;
+
+            // Security: Limit token count to prevent CPU DoS
+            if (count >= max_tokens) {
+                // Log warning if truncated (but don't break functionality)
+                auto* logger = logging::get_current_logger();
+                if (logger) {
+                    LOG_WARNING(logger, "Scope/role list truncated at {} tokens (security limit)",
+                                max_tokens);
+                }
+                break;
+            }
         }
+    }
+
+    return result;
+}
+
+std::unordered_set<std::string> JwtAuthzMiddleware::parse_space_separated_set(
+    std::string_view input, size_t max_tokens) const {
+    std::unordered_set<std::string> result;
+
+    if (input.empty()) {
+        return result;
+    }
+
+    std::string input_str{input};  // Convert to string
+    std::istringstream ss{input_str};
+    std::string token;
+    size_t count = 0;
+
+    while (ss >> token) {
+        if (!token.empty()) {
+            result.insert(std::move(token));  // O(1) average insertion
+            count++;
+
+            // Security: Limit token count to prevent CPU DoS
+            if (count >= max_tokens) {
+                // Log warning if truncated (but don't break functionality)
+                auto* logger = logging::get_current_logger();
+                if (logger) {
+                    LOG_WARNING(logger, "Scope/role list truncated at {} tokens (security limit)",
+                                max_tokens);
+                }
+                break;
+            }
+        }
+    }
+
+    return result;
+}
+
+std::string JwtAuthzMiddleware::sanitize_for_logging(std::string_view input) const {
+    if (input.empty()) {
+        return "";
+    }
+
+    std::string result;
+    result.reserve(std::min(input.size(), MAX_LOG_STRING_LENGTH));
+
+    for (size_t i = 0; i < input.size() && i < MAX_LOG_STRING_LENGTH; ++i) {
+        char c = input[i];
+        // Escape control characters to prevent log injection
+        if (c == '\n') {
+            result += "\\n";
+        } else if (c == '\r') {
+            result += "\\r";
+        } else if (c == '\t') {
+            result += "\\t";
+        } else if (c >= 32 && c < 127) {
+            result += c;  // Printable ASCII
+        } else {
+            // Replace non-printable with placeholder
+            result += '?';
+        }
+    }
+
+    // Truncate with indicator if too long
+    if (input.size() > MAX_LOG_STRING_LENGTH) {
+        result += "...(truncated)";
     }
 
     return result;
