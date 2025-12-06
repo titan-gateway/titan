@@ -67,7 +67,8 @@ struct JwtClaims {
     std::string jti;   // JWT ID (for revocation)
 
     // Custom claims (application-specific)
-    std::string scope;      // e.g., "read:users write:posts"
+    std::string scope;      // OAuth 2.0 scopes: "read:users write:posts"
+    std::string roles;      // RBAC roles: "admin moderator"
     nlohmann::json custom;  // Store full claims for advanced use
 
     [[nodiscard]] static std::optional<JwtClaims> parse(std::string_view json);

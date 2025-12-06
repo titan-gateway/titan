@@ -112,7 +112,9 @@ void Router::insert_route(const Route& route) {
 
         // Find matching child
         RadixNode* matching_child = nullptr;
-        for (auto& child : current->children) {
+        for (size_t i = 0; i < current->children.size(); ++i) {
+            auto& child = current->children[i];
+
             if (is_param && child->is_param) {
                 matching_child = child.get();
                 break;
@@ -126,7 +128,19 @@ void Router::insert_route(const Route& route) {
                 if (common > 0) {
                     if (common < child->prefix.size()) {
                         // Need to split the child node
-                        matching_child = split_node(child.get(), common);
+                        // Create new parent with common prefix
+                        auto new_parent = std::make_unique<RadixNode>();
+                        new_parent->prefix = current->children[i]->prefix.substr(0, common);
+
+                        // Update child's prefix to remaining part (before moving!)
+                        current->children[i]->prefix = current->children[i]->prefix.substr(common);
+
+                        // Move the modified child under new parent
+                        new_parent->children.push_back(std::move(current->children[i]));
+
+                        // Replace child with new parent in current node's children
+                        matching_child = new_parent.get();
+                        current->children[i] = std::move(new_parent);
                     } else {
                         matching_child = child.get();
                     }
