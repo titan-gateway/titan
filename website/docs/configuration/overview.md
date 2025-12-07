@@ -142,9 +142,9 @@ Handle HTTPS at the edge and route to different backends:
 
 **Use case**: Microservices architecture where Titan terminates TLS and routes to internal HTTP services based on path.
 
-### Example 4: Rate Limiting per Route
+### Example 4: Global Rate Limiting
 
-Apply different rate limits to different endpoints:
+Apply rate limiting to all routes to prevent abuse:
 
 ```json
 {
@@ -156,31 +156,21 @@ Apply different rate limits to different endpoints:
     }
   ],
   "routes": [
-    {
-      "path": "/api/public/*",
-      "upstream": "api",
-      "middleware": ["public_rate_limit"]
-    },
-    {
-      "path": "/api/premium/*",
-      "upstream": "api",
-      "middleware": ["premium_rate_limit"]
-    }
+    { "path": "/api/*", "upstream": "api" }
   ],
-  "rate_limits": {
-    "public_rate_limit": {
-      "requests_per_second": 10,
-      "burst": 20
-    },
-    "premium_rate_limit": {
-      "requests_per_second": 100,
-      "burst": 200
-    }
+  "rate_limit": {
+    "enabled": true,
+    "requests_per_second": 100,
+    "burst": 200
   }
 }
 ```
 
-**Use case**: API tiering where premium users get higher rate limits than public users.
+**Use case**: Protect your backend from DDoS attacks and abusive clients. Rate limits are enforced per client IP using a token bucket algorithm.
+
+:::info Per-Route Rate Limiting (Coming Soon)
+Multi-tier rate limiting with different limits per route (e.g., public vs premium endpoints) is planned for **Phase 11.3.5**. Track progress in the [roadmap](https://github.com/titan-gateway/titan/blob/main/roadmap.md#phase-1135-per-route-rate-limiting).
+:::
 
 ### Example 5: JWT Authentication + CORS
 
