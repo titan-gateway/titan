@@ -20,7 +20,6 @@
 
 #include "../core/jwks_fetcher.hpp"
 #include "../core/jwt.hpp"
-#include "../core/logging.hpp"  // For LOG_DEBUG() macro
 #include "circuit_breaker.hpp"
 #include "jwt_authz_middleware.hpp"
 #include "jwt_middleware.hpp"
@@ -30,23 +29,12 @@
 namespace titan::gateway {
 
 std::unique_ptr<Router> build_router(const control::Config& config) {
-    auto* logger = logging::get_current_logger();
     auto router = std::make_unique<Router>();
-
-    LOG_DEBUG(logger, "build_router: Building router with {} routes from config",
-              config.routes.size());
 
     // Build router from config
     for (const auto& route_config : config.routes) {
         Route route;
         route.path = route_config.path;
-
-        LOG_DEBUG(logger,
-                  "build_router: Processing route: path={}, method={}, handler_id={}, upstream={}, "
-                  "priority={}, auth_required={}",
-                  route_config.path, route_config.method, route_config.handler_id,
-                  route_config.upstream, route_config.priority,
-                  route_config.auth_required ? "true" : "false");
 
         if (!route_config.method.empty()) {
             // Convert method string to enum
@@ -88,14 +76,9 @@ std::unique_ptr<Router> build_router(const control::Config& config) {
         route.required_roles = route_config.required_roles;
         route.transform_config = route_config.transform;  // Per-route transform config
 
-        LOG_DEBUG(logger,
-                  "build_router: Adding route to router: path={}, handler_id={}, upstream={}",
-                  route.path, route.handler_id, route.upstream_name);
         router->add_route(std::move(route));
     }
 
-    LOG_DEBUG(logger, "build_router: Router built successfully with {} routes",
-              config.routes.size());
     return router;
 }
 

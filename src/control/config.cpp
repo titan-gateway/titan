@@ -23,9 +23,8 @@
 #include <nlohmann/json.hpp>
 #include <sstream>
 
-#include "../core/jwt.hpp"      // For security constants (MAX_REQUIRED_SCOPES_ROLES)
-#include "../core/logging.hpp"  // For LOG_DEBUG() macro
-#include "../http/regex.hpp"    // For regex pattern validation
+#include "../core/jwt.hpp"   // For security constants (MAX_REQUIRED_SCOPES_ROLES)
+#include "../http/regex.hpp"  // For regex pattern validation
 
 namespace titan::control {
 
@@ -36,42 +35,26 @@ static void validate_transform_config(const TransformConfig& transform, const st
 // ConfigLoader implementation
 
 std::optional<Config> ConfigLoader::load_from_file(std::string_view path) {
-    auto* logger = logging::get_current_logger();
-    LOG_DEBUG(logger, "Loading config from file: {}", std::string(path));
-
     // Read file contents
     std::string path_str{path};
     std::ifstream file{path_str};
     if (!file.is_open()) {
-        LOG_DEBUG(logger, "Failed to open config file: {}", path_str);
         return std::nullopt;
     }
 
-    LOG_DEBUG(logger, "Reading file contents...");
     std::stringstream buffer;
     buffer << file.rdbuf();
     std::string json = buffer.str();
-    LOG_DEBUG(logger, "Read {} bytes from config file", json.size());
 
-    LOG_DEBUG(logger, "Calling load_from_json...");
-    auto result = load_from_json(json);
-    LOG_DEBUG(logger, "load_from_json completed: {}", result.has_value() ? "success" : "failed");
-    return result;
+    return load_from_json(json);
 }
 
 std::optional<Config> ConfigLoader::load_from_json(std::string_view json) {
-    auto* logger = logging::get_current_logger();
-    LOG_DEBUG(logger, "Parsing JSON (size: {} bytes)...", json.size());
-
     Config config;
 
     try {
         auto j = nlohmann::json::parse(json);
-        LOG_DEBUG(logger, "JSON parse succeeded");
-
-        LOG_DEBUG(logger, "Deserializing to Config object...");
         config = j.get<Config>();
-        LOG_DEBUG(logger, "Deserialization succeeded");
     } catch (const nlohmann::json::exception& e) {
         // Parse error - log detailed error message
         fprintf(stderr, "JSON parsing error: %s\n", e.what());
@@ -79,15 +62,12 @@ std::optional<Config> ConfigLoader::load_from_json(std::string_view json) {
     }
 
     // Validate configuration
-    LOG_DEBUG(logger, "Validating configuration...");
     auto validation = validate(config);
 
     if (validation.has_errors()) {
-        LOG_DEBUG(logger, "Validation failed with {} errors", validation.errors.size());
         return std::nullopt;
     }
 
-    LOG_DEBUG(logger, "Validation succeeded (warnings: {})", validation.warnings.size());
     return config;
 }
 
@@ -227,10 +207,6 @@ ValidationResult ConfigLoader::validate(const Config& config) {
 // Helper function to validate TransformConfig
 static void validate_transform_config(const TransformConfig& transform, const std::string& context,
                                       ValidationResult& result) {
-    auto* logger = logging::get_current_logger();
-    LOG_DEBUG(logger, "Validating transform config: context='{}', enabled={}", context,
-              transform.enabled);
-
     // Security limits to prevent DoS
     constexpr size_t MAX_PATH_REWRITES = 20;
     constexpr size_t MAX_HEADER_RULES = 50;
@@ -266,14 +242,10 @@ static void validate_transform_config(const TransformConfig& transform, const st
 
         // For regex type, validate pattern compiles
         if (rule.type == "regex") {
-            LOG_DEBUG(logger, "Compiling regex pattern: '{}'", rule.pattern);
             // Import Regex class
             auto regex_result = http::Regex::compile(rule.pattern);
             if (!regex_result.has_value()) {
-                LOG_DEBUG(logger, "Regex compilation failed for pattern: '{}'", rule.pattern);
                 result.add_error(rule_context + ": invalid regex pattern '" + rule.pattern + "'");
-            } else {
-                LOG_DEBUG(logger, "Regex compilation succeeded for pattern: '{}'", rule.pattern);
             }
         }
     }
