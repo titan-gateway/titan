@@ -136,13 +136,13 @@ struct Response {
     // Flat buffer for owned header strings (hot path optimization)
     // Pre-allocate single contiguous buffer to avoid multiple heap allocations
     // Typical response: 2-5 dynamic headers @ ~30 chars each = ~150-300 bytes
-    // Reserve 1KB to handle 99% of cases without reallocation
+    // Reserve 2KB to handle 99% of cases without reallocation
     std::string header_storage;
 
     // Reserve capacity on first use (lazy initialization)
     inline void ensure_header_storage_capacity() {
         if (header_storage.empty()) {
-            header_storage.reserve(1024);  // 1KB should cover most responses
+            header_storage.reserve(2048);  // 2KB should cover most responses
         }
     }
 

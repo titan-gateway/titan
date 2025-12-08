@@ -90,9 +90,12 @@ bool Response::has_header(std::string_view name) const noexcept {
 void Response::add_header(std::string_view name, std::string_view value) {
     // Hot path optimization: Use flat pre-allocated buffer instead of multiple heap allocations
     // Typical response adds 2-5 headers (~150-300 bytes total)
-    // Single 1KB allocation handles 99% of cases without reallocation
+    // Single 2KB allocation handles 99% of cases without reallocation
 
-    ensure_header_storage_capacity();  // Reserve 1KB on first use (inline, fast)
+    ensure_header_storage_capacity();  // Reserve 2KB on first use (inline, fast)
+
+    // Capture old buffer pointer to detect reallocation
+    const char* old_data = header_storage.data();
 
     // Append name to flat buffer and capture offset
     size_t name_offset = header_storage.size();
@@ -102,9 +105,22 @@ void Response::add_header(std::string_view name, std::string_view value) {
     size_t value_offset = header_storage.size();
     header_storage.append(value);
 
+    // Detect reallocation by comparing buffer addresses
+    if (header_storage.data() != old_data) {
+        // Buffer was reallocated - fix all existing string_views to point to new buffer
+        // This is rare (only when exceeding 2KB), but critical for correctness
+        for (auto& h : headers) {
+            // Calculate offsets from old buffer start
+            size_t name_off = h.name.data() - old_data;
+            size_t value_off = h.value.data() - old_data;
+            // Rebuild string_views with new buffer base address
+            h.name = {header_storage.data() + name_off, h.name.size()};
+            h.value = {header_storage.data() + value_off, h.value.size()};
+        }
+    }
+
     // Create string_views pointing into the buffer
-    // SAFE: Buffer was pre-reserved (1KB), so no reallocation occurs for typical cases
-    // All existing string_views remain valid (stable addresses within reserved capacity)
+    // SAFE: If reallocation occurred, we fixed all existing string_views above
     std::string_view name_view{header_storage.data() + name_offset, name.size()};
     std::string_view value_view{header_storage.data() + value_offset, value.size()};
 
