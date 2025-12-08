@@ -24,26 +24,17 @@
 #include "jwt_authz_middleware.hpp"
 #include "jwt_middleware.hpp"
 #include "rate_limit.hpp"
+#include "transform_middleware.hpp"
 
 namespace titan::gateway {
 
 std::unique_ptr<Router> build_router(const control::Config& config) {
     auto router = std::make_unique<Router>();
 
-    printf("[DEBUG] build_router: Building router with %zu routes from config\n",
-           config.routes.size());
-
     // Build router from config
     for (const auto& route_config : config.routes) {
         Route route;
         route.path = route_config.path;
-
-        printf(
-            "[DEBUG] build_router: Processing route: path=%s, method=%s, handler_id=%s, "
-            "upstream=%s, priority=%d, auth_required=%s\n",
-            route_config.path.c_str(), route_config.method.c_str(), route_config.handler_id.c_str(),
-            route_config.upstream.c_str(), route_config.priority,
-            route_config.auth_required ? "true" : "false");
 
         if (!route_config.method.empty()) {
             // Convert method string to enum
@@ -83,15 +74,11 @@ std::unique_ptr<Router> build_router(const control::Config& config) {
         route.auth_required = route_config.auth_required;
         route.required_scopes = route_config.required_scopes;
         route.required_roles = route_config.required_roles;
+        route.transform_config = route_config.transform;  // Per-route transform config
 
-        printf(
-            "[DEBUG] build_router: Adding route to router: path=%s, handler_id=%s, upstream=%s\n",
-            route.path.c_str(), route.handler_id.c_str(), route.upstream_name.c_str());
         router->add_route(std::move(route));
     }
 
-    printf("[DEBUG] build_router: Router built successfully with %zu routes\n",
-           config.routes.size());
     return router;
 }
 
@@ -269,6 +256,12 @@ std::unique_ptr<Pipeline> build_pipeline(const control::Config& config,
         rl_config.requests_per_second = config.rate_limit.requests_per_second;
         rl_config.burst_size = config.rate_limit.burst_size;
         pipeline->use(std::make_unique<RateLimitMiddleware>(rl_config));
+    }
+
+    // Transform middleware (request/response transformations)
+    // Runs after Auth, before Proxy (per-route can override global config)
+    if (config.transform.enabled) {
+        pipeline->use(std::make_unique<TransformMiddleware>(config.transform));
     }
 
     pipeline->use(std::make_unique<ProxyMiddleware>(upstream_manager));

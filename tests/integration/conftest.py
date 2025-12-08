@@ -161,6 +161,7 @@ def titan_config(tmp_path, mock_backend_1, mock_backend_2):
         "cors": {"enabled": False},
         "rate_limit": {"enabled": False, "requests_per_second": 1000, "burst_size": 2000},
         "auth": {"enabled": False},
+        "transform": {"enabled": False, "path_rewrites": [], "request_headers": [], "response_headers": [], "query_params": []},
         "logging": {"level": "info", "format": "text"},
         "metrics": {"enabled": True, "port": 9090, "path": "/metrics"},
     }

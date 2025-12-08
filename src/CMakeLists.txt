@@ -26,6 +26,8 @@ add_library(titan_lib
   http/parser.cpp
   http/h2.hpp
   http/h2.cpp
+  http/regex.hpp
+  http/regex.cpp
   gateway/router.hpp
   gateway/router.cpp
   gateway/upstream.hpp
@@ -42,6 +44,8 @@ add_library(titan_lib
   gateway/jwt_middleware.cpp
   gateway/jwt_authz_middleware.hpp
   gateway/jwt_authz_middleware.cpp
+  gateway/transform_middleware.hpp
+  gateway/transform_middleware.cpp
   gateway/factory.hpp
   gateway/factory.cpp
   control/config.hpp
@@ -68,6 +72,7 @@ target_link_libraries(titan_lib
     PkgConfig::NGHTTP2
     quill::quill
     httplib::httplib
+    PCRE2::8BIT
 )
 
 # Titan executable

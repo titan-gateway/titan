@@ -97,11 +97,13 @@ def titan_jwt_security_config(tmp_path, jwt_test_keys, mock_backend_1):
             "cache_enabled": True,
             "cache_capacity": 10000,
         },
+        "auth": {"enabled": False},
         "jwt_authz": {
             "enabled": True,
             "require_all_scopes": False,  # OR logic for testing
             "require_all_roles": False,
         },
+        "transform": {"enabled": False, "path_rewrites": [], "request_headers": [], "response_headers": [], "query_params": []},
         "cors": {"enabled": False},
         "rate_limit": {"enabled": False},
         "logging": {"level": "warning", "format": "text"},

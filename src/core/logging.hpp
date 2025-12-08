@@ -58,6 +58,9 @@ quill::Logger* get_current_logger();
              upstream, backend_host, backend_port, correlation_id)
 
 // Debug logging (eliminated in release builds)
+#ifdef LOG_DEBUG
+#undef LOG_DEBUG  // Undefine Quill's LOG_DEBUG to avoid conflict
+#endif
 #if defined(NDEBUG)
 #define LOG_DEBUG(logger, message, ...) ((void)0)
 #else

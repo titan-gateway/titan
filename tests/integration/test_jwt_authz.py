@@ -131,6 +131,7 @@ def titan_jwt_config(tmp_path, jwt_test_keys, mock_backend_1):
             "cache_enabled": True,
             "cache_capacity": 10000,
         },
+        "auth": {"enabled": False},
         "jwt_authz": {
             "enabled": True,
             "scope_claim": "scope",
@@ -138,6 +139,7 @@ def titan_jwt_config(tmp_path, jwt_test_keys, mock_backend_1):
             "require_all_scopes": False,  # OR logic by default
             "require_all_roles": False,   # OR logic by default
         },
+        "transform": {"enabled": False, "path_rewrites": [], "request_headers": [], "response_headers": [], "query_params": []},
         "cors": {"enabled": False},
         "rate_limit": {"enabled": False},
         "logging": {"level": "info", "format": "text"},

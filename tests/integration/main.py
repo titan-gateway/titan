@@ -161,6 +161,27 @@ async def control_reset():
     return JSONResponse({"status": "reset"})
 
 
+# Catch-all route for transform middleware tests
+from fastapi import Request
+
+@app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+async def catch_all(path: str, request: Request):
+    """Catch-all route that echoes request details (for transform tests)"""
+    # Build headers dict (exclude common headers for cleaner output)
+    headers = {k.lower(): v for k, v in request.headers.items()
+               if k.lower() not in ("host", "connection", "accept-encoding", "accept", "user-agent")}
+
+    query_string = str(request.url.query) if request.url.query else ""
+
+    return JSONResponse({
+        "method": request.method,
+        "path": f"/{path}",
+        "query": query_string,
+        "headers": headers,
+        "port": int(os.getenv("PORT", "3001"))
+    })
+
+
 if __name__ == "__main__":
     import os
     import uvicorn
