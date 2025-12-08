@@ -29,47 +29,6 @@
 
 using namespace titan::core;
 
-// Test RSA key pair (2048-bit) for RS256 testing
-// Generated with: openssl genrsa -out private.pem 2048
-// Public key: openssl rsa -in private.pem -pubout -out public.pem
-static const char* TEST_RSA_PUBLIC_KEY = R"(-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAu1SU1LfVLPHCozMxH2Mo
-4lgOEePzNm0tRgeLezV6ffAt0gunVTLw7onLRnrq0/IzW7yWR7QkrmBL7jTKEn5u
-+qKhbwKfBstIs+bMY2Zkp18gnTxKLxoS2tFczGkPLPgizskuemMghRniWaoLcyeh
-kd3qqGElvW/VDL5AaWTg0nLVkjRo9z+40RQzuVaE8AkAFmxZzow3x+VJYKdjykkJ
-0iT9wCS0DRTXu269V264Vf/3jvredZiKRkgwlL9xNAwxXFg0x/XFw005UWVRIkdg
-cKWTjpBP2dPwVZ4WWC+9aGVd+Gyn1o0CLelf4rEjGoXbAAEgAqeGUxrcIlbjXfbc
-mwIDAQAB
------END PUBLIC KEY-----)";
-
-static const char* TEST_RSA_PRIVATE_KEY = R"(-----BEGIN RSA PRIVATE KEY-----
-MIIEowIBAAKCAQEAu1SU1LfVLPHCozMxH2Mo4lgOEePzNm0tRgeLezV6ffAt0gun
-VTLw7onLRnrq0/IzW7yWR7QkrmBL7jTKEn5u+qKhbwKfBstIs+bMY2Zkp18gnTxK
-LxoS2tFczGkPLPgizskuemMghRniWaoLcyehkd3qqGElvW/VDL5AaWTg0nLVkjRo
-9z+40RQzuVaE8AkAFmxZzow3x+VJYKdjykkJ0iT9wCS0DRTXu269V264Vf/3jvre
-dZiKRkgwlL9xNAwxXFg0x/XFw005UWVRIkdgcKWTjpBP2dPwVZ4WWC+9aGVd+Gyn
-1o0CLelf4rEjGoXbAAEgAqeGUxrcIlbjXfbcmwIDAQABAoIBADlJQPNhxPiE4YjP
-wO6NZXI8WCkE9hf8aVCH3zFVCGiBKl+SqMY1lv5VuFI4Uz+RNLc5KDzVKVQRnhfM
-1LGQr3GfU+/nq2v2b0zYN0pU7V8xIGS6p+Zq3+B7VIIvKqQiUvgD6HQNHFB9rq6X
-vAXmfPZOjd3v0hJMq2bVRJKqp6QcM3cMiUBJLhpBtJW3X3M3wYvXX0pPhCw6qYvr
-GjWiNEKnKLPl5xEJ3j5W3Q2WLw9TfUZYEfL2dqBsFvNBM6QEGUzK+VVxKuHdKCwl
-GxCO5Pr8Y1n8D2FqOg2i6lD6Y7a0hYLULKxVpxWr3MUQqBtZ3WKOlRk2hMQQB5GN
-yALBQnECgYEA4goL6mU7FqL1v4cOV3aLY3L8R4SQqRkQqe3YqCJk2xhWvCgRKc5h
-ER2pS5kOPg8lSx2cGkO0YGmMNWJ1Y0Z8QrXNBhKXVRwXOD1N6h+C2y5AquFghYdJ
-SG2F8f3J7GgMRqPMwqPxPvZWU8xhKj3vPuBLPZqCr8Y0VCXqVIjN8ZkCgYEA1AQY
-Rl4aUfJ7QoL1r8C3xMhQbLsUDZlYQvPE2y4rOL/KsaGKj6HJXp7UVLM8WYLdD5mE
-HqnNHpZkTF2C8YNY8dZGKGW4a6gCeJ7f3XqYqVEK3dVhJvGLm2hPQWLWYpHqQ0xZ
-DXDd2jGWL1bnFVyF8fxW7pZxKZdJHMXBGhvd8EMCgYEAgYwpFq8G3aKO5e3aSgHh
-BhRYZXBWU7/hGQ3hxJPRJB2lPUh+QKfLs6WRNKVnRqlKBGKqWrMQqD8eR0qPqx1J
-Z4aLYJQ3qEGLkJLPBGLhFWMJKGPEBz3hJbXCx8WNdKVxGZQQ6Y1tC3GmNLqVm8hK
-X3hRQ0pMhH5B7VmFqMKCRLkCgYBRfK8L6KqY3TvLVDCLGJYvKWJL0J7GQ3lKZGHs
-LMhVKQVY4F7N8hQVPL8V9XmhJ0p7VGPKqW3fNHCJ5YgYGXQRYW0hzKQVHLBJK6qF
-EKvJ8fF1hHLT4VGhQYLH0PYqKJLVLKVhPVf3KqMQ3WYRHKfLPqGGLKRQXCJ8YHKV
-pQKBgBYwWLBvNL8f7LmQhVCXQqLVFqJhqKLBJ0mCJBWfqYHqQKqVJLqKQVHLqVKL
-qKLJQVHLqVKLqKLJQVHLqVKLqKLJQVHLqVKLqKLJQVHLqVKLqKLJQVHLqVKLqKLJ
-QVHLqVKLqKLJQVHLqVKLqKLJQVHLqVKLqKLJQVHLqVKLqKLJQVHLqVKLqKLJQVHL
------END RSA PRIVATE KEY-----)";
-
 // Helper: Create temporary PEM file
 static std::string write_temp_pem(const char* content) {
     std::string path = "/tmp/test_key_" + std::to_string(std::time(nullptr)) + ".pem";
@@ -77,6 +36,68 @@ static std::string write_temp_pem(const char* content) {
     file << content;
     file.close();
     return path;
+}
+
+// Helper: Generate RSA 2048-bit public key at runtime (avoids hardcoded keys in repo)
+// Returns PEM-encoded public key string
+static std::string generate_rsa_2048_public_key_pem() {
+    // Generate once and cache (test performance optimization)
+    static std::string cached_pem;
+    if (!cached_pem.empty()) {
+        return cached_pem;
+    }
+
+    // Generate RSA 2048-bit key pair using OpenSSL
+    EVP_PKEY* pkey = nullptr;
+    EVP_PKEY_CTX* pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
+    if (!pctx) {
+        return "";
+    }
+
+    if (EVP_PKEY_keygen_init(pctx) <= 0) {
+        EVP_PKEY_CTX_free(pctx);
+        return "";
+    }
+
+    if (EVP_PKEY_CTX_set_rsa_keygen_bits(pctx, 2048) <= 0) {
+        EVP_PKEY_CTX_free(pctx);
+        return "";
+    }
+
+    if (EVP_PKEY_keygen(pctx, &pkey) <= 0) {
+        EVP_PKEY_CTX_free(pctx);
+        return "";
+    }
+    EVP_PKEY_CTX_free(pctx);
+
+    // Extract public key to PEM format
+    BIO* bio = BIO_new(BIO_s_mem());
+    if (!bio) {
+        EVP_PKEY_free(pkey);
+        return "";
+    }
+
+    if (PEM_write_bio_PUBKEY(bio, pkey) != 1) {
+        BIO_free(bio);
+        EVP_PKEY_free(pkey);
+        return "";
+    }
+
+    // Read PEM from BIO
+    BUF_MEM* mem = nullptr;
+    BIO_get_mem_ptr(bio, &mem);
+    if (!mem || !mem->data) {
+        BIO_free(bio);
+        EVP_PKEY_free(pkey);
+        return "";
+    }
+
+    cached_pem = std::string(mem->data, mem->length);
+
+    BIO_free(bio);
+    EVP_PKEY_free(pkey);
+
+    return cached_pem;
 }
 
 // Helper: Generate ECDSA P-256 public key at runtime (avoids hardcoded keys in repo)
@@ -647,8 +668,10 @@ TEST_CASE("VerificationKey cloning", "[jwt][key][clone]") {
     }
 
     SECTION("Clone RSA key") {
-        // Create temp PEM file
-        std::string pem_path = write_temp_pem(TEST_RSA_PUBLIC_KEY);
+        // Generate RSA key at runtime (avoids hardcoded keys in repo)
+        std::string rsa_public_pem = generate_rsa_2048_public_key_pem();
+        REQUIRE(!rsa_public_pem.empty());
+        std::string pem_path = write_temp_pem(rsa_public_pem.c_str());
 
         auto key = VerificationKey::load_public_key(JwtAlgorithm::RS256, "test-rsa", pem_path);
         REQUIRE(key.has_value());
@@ -839,7 +862,9 @@ TEST_CASE("VerificationKey ES256 key loading", "[jwt][es256][key]") {
     }
 
     SECTION("Reject RSA key when expecting ES256") {
-        std::string pem_path = write_temp_pem(TEST_RSA_PUBLIC_KEY);
+        std::string rsa_public_pem = generate_rsa_2048_public_key_pem();
+        REQUIRE(!rsa_public_pem.empty());
+        std::string pem_path = write_temp_pem(rsa_public_pem.c_str());
 
         // Try to load RSA key as ES256 (should fail)
         auto key = VerificationKey::load_public_key(JwtAlgorithm::ES256, "test-key", pem_path);
@@ -914,8 +939,10 @@ TEST_CASE("KeyManager with multiple algorithm types", "[jwt][keymanager][multi-a
     SECTION("Store and retrieve keys of different algorithms") {
         KeyManager manager;
 
-        // Add RS256 key
-        std::string rsa_path = write_temp_pem(TEST_RSA_PUBLIC_KEY);
+        // Add RS256 key (generate at runtime)
+        std::string rsa_public_pem = generate_rsa_2048_public_key_pem();
+        REQUIRE(!rsa_public_pem.empty());
+        std::string rsa_path = write_temp_pem(rsa_public_pem.c_str());
         auto rsa_key = VerificationKey::load_public_key(JwtAlgorithm::RS256, "rsa-key", rsa_path);
         REQUIRE(rsa_key.has_value());
         manager.add_key(std::move(*rsa_key));
