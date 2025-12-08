@@ -73,7 +73,6 @@ quill::Logger* init_worker_logger(int worker_id, const control::LogConfig& log_c
 }
 
 void shutdown_logging() {
-    quill::Frontend::get_all_loggers();
     quill::Backend::stop();
 }
 

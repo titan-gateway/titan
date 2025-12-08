@@ -28,6 +28,7 @@
 #include <cerrno>
 #include <cstring>
 #include <iostream>
+#include <unordered_set>
 
 #include "logging.hpp"
 
@@ -733,8 +734,8 @@ bool Server::proxy_to_backend(Connection& conn, gateway::RequestContext& ctx) {
         conn.backend_conn->recv_pending = false;
     }
 
-    // Build request and store in send buffer
-    std::string request_str = build_backend_request(conn.request);
+    // Build request and store in send buffer (use transformed path/query from metadata if present)
+    std::string request_str = build_backend_request(conn.request, ctx.metadata);
     conn.backend_conn->send_buffer.assign(
         reinterpret_cast<const uint8_t*>(request_str.data()),
         reinterpret_cast<const uint8_t*>(request_str.data() + request_str.size()));
@@ -875,14 +876,29 @@ int Server::connect_to_backend_async(const std::string& host, uint16_t port) {
     return sockfd;
 }
 
-std::string Server::build_backend_request(const http::Request& request) {
+std::string Server::build_backend_request(
+    const http::Request& request, const std::unordered_map<std::string, std::string>& metadata) {
     std::string req;
+
+    // Use transformed path/query from metadata if present (from TransformMiddleware)
+    std::string_view actual_path = request.path;
+    std::string_view actual_query = request.query;
+
+    auto transformed_path_it = metadata.find("transformed_path");
+    if (transformed_path_it != metadata.end()) {
+        actual_path = transformed_path_it->second;
+    }
+
+    auto transformed_query_it = metadata.find("transformed_query");
+    if (transformed_query_it != metadata.end()) {
+        actual_query = transformed_query_it->second;
+    }
 
     // Calculate size to avoid reallocation
     // Format: METHOD path[?query] HTTP/1.1\r\n + headers + \r\n + body
     size_t estimated_size = kRequestLineBaseSize;
-    estimated_size += request.path.size();
-    estimated_size += request.query.empty() ? 0 : (kQuerySeparatorSize + request.query.size());
+    estimated_size += actual_path.size();
+    estimated_size += actual_query.empty() ? 0 : (kQuerySeparatorSize + actual_query.size());
 
     // Estimate headers size
     for (const auto& header : request.headers) {
@@ -898,14 +914,22 @@ std::string Server::build_backend_request(const http::Request& request) {
     // Request line: METHOD path HTTP/1.1
     req += http::to_string(request.method);
     req += " ";
-    req += request.path;
-    if (!request.query.empty()) {
+    req += actual_path;
+    if (!actual_query.empty()) {
         req += "?";
-        req += request.query;
+        req += actual_query;
     }
     req += " HTTP/1.1\r\n";
 
-    // Forward headers (except Connection header - we'll set our own)
+    // Build set of headers to remove (from TransformMiddleware)
+    std::unordered_set<std::string_view> headers_to_remove;
+    for (const auto& [key, value] : metadata) {
+        if (key.starts_with("header_remove:")) {
+            headers_to_remove.insert(key.substr(14));  // Skip "header_remove:"
+        }
+    }
+
+    // Forward headers (except Connection header and removed headers)
     bool has_host = false;
     for (const auto& header : request.headers) {
         // Skip Connection header - we want keep-alive for backend pooling
@@ -913,14 +937,42 @@ std::string Server::build_backend_request(const http::Request& request) {
             continue;
         }
 
+        // Skip headers marked for removal by TransformMiddleware
+        if (headers_to_remove.count(header.name) > 0) {
+            continue;
+        }
+
         if (header.name == "Host" || header.name == "host") {
             has_host = true;
         }
 
-        req += header.name;
-        req += ": ";
-        req += header.value;
-        req += "\r\n";
+        // Check if this header should be modified
+        std::string modify_key = "header_modify:" + std::string(header.name);
+        auto modify_it = metadata.find(modify_key);
+        if (modify_it != metadata.end()) {
+            // Use modified value
+            req += header.name;
+            req += ": ";
+            req += modify_it->second;
+            req += "\r\n";
+        } else {
+            // Use original value
+            req += header.name;
+            req += ": ";
+            req += header.value;
+            req += "\r\n";
+        }
+    }
+
+    // Add new headers from TransformMiddleware
+    for (const auto& [key, value] : metadata) {
+        if (key.starts_with("header_add:")) {
+            std::string_view header_name = std::string_view(key).substr(11);  // Skip "header_add:"
+            req += header_name;
+            req += ": ";
+            req += value;
+            req += "\r\n";
+        }
     }
 
     // Ensure Host header exists (required for HTTP/1.1)

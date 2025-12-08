@@ -109,20 +109,34 @@ int main(int argc, char* argv[]) {
 
     // Initialize ConfigManager for hot-reload support
     printf("Loading configuration from %s...\n", config_path.c_str());
-    g_config_manager = std::make_unique<titan::control::ConfigManager>();
 
-    if (!g_config_manager->load(config_path)) {
-        fprintf(stderr, "Failed to load configuration\n");
+    try {
+        fprintf(stderr, "[DEBUG] Creating ConfigManager...\n");
+        g_config_manager = std::make_unique<titan::control::ConfigManager>();
 
-        // Print validation errors if available
-        const auto& validation = g_config_manager->last_validation();
-        if (!validation.errors.empty()) {
-            fprintf(stderr, "Configuration validation errors:\n");
-            for (const auto& error : validation.errors) {
-                fprintf(stderr, "  - %s\n", error.c_str());
+        fprintf(stderr, "[DEBUG] Calling ConfigManager::load()...\n");
+        if (!g_config_manager->load(config_path)) {
+            fprintf(stderr, "Failed to load configuration\n");
+
+            // Print validation errors if available
+            const auto& validation = g_config_manager->last_validation();
+            if (!validation.errors.empty()) {
+                fprintf(stderr, "Configuration validation errors:\n");
+                for (const auto& error : validation.errors) {
+                    fprintf(stderr, "  - %s\n", error.c_str());
+                }
             }
-        }
 
+            titan::core::cleanup_openssl();
+            return EXIT_FAILURE;
+        }
+        fprintf(stderr, "[DEBUG] ConfigManager::load() succeeded\n");
+    } catch (const std::exception& e) {
+        fprintf(stderr, "EXCEPTION during config load: %s\n", e.what());
+        titan::core::cleanup_openssl();
+        return EXIT_FAILURE;
+    } catch (...) {
+        fprintf(stderr, "UNKNOWN EXCEPTION during config load\n");
         titan::core::cleanup_openssl();
         return EXIT_FAILURE;
     }

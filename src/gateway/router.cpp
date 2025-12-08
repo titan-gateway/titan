@@ -204,6 +204,7 @@ RouteMatch Router::search(RadixNode* node, std::string_view path, http::Method m
             match.auth_required = it->second.auth_required;
             match.required_scopes = it->second.required_scopes;
             match.required_roles = it->second.required_roles;
+            match.transform_config = it->second.transform_config;
             match.params = params;
             return match;
         }
@@ -217,6 +218,7 @@ RouteMatch Router::search(RadixNode* node, std::string_view path, http::Method m
             match.auth_required = any_it->second.auth_required;
             match.required_scopes = any_it->second.required_scopes;
             match.required_roles = any_it->second.required_roles;
+            match.transform_config = any_it->second.transform_config;
             match.params = params;
             return match;
         }
@@ -260,6 +262,7 @@ RouteMatch Router::search(RadixNode* node, std::string_view path, http::Method m
                 match.auth_required = it->second.auth_required;
                 match.required_scopes = it->second.required_scopes;
                 match.required_roles = it->second.required_roles;
+                match.transform_config = it->second.transform_config;
                 match.params = params;
                 match.wildcard = path;
                 return match;

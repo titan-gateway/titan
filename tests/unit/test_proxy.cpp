@@ -32,7 +32,8 @@ public:
 
     // Wrapper methods to access private Server methods
     std::string test_build_backend_request(const Request& req) {
-        return server_.build_backend_request(req);
+        std::unordered_map<std::string, std::string> empty_metadata;
+        return server_.build_backend_request(req, empty_metadata);
     }
 
     bool test_receive_backend_response(int fd, Response& resp, std::vector<uint8_t>& body) {

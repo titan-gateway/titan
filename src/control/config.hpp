@@ -26,7 +26,6 @@
 #include <string>
 #include <vector>
 
-#include "../gateway/router.hpp"
 #include "../gateway/upstream.hpp"
 #include "../http/http.hpp"
 
@@ -102,6 +101,42 @@ struct UpstreamConfig {
     CircuitBreakerConfigSchema circuit_breaker;
 };
 
+/// Path rewrite rule
+struct PathRewriteRule {
+    std::string type;         // "prefix_strip" or "regex"
+    std::string pattern;      // Prefix to strip or regex pattern
+    std::string replacement;  // Empty for prefix_strip, substitution string for regex
+};
+
+/// Header transformation rule
+struct HeaderRule {
+    std::string action;  // "add", "remove", "modify"
+    std::string name;    // Header name (case-insensitive)
+    std::string value;   // Header value (for add/modify)
+};
+
+/// Query parameter transformation rule
+struct QueryRule {
+    std::string action;  // "add", "remove", "modify"
+    std::string name;    // Parameter name
+    std::string value;   // Parameter value (for add/modify)
+};
+
+/// Request/Response transformation configuration
+struct TransformConfig {
+    bool enabled = false;
+
+    // Path transformations (applied in order)
+    std::vector<PathRewriteRule> path_rewrites;
+
+    // Header transformations
+    std::vector<HeaderRule> request_headers;   // Applied to request before backend
+    std::vector<HeaderRule> response_headers;  // Applied to response from backend
+
+    // Query parameter transformations (applied to request)
+    std::vector<QueryRule> query_params;
+};
+
 /// Route configuration
 struct RouteConfig {
     std::string path;
@@ -118,6 +153,9 @@ struct RouteConfig {
 
     // Middleware overrides
     std::vector<std::string> middleware;
+
+    // Request/Response transformation (per-route, overrides global)
+    std::optional<TransformConfig> transform;
 
     // Authorization (JWT claims-based)
     bool auth_required = false;                // Require JWT authentication
@@ -241,6 +279,7 @@ struct Config {
     AuthConfig auth;
     JwtConfig jwt;
     JwtAuthzConfig jwt_authz;
+    TransformConfig transform;  // Global transform config
 
     // Observability
     LogConfig logging;
@@ -251,56 +290,27 @@ struct Config {
     std::optional<std::string> description;
 };
 
-// nlohmann/json serialization macros (to_json only - from_json customized below)
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ServerConfig, worker_threads, listen_address, listen_port,
-                                   backlog, read_timeout, write_timeout, idle_timeout,
-                                   shutdown_timeout, max_connections, max_request_size,
-                                   max_header_size, tls_enabled, tls_certificate_path,
-                                   tls_private_key_path, tls_alpn_protocols);
+// All config types use custom from_json/to_json (no macros - avoids conflicts)
+// Custom functions defined below (after struct definitions)
 
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(BackendConfig, host, port, weight, max_connections,
-                                   health_check_enabled, health_check_interval,
-                                   health_check_timeout, health_check_path);
+// Custom from_json/to_json for JwtAuthzConfig to allow partial configs with defaults
+inline void from_json(const nlohmann::json& j, JwtAuthzConfig& c) {
+    c.enabled = j.value("enabled", false);
+    c.scope_claim = j.value("scope_claim", std::string("scope"));
+    c.roles_claim = j.value("roles_claim", std::string("roles"));
+    c.require_all_scopes = j.value("require_all_scopes", false);
+    c.require_all_roles = j.value("require_all_roles", false);
+}
 
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(CircuitBreakerConfigSchema, enabled, failure_threshold,
-                                   success_threshold, timeout_ms, window_ms, enable_global_hints,
-                                   catastrophic_threshold);
+inline void to_json(nlohmann::json& j, const JwtAuthzConfig& c) {
+    j = nlohmann::json{{"enabled", c.enabled},
+                       {"scope_claim", c.scope_claim},
+                       {"roles_claim", c.roles_claim},
+                       {"require_all_scopes", c.require_all_scopes},
+                       {"require_all_roles", c.require_all_roles}};
+}
 
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(UpstreamConfig, name, backends, load_balancing, max_retries,
-                                   retry_timeout, pool_size, pool_idle_timeout, circuit_breaker);
-
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(RouteConfig, path, method, upstream, handler_id, priority,
-                                   rewrite_path, timeout, middleware, auth_required,
-                                   required_scopes, required_roles);
-
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(CorsConfig, enabled, allowed_origins, allowed_methods,
-                                   allowed_headers, allow_credentials, max_age);
-
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(RateLimitConfig, enabled, requests_per_second, burst_size, key);
-
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(AuthConfig, enabled, type, header, valid_tokens);
-
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(JwtKeyConfig, algorithm, key_id, public_key_path, secret);
-
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(JwksConfigSchema, url, refresh_interval_seconds, timeout_seconds,
-                                   retry_max, circuit_breaker_seconds);
-
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(JwtConfig, enabled, header, scheme, keys, jwks, require_exp,
-                                   require_sub, allowed_issuers, allowed_audiences,
-                                   clock_skew_seconds, cache_capacity, cache_enabled);
-
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(JwtAuthzConfig, enabled, scope_claim, roles_claim,
-                                   require_all_scopes, require_all_roles);
-
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(LogConfig::RotationConfig, max_size_mb, max_files);
-
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(LogConfig, level, format, output, log_requests, log_responses,
-                                   exclude_paths, rotation);
-
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(MetricsConfig, enabled, port, path, format);
-
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Config, server, routes, upstreams, cors, rate_limit, auth, jwt,
-                                   jwt_authz, logging, metrics, version, description);
+// Custom from_json/to_json for all types defined below
 
 // Custom from_json functions to handle missing fields with defaults
 inline void from_json(const nlohmann::json& j, ServerConfig& s) {
@@ -354,18 +364,107 @@ inline void from_json(const nlohmann::json& j, UpstreamConfig& u) {
     u.circuit_breaker = j.value("circuit_breaker", CircuitBreakerConfigSchema{});
 }
 
+inline void from_json(const nlohmann::json& j, PathRewriteRule& p) {
+    j.at("type").get_to(p.type);        // type is required
+    j.at("pattern").get_to(p.pattern);  // pattern is required
+    p.replacement = j.value("replacement", std::string());
+}
+
+inline void to_json(nlohmann::json& j, const PathRewriteRule& p) {
+    j = nlohmann::json{{"type", p.type}, {"pattern", p.pattern}, {"replacement", p.replacement}};
+}
+
+inline void from_json(const nlohmann::json& j, HeaderRule& h) {
+    j.at("action").get_to(h.action);  // action is required
+    j.at("name").get_to(h.name);      // name is required
+    h.value = j.value("value", std::string());
+}
+
+inline void to_json(nlohmann::json& j, const HeaderRule& h) {
+    j = nlohmann::json{{"action", h.action}, {"name", h.name}, {"value", h.value}};
+}
+
+inline void from_json(const nlohmann::json& j, QueryRule& q) {
+    j.at("action").get_to(q.action);  // action is required
+    j.at("name").get_to(q.name);      // name is required
+    q.value = j.value("value", std::string());
+}
+
+inline void to_json(nlohmann::json& j, const QueryRule& q) {
+    j = nlohmann::json{{"action", q.action}, {"name", q.name}, {"value", q.value}};
+}
+
+inline void from_json(const nlohmann::json& j, TransformConfig& t) {
+    t.enabled = j.value("enabled", false);
+
+    // Use contains() for complex vector types to avoid infinite recursion
+    if (j.contains("path_rewrites")) {
+        j.at("path_rewrites").get_to(t.path_rewrites);
+    }
+    if (j.contains("request_headers")) {
+        j.at("request_headers").get_to(t.request_headers);
+    }
+    if (j.contains("response_headers")) {
+        j.at("response_headers").get_to(t.response_headers);
+    }
+    if (j.contains("query_params")) {
+        j.at("query_params").get_to(t.query_params);
+    }
+}
+
+inline void to_json(nlohmann::json& j, const TransformConfig& t) {
+    j = nlohmann::json{{"enabled", t.enabled},
+                       {"path_rewrites", t.path_rewrites},
+                       {"request_headers", t.request_headers},
+                       {"response_headers", t.response_headers},
+                       {"query_params", t.query_params}};
+}
+
 inline void from_json(const nlohmann::json& j, RouteConfig& r) {
-    j.at("path").get_to(r.path);          // path is required
-    j.at("upstream").get_to(r.upstream);  // upstream is required
+    // Required fields
+    j.at("path").get_to(r.path);
+    j.at("upstream").get_to(r.upstream);
+
+    // Optional fields - use contains() to avoid infinite recursion with complex types
     r.method = j.value("method", std::string("GET"));
     r.handler_id = j.value("handler_id", std::string());
     r.priority = j.value("priority", 0u);
-    r.rewrite_path = j.value("rewrite_path", std::optional<std::string>());
-    r.timeout = j.value("timeout", std::optional<uint32_t>());
-    r.middleware = j.value("middleware", std::vector<std::string>());
     r.auth_required = j.value("auth_required", false);
-    r.required_scopes = j.value("required_scopes", std::vector<std::string>());
-    r.required_roles = j.value("required_roles", std::vector<std::string>());
+
+    // Optional fields with complex types - must use contains() to avoid triggering to_json()
+    if (j.contains("rewrite_path")) {
+        j.at("rewrite_path").get_to(r.rewrite_path);
+    }
+    if (j.contains("timeout")) {
+        j.at("timeout").get_to(r.timeout);
+    }
+    if (j.contains("middleware")) {
+        j.at("middleware").get_to(r.middleware);
+    }
+    if (j.contains("transform")) {
+        j.at("transform").get_to(r.transform);
+    }
+    if (j.contains("required_scopes")) {
+        j.at("required_scopes").get_to(r.required_scopes);
+    }
+    if (j.contains("required_roles")) {
+        j.at("required_roles").get_to(r.required_roles);
+    }
+}
+
+inline void to_json(nlohmann::json& j, const RouteConfig& r) {
+    j = nlohmann::json{{"path", r.path},
+                       {"method", r.method},
+                       {"upstream", r.upstream},
+                       {"handler_id", r.handler_id},
+                       {"priority", r.priority},
+                       {"rewrite_path", r.rewrite_path},
+                       {"timeout", r.timeout},
+                       {"middleware", r.middleware},
+                       {"transform", r.transform},
+                       {"auth_required", r.auth_required},
+                       {"required_scopes", r.required_scopes},
+                       {"required_roles", r.required_roles}};
 }
 
 inline void from_json(const nlohmann::json& j, CorsConfig& c) {
@@ -411,8 +510,15 @@ inline void from_json(const nlohmann::json& j, JwtConfig& jwt) {
     jwt.enabled = j.value("enabled", false);
     jwt.header = j.value("header", std::string("Authorization"));
     jwt.scheme = j.value("scheme", std::string("Bearer"));
-    jwt.keys = j.value("keys", std::vector<JwtKeyConfig>());
-    jwt.jwks = j.value("jwks", std::optional<JwksConfigSchema>());
+
+    // Use contains() for custom struct types to avoid infinite recursion
+    if (j.contains("keys")) {
+        j.at("keys").get_to(jwt.keys);
+    }
+    if (j.contains("jwks")) {
+        j.at("jwks").get_to(jwt.jwks);
+    }
+
     jwt.require_exp = j.value("require_exp", true);
     jwt.require_sub = j.value("require_sub", false);
     jwt.allowed_issuers = j.value("allowed_issuers", std::vector<std::string>());
@@ -446,17 +552,189 @@ inline void from_json(const nlohmann::json& j, MetricsConfig& m) {
 }
 
 inline void from_json(const nlohmann::json& j, Config& c) {
-    c.server = j.value("server", ServerConfig{});
-    c.routes = j.value("routes", std::vector<RouteConfig>());
-    c.upstreams = j.value("upstreams", std::vector<UpstreamConfig>());
-    c.cors = j.value("cors", CorsConfig{});
-    c.rate_limit = j.value("rate_limit", RateLimitConfig{});
-    c.auth = j.value("auth", AuthConfig{});
-    c.jwt = j.value("jwt", JwtConfig{});
-    c.logging = j.value("logging", LogConfig{});
-    c.metrics = j.value("metrics", MetricsConfig{});
-    c.version = j.value("version", std::string("1.0"));
-    c.description = j.value("description", std::optional<std::string>());
+    // Use contains() + get() instead of value() to avoid infinite recursion
+    // when default values trigger to_json() -> from_json() cycles
+    if (j.contains("server")) {
+        j.at("server").get_to(c.server);
+    }
+    if (j.contains("routes")) {
+        j.at("routes").get_to(c.routes);
+    }
+    if (j.contains("upstreams")) {
+        j.at("upstreams").get_to(c.upstreams);
+    }
+    if (j.contains("cors")) {
+        j.at("cors").get_to(c.cors);
+    }
+    if (j.contains("rate_limit")) {
+        j.at("rate_limit").get_to(c.rate_limit);
+    }
+    if (j.contains("auth")) {
+        j.at("auth").get_to(c.auth);
+    }
+    if (j.contains("jwt")) {
+        j.at("jwt").get_to(c.jwt);
+    }
+    if (j.contains("jwt_authz")) {
+        j.at("jwt_authz").get_to(c.jwt_authz);
+    }
+    if (j.contains("transform")) {
+        j.at("transform").get_to(c.transform);
+    }
+    if (j.contains("logging")) {
+        j.at("logging").get_to(c.logging);
+    }
+    if (j.contains("metrics")) {
+        j.at("metrics").get_to(c.metrics);
+    }
+    if (j.contains("version")) {
+        j.at("version").get_to(c.version);
+    }
+    if (j.contains("description")) {
+        j.at("description").get_to(c.description);
+    }
+}
+
+// ============================================================================
+// to_json functions for all config types
+// ============================================================================
+
+inline void to_json(nlohmann::json& j, const ServerConfig& s) {
+    j = nlohmann::json{{"worker_threads", s.worker_threads},
+                       {"listen_address", s.listen_address},
+                       {"listen_port", s.listen_port},
+                       {"backlog", s.backlog},
+                       {"read_timeout", s.read_timeout},
+                       {"write_timeout", s.write_timeout},
+                       {"idle_timeout", s.idle_timeout},
+                       {"shutdown_timeout", s.shutdown_timeout},
+                       {"max_connections", s.max_connections},
+                       {"max_request_size", s.max_request_size},
+                       {"max_header_size", s.max_header_size},
+                       {"tls_enabled", s.tls_enabled},
+                       {"tls_certificate_path", s.tls_certificate_path},
+                       {"tls_private_key_path", s.tls_private_key_path},
+                       {"tls_alpn_protocols", s.tls_alpn_protocols}};
+}
+
+inline void to_json(nlohmann::json& j, const BackendConfig& b) {
+    j = nlohmann::json{{"host", b.host},
+                       {"port", b.port},
+                       {"weight", b.weight},
+                       {"max_connections", b.max_connections},
+                       {"health_check_enabled", b.health_check_enabled},
+                       {"health_check_interval", b.health_check_interval},
+                       {"health_check_timeout", b.health_check_timeout},
+                       {"health_check_path", b.health_check_path}};
+}
+
+inline void to_json(nlohmann::json& j, const CircuitBreakerConfigSchema& c) {
+    j = nlohmann::json{{"enabled", c.enabled},
+                       {"failure_threshold", c.failure_threshold},
+                       {"success_threshold", c.success_threshold},
+                       {"timeout_ms", c.timeout_ms},
+                       {"window_ms", c.window_ms},
+                       {"enable_global_hints", c.enable_global_hints},
+                       {"catastrophic_threshold", c.catastrophic_threshold}};
+}
+
+inline void to_json(nlohmann::json& j, const UpstreamConfig& u) {
+    j = nlohmann::json{{"name", u.name},
+                       {"backends", u.backends},
+                       {"load_balancing", u.load_balancing},
+                       {"max_retries", u.max_retries},
+                       {"retry_timeout", u.retry_timeout},
+                       {"pool_size", u.pool_size},
+                       {"pool_idle_timeout", u.pool_idle_timeout},
+                       {"circuit_breaker", u.circuit_breaker}};
+}
+
+inline void to_json(nlohmann::json& j, const CorsConfig& c) {
+    j = nlohmann::json{{"enabled", c.enabled},
+                       {"allowed_origins", c.allowed_origins},
+                       {"allowed_methods", c.allowed_methods},
+                       {"allowed_headers", c.allowed_headers},
+                       {"allow_credentials", c.allow_credentials},
+                       {"max_age", c.max_age}};
+}
+
+inline void to_json(nlohmann::json& j, const RateLimitConfig& r) {
+    j = nlohmann::json{{"enabled", r.enabled},
+                       {"requests_per_second", r.requests_per_second},
+                       {"burst_size", r.burst_size},
+                       {"key", r.key}};
+}
+
+inline void to_json(nlohmann::json& j, const AuthConfig& a) {
+    j = nlohmann::json{{"enabled", a.enabled},
+                       {"type", a.type},
+                       {"header", a.header},
+                       {"valid_tokens", a.valid_tokens}};
+}
+
+inline void to_json(nlohmann::json& j, const JwtKeyConfig& k) {
+    j = nlohmann::json{{"algorithm", k.algorithm},
+                       {"key_id", k.key_id},
+                       {"public_key_path", k.public_key_path},
+                       {"secret", k.secret}};
+}
+
+inline void to_json(nlohmann::json& j, const JwksConfigSchema& k) {
+    j = nlohmann::json{{"url", k.url},
+                       {"refresh_interval_seconds", k.refresh_interval_seconds},
+                       {"timeout_seconds", k.timeout_seconds},
+                       {"retry_max", k.retry_max},
+                       {"circuit_breaker_seconds", k.circuit_breaker_seconds}};
+}
+
+inline void to_json(nlohmann::json& j, const JwtConfig& jwt) {
+    j = nlohmann::json{{"enabled", jwt.enabled},
+                       {"header", jwt.header},
+                       {"scheme", jwt.scheme},
+                       {"keys", jwt.keys},
+                       {"jwks", jwt.jwks},
+                       {"require_exp", jwt.require_exp},
+                       {"require_sub", jwt.require_sub},
+                       {"allowed_issuers", jwt.allowed_issuers},
+                       {"allowed_audiences", jwt.allowed_audiences},
+                       {"clock_skew_seconds", jwt.clock_skew_seconds},
+                       {"cache_capacity", jwt.cache_capacity},
+                       {"cache_enabled", jwt.cache_enabled}};
+}
+
+inline void to_json(nlohmann::json& j, const LogConfig::RotationConfig& r) {
+    j = nlohmann::json{{"max_size_mb", r.max_size_mb}, {"max_files", r.max_files}};
+}
+
+inline void to_json(nlohmann::json& j, const LogConfig& l) {
+    j = nlohmann::json{{"level", l.level},
+                       {"format", l.format},
+                       {"output", l.output},
+                       {"log_requests", l.log_requests},
+                       {"log_responses", l.log_responses},
+                       {"exclude_paths", l.exclude_paths},
+                       {"rotation", l.rotation}};
+}
+
+inline void to_json(nlohmann::json& j, const MetricsConfig& m) {
+    j = nlohmann::json{
+        {"enabled", m.enabled}, {"port", m.port}, {"path", m.path}, {"format", m.format}};
+}
+
+inline void to_json(nlohmann::json& j, const Config& c) {
+    j = nlohmann::json{{"server", c.server},
+                       {"routes", c.routes},
+                       {"upstreams", c.upstreams},
+                       {"cors", c.cors},
+                       {"rate_limit", c.rate_limit},
+                       {"auth", c.auth},
+                       {"jwt", c.jwt},
+                       {"jwt_authz", c.jwt_authz},
+                       {"transform", c.transform},
+                       {"logging", c.logging},
+                       {"metrics", c.metrics},
+                       {"version", c.version},
+                       {"description", c.description}};
 }
 
 /// Configuration validation result

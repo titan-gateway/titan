@@ -27,6 +27,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "../control/config.hpp"
 #include "../http/http.hpp"
 
 namespace titan::gateway {
@@ -46,6 +47,9 @@ struct RouteMatch {
     bool auth_required = false;                // Whether this route requires JWT authentication
     std::vector<std::string> required_scopes;  // Required OAuth 2.0 scopes for authorization
     std::vector<std::string> required_roles;   // Required roles for authorization
+
+    // Per-route transform configuration (optional)
+    std::optional<control::TransformConfig> transform_config;
 
     [[nodiscard]] bool matched() const noexcept { return !handler_id.empty(); }
 
@@ -68,6 +72,9 @@ struct Route {
     bool auth_required = false;                // Require JWT authentication for this route
     std::vector<std::string> required_scopes;  // Required OAuth 2.0 scopes
     std::vector<std::string> required_roles;   // Required roles
+
+    // Request/Response transformation (per-route)
+    std::optional<control::TransformConfig> transform_config;
 };
 
 /// Radix tree node (internal)

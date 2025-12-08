@@ -43,6 +43,9 @@ find_package(httplib CONFIG REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(NGHTTP2 REQUIRED IMPORTED_TARGET libnghttp2)
 
+# PCRE2 (regex library for path transformation)
+find_package(pcre2 CONFIG REQUIRED)
+
 # Compiler-specific flags
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(
@@ -58,6 +61,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 
   # Release optimizations
   if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    add_compile_definitions(NDEBUG)  # Eliminate LOG_DEBUG() macros at compile-time
     add_compile_options(
       -O3
       -march=native

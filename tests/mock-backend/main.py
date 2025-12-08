@@ -50,6 +50,22 @@ def slow():
     return jsonify({"message": "Slow response", "port": PORT}), 200
 
 
+@app.route("/<path:path>", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+def echo(path):
+    """Catch-all route that echoes request details (for transform tests)"""
+    # Build headers dict (exclude common headers for cleaner output)
+    headers = {k.lower(): v for k, v in request.headers.items()
+               if k.lower() not in ("host", "connection", "accept-encoding", "accept")}
+
+    return jsonify({
+        "method": request.method,
+        "path": f"/{path}",
+        "query": request.query_string.decode("utf-8"),
+        "headers": headers,
+        "port": PORT
+    }), 200
+
+
 if __name__ == "__main__":
     print(f"Starting mock backend on port {PORT}")
     sys.stdout.flush()

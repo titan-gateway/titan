@@ -133,10 +133,18 @@ struct Response {
     // Headers (owned or arena-allocated)
     std::vector<Header> headers;
 
-    // Owned header values (to prevent dangling string_view in headers)
-    // When add_header() is called with temporary strings, we store them here
-    // Uses deque to prevent reference invalidation on growth (unlike vector)
-    std::deque<std::string> owned_header_values;
+    // Flat buffer for owned header strings (hot path optimization)
+    // Pre-allocate single contiguous buffer to avoid multiple heap allocations
+    // Typical response: 2-5 dynamic headers @ ~30 chars each = ~150-300 bytes
+    // Reserve 1KB to handle 99% of cases without reallocation
+    std::string header_storage;
+
+    // Reserve capacity on first use (lazy initialization)
+    inline void ensure_header_storage_capacity() {
+        if (header_storage.empty()) {
+            header_storage.reserve(1024);  // 1KB should cover most responses
+        }
+    }
 
     // Body (may be owned or view)
     std::span<const uint8_t> body;
@@ -153,6 +161,15 @@ struct Response {
 
     // Helper: Add header
     void add_header(std::string_view name, std::string_view value);
+
+    // Helper: Remove header by name (case-insensitive)
+    // Returns true if header was found and removed
+    bool remove_header(std::string_view name);
+
+    // Helper: Modify existing header value (case-insensitive)
+    // Returns true if header was found and modified
+    // If header doesn't exist, this is a no-op (returns false)
+    bool modify_header(std::string_view name, std::string_view new_value);
 
     // Helper: Set content length
     void set_content_length(size_t length);

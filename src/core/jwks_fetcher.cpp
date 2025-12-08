@@ -77,7 +77,7 @@ void JwksFetcher::start() {
     }
 
     // Fetch keys immediately on start
-    fetch_keys();
+    (void)fetch_keys();  // Ignore return value - errors logged internally
 
     // Start background thread
     fetch_thread_ = std::make_unique<std::thread>(&JwksFetcher::fetch_loop, this);
@@ -108,7 +108,7 @@ void JwksFetcher::fetch_loop() {
             break;
 
         // Fetch keys
-        fetch_keys();
+        (void)fetch_keys();  // Ignore return value - errors logged internally
     }
 }
 
