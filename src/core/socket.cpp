@@ -25,10 +25,68 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <unordered_map>
+
+#include "logging.hpp"
+
+// Performance instrumentation - enabled by default for profiling
+#ifndef TITAN_DISABLE_PERF_INSTRUMENTATION
+#define TITAN_ENABLE_FD_TRACKING 1
+#endif
 
 namespace titan::core {
+
+#ifdef TITAN_ENABLE_FD_TRACKING
+// Thread-local fd tracking for performance analysis
+struct FdMetrics {
+    std::atomic<uint64_t> close_count{0};
+    std::atomic<uint64_t> create_count{0};
+    std::unordered_map<int, std::string> fd_origins;
+
+    void track_fd(int fd, const char* origin) {
+        if (fd >= 0) {
+            fd_origins[fd] = origin;
+            create_count++;
+        }
+    }
+
+    void track_close(int fd) {
+        close_count++;
+
+        // Log every 1000 closes to avoid spam
+        if (close_count % 1000 == 0) {
+            auto* logger = logging::get_current_logger();
+            if (logger) {
+                LOG_INFO(logger,
+                         "[PERF] close_fd count: {}, created: {}, ratio: {:.2f}",
+                         close_count.load(),
+                         create_count.load(),
+                         static_cast<double>(close_count) / std::max(1UL, create_count.load()));
+            }
+        }
+
+        // Track origin of this fd
+        if (close_count % 100 == 0 && fd_origins.count(fd)) {
+            auto* logger = logging::get_current_logger();
+            if (logger) {
+                LOG_DEBUG(logger, "[PERF] Closing fd {} (origin: {})", fd, fd_origins[fd]);
+            }
+        }
+
+        fd_origins.erase(fd);
+    }
+};
+
+static thread_local FdMetrics fd_metrics;
+
+// Helper to track fd creation
+void track_fd_origin(int fd, const char* origin) {
+    fd_metrics.track_fd(fd, origin);
+}
+#endif
 
 int create_listening_socket(std::string_view address, uint16_t port, int backlog) {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -81,6 +139,10 @@ int create_listening_socket(std::string_view address, uint16_t port, int backlog
         return -1;
     }
 
+#ifdef TITAN_ENABLE_FD_TRACKING
+    fd_metrics.track_fd(fd, "listening_socket");
+#endif
+
     return fd;
 }
 
@@ -107,6 +169,9 @@ std::error_code set_reuseaddr(int fd) {
 
 void close_fd(int fd) {
     if (fd >= 0) {
+#ifdef TITAN_ENABLE_FD_TRACKING
+        fd_metrics.track_close(fd);
+#endif
         close(fd);
     }
 }
