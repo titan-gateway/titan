@@ -913,4 +913,4 @@ wrk -t8 -c500 -d60s http://titan-host:8080/api > results2.txt
 
 **Happy Profiling!** 🚀
 
-For questions or issues, please open an issue on the [Titan GitHub repository](https://github.com/anthropics/titan).
+For questions or issues, please open an issue on the [Titan GitHub repository](https://github.com/titan-gateway/titan).
