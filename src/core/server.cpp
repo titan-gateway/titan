@@ -788,7 +788,7 @@ int Server::connect_to_backend(const std::string& host, uint16_t port) {
             hints.ai_socktype = SOCK_STREAM;
 
             if (getaddrinfo(host.c_str(), nullptr, &hints, &result) != 0 || !result) {
-                close(sockfd);
+                close_fd(sockfd);
                 return -1;
             }
 
@@ -850,7 +850,7 @@ int Server::connect_to_backend_async(const std::string& host, uint16_t port) {
             hints.ai_socktype = SOCK_STREAM;
 
             if (getaddrinfo(host.c_str(), nullptr, &hints, &result) != 0 || !result) {
-                close(sockfd);
+                close_fd(sockfd);
                 return -1;
             }
 
@@ -1420,7 +1420,7 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
 
                 if (should_close) {
                     // Backend sent Connection: close - don't pool, just close
-                    close(backend_fd);
+                    close_fd(backend_fd);
                 } else {
                     // Safe to return to pool for reuse
                     upstream->backend_pool().release(backend_fd, backend_conn->backend_host,
@@ -1428,7 +1428,7 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
                 }
             } else {
                 // Upstream not found - just close
-                close(backend_fd);
+                close_fd(backend_fd);
             }
 
             // Cleanup backend connection

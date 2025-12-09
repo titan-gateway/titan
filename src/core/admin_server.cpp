@@ -64,7 +64,7 @@ std::error_code AdminServer::start() {
     // Set SO_REUSEADDR to avoid "Address already in use" errors
     int reuse = 1;
     if (setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
-        close(listen_fd_);
+        close_fd(listen_fd_);
         listen_fd_ = -1;
         return std::error_code(errno, std::generic_category());
     }
@@ -80,7 +80,7 @@ std::error_code AdminServer::start() {
 
     if (bind(listen_fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
         int err = errno;
-        close(listen_fd_);
+        close_fd(listen_fd_);
         listen_fd_ = -1;
         return std::error_code(err, std::generic_category());
     }
@@ -88,7 +88,7 @@ std::error_code AdminServer::start() {
     // Listen
     if (listen(listen_fd_, 32) < 0) {
         int err = errno;
-        close(listen_fd_);
+        close_fd(listen_fd_);
         listen_fd_ = -1;
         return std::error_code(err, std::generic_category());
     }
@@ -100,7 +100,7 @@ std::error_code AdminServer::start() {
 void AdminServer::stop() {
     running_.store(false, std::memory_order_relaxed);
     if (listen_fd_ >= 0) {
-        close(listen_fd_);
+        close_fd(listen_fd_);
         listen_fd_ = -1;
     }
 }
@@ -124,7 +124,7 @@ void AdminServer::run() {
 
         // Handle connection (blocking)
         handle_connection(client_fd);
-        close(client_fd);
+        close_fd(client_fd);
     }
 }
 

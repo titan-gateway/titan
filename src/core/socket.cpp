@@ -96,7 +96,7 @@ int create_listening_socket(std::string_view address, uint16_t port, int backlog
     // SO_REUSEADDR - allows binding to same address immediately after restart
     int opt = 1;
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-        close(fd);
+        close_fd(fd);
         return -1;
     }
 
@@ -105,7 +105,7 @@ int create_listening_socket(std::string_view address, uint16_t port, int backlog
     // Kernel will load-balance incoming connections across all listening sockets
     // This enables true multi-worker architecture for horizontal CPU scaling
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt)) < 0) {
-        close(fd);
+        close_fd(fd);
         return -1;
     }
 #endif
@@ -117,24 +117,24 @@ int create_listening_socket(std::string_view address, uint16_t port, int backlog
 
     std::string addr_str{address};
     if (inet_pton(AF_INET, addr_str.c_str(), &addr.sin_addr) <= 0) {
-        close(fd);
+        close_fd(fd);
         return -1;
     }
 
     if (bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
-        close(fd);
+        close_fd(fd);
         return -1;
     }
 
     // Listen
     if (listen(fd, backlog) < 0) {
-        close(fd);
+        close_fd(fd);
         return -1;
     }
 
     // Non-blocking
     if (auto ec = set_nonblocking(fd); ec) {
-        close(fd);
+        close_fd(fd);
         return -1;
     }
 
@@ -175,7 +175,7 @@ void close_fd(int fd) {
         }
         fd_metrics.track_close(fd);
 #endif
-        close(fd);
+        close_fd(fd);
     }
 }
 
