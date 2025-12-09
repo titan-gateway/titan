@@ -1,0 +1,110 @@
+{
+  "version": "1.0",
+  "description": "Titan Benchmark - Connection Pool Stress Test (Multiple Backends)",
+
+  "server": {
+    "worker_threads": 4,
+    "listen_address": "0.0.0.0",
+    "listen_port": 8080,
+    "backlog": 2048,
+    "read_timeout": 60000,
+    "write_timeout": 60000,
+    "idle_timeout": 300000,
+    "shutdown_timeout": 30000,
+    "max_connections": 10000,
+    "max_request_size": 1048576,
+    "max_header_size": 8192
+  },
+
+  "upstreams": [
+    {
+      "name": "backend_pool_1",
+      "load_balancing": "round_robin",
+      "pool_size": 50,
+      "pool_idle_timeout": 30,
+      "backends": [
+        {
+          "host": "127.0.0.1",
+          "port": 3001,
+          "weight": 1,
+          "max_connections": 500
+        },
+        {
+          "host": "127.0.0.1",
+          "port": 3002,
+          "weight": 1,
+          "max_connections": 500
+        },
+        {
+          "host": "127.0.0.1",
+          "port": 3003,
+          "weight": 1,
+          "max_connections": 500
+        }
+      ]
+    },
+    {
+      "name": "backend_pool_2",
+      "load_balancing": "least_connections",
+      "pool_size": 50,
+      "pool_idle_timeout": 30,
+      "backends": [
+        {
+          "host": "127.0.0.1",
+          "port": 3004,
+          "weight": 1,
+          "max_connections": 500
+        },
+        {
+          "host": "127.0.0.1",
+          "port": 3005,
+          "weight": 1,
+          "max_connections": 500
+        }
+      ]
+    }
+  ],
+
+  "routes": [
+    {
+      "path": "/api/service1/*",
+      "method": "GET",
+      "upstream": "backend_pool_1",
+      "handler_id": "service1",
+      "priority": 100
+    },
+    {
+      "path": "/api/service2/*",
+      "method": "GET",
+      "upstream": "backend_pool_2",
+      "handler_id": "service2",
+      "priority": 90
+    },
+    {
+      "path": "/health",
+      "method": "GET",
+      "upstream": "backend_pool_1",
+      "handler_id": "health_check",
+      "priority": 80
+    }
+  ],
+
+  "cors": {
+    "enabled": false
+  },
+
+  "rate_limit": {
+    "enabled": false
+  },
+
+  "jwt": {
+    "enabled": false
+  },
+
+  "logging": {
+    "level": "error",
+    "format": "json",
+    "log_requests": false,
+    "log_responses": false
+  }
+}

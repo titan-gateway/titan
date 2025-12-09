@@ -17,6 +17,7 @@
 // Titan Server - Implementation
 
 #include "server.hpp"
+#include "socket.hpp"
 
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -98,7 +99,7 @@ Server::~Server() {
 
     // Close backend epoll/kqueue instance
     if (backend_epoll_fd_ >= 0) {
-        close(backend_epoll_fd_);
+        close_fd(backend_epoll_fd_);
         backend_epoll_fd_ = -1;
     }
 }
@@ -476,7 +477,7 @@ void Server::handle_close(int client_fd) {
 #endif
 
         // Close backend socket
-        close(backend_fd);
+        close_fd(backend_fd);
 
         // Reset will be automatic when Connection is destroyed
     }
@@ -501,7 +502,7 @@ void Server::handle_close(int client_fd) {
 #endif
 
             // Close backend socket
-            close(backend_fd);
+            close_fd(backend_fd);
         }
     }
     // Map will be cleared when Connection is destroyed
@@ -747,7 +748,7 @@ bool Server::proxy_to_backend(Connection& conn, gateway::RequestContext& ctx) {
     // - New connections: Never been in epoll, need EPOLL_CTL_ADD
     // - Pooled connections: Were removed from epoll when pooled, need EPOLL_CTL_ADD again
     if (!add_backend_to_epoll(conn.backend_conn->backend_fd, EPOLLOUT | EPOLLIN)) {
-        close(conn.backend_conn->backend_fd);
+        close_fd(conn.backend_conn->backend_fd);
         conn.backend_conn.reset();
         return false;
     }
@@ -802,7 +803,7 @@ int Server::connect_to_backend(const std::string& host, uint16_t port) {
 
     // Connect (blocking for MVP - TODO: non-blocking + io_uring)
     if (connect(sockfd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
-        close(sockfd);
+        close_fd(sockfd);
         return -1;
     }
 
@@ -822,7 +823,7 @@ int Server::connect_to_backend_async(const std::string& host, uint16_t port) {
 
     // Make socket non-blocking BEFORE connect
     if (auto ec = set_nonblocking(sockfd); ec) {
-        close(sockfd);
+        close_fd(sockfd);
         return -1;
     }
 
@@ -867,7 +868,7 @@ int Server::connect_to_backend_async(const std::string& host, uint16_t port) {
     if (result < 0) {
         // EINPROGRESS is expected for non-blocking connect
         if (errno != EINPROGRESS) {
-            close(sockfd);
+            close_fd(sockfd);
             return -1;
         }
         // Connection in progress - epoll will notify when ready
@@ -1098,7 +1099,7 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
     if (conn_it == connections_.end()) {
         // Client connection closed, cleanup backend
         backend_connections_.erase(it);
-        close(backend_fd);
+        close_fd(backend_fd);
         return;
     }
 
@@ -1120,7 +1121,7 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
     if (!backend_conn) {
         // Backend connection was already cleaned up, remove from map
         backend_connections_.erase(it);
-        close(backend_fd);
+        close_fd(backend_fd);
         return;
     }
 
@@ -1128,7 +1129,7 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
     if (error) {
         // Backend connection failed or closed
         backend_connections_.erase(it);
-        close(backend_fd);
+        close_fd(backend_fd);
 
         // HTTP/2 FIX: Remove from correct location based on protocol
         int32_t stream_id = backend_conn->stream_id;
@@ -1172,7 +1173,7 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
             }
 
             backend_connections_.erase(it);
-            close(backend_fd);
+            close_fd(backend_fd);
 
             // HTTP/2 FIX: Remove from correct location
             int32_t stream_id = backend_conn->stream_id;
@@ -1208,7 +1209,7 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
             }
 
             backend_connections_.erase(it);
-            close(backend_fd);
+            close_fd(backend_fd);
 
             // HTTP/2 FIX: Remove from correct location
             int32_t stream_id = backend_conn->stream_id;
@@ -1262,7 +1263,7 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
             }
 
             backend_connections_.erase(it);
-            close(backend_fd);
+            close_fd(backend_fd);
 
             // HTTP/2 FIX: Remove from correct location
             int32_t stream_id = backend_conn->stream_id;
@@ -1341,7 +1342,7 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
             send_response(client_conn, false);  // Close connection after error
 
             // Cleanup backend connection
-            close(backend_fd);
+            close_fd(backend_fd);
             (void)remove_backend_from_epoll(backend_fd);
             backend_connections_.erase(it);
             return;

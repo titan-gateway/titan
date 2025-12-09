@@ -1,0 +1,89 @@
+{
+  "version": "1.0",
+  "description": "Titan Benchmark - JWT Authentication Overhead",
+
+  "server": {
+    "worker_threads": 4,
+    "listen_address": "0.0.0.0",
+    "listen_port": 8080,
+    "backlog": 2048,
+    "read_timeout": 60000,
+    "write_timeout": 60000,
+    "idle_timeout": 300000,
+    "shutdown_timeout": 30000,
+    "max_connections": 10000,
+    "max_request_size": 1048576,
+    "max_header_size": 8192
+  },
+
+  "upstreams": [
+    {
+      "name": "mock_backend",
+      "load_balancing": "round_robin",
+      "pool_size": 100,
+      "pool_idle_timeout": 60,
+      "backends": [
+        {
+          "host": "127.0.0.1",
+          "port": 3001,
+          "weight": 1,
+          "max_connections": 1000
+        }
+      ]
+    }
+  ],
+
+  "routes": [
+    {
+      "path": "/api",
+      "method": "GET",
+      "upstream": "mock_backend",
+      "handler_id": "api_jwt",
+      "priority": 100,
+      "auth_required": true
+    },
+    {
+      "path": "/health",
+      "method": "GET",
+      "upstream": "mock_backend",
+      "handler_id": "health_check",
+      "priority": 90,
+      "auth_required": false
+    }
+  ],
+
+  "jwt": {
+    "enabled": true,
+    "header": "Authorization",
+    "scheme": "Bearer",
+    "require_exp": true,
+    "require_sub": false,
+    "clock_skew_seconds": 60,
+    "allowed_issuers": ["titan-benchmark"],
+    "allowed_audiences": ["titan-api"],
+    "keys": [
+      {
+        "algorithm": "HS256",
+        "key_id": "benchmark-key-1",
+        "secret": "benchmark-secret-key-for-performance-testing-only-do-not-use-in-production"
+      }
+    ],
+    "cache_enabled": true,
+    "cache_capacity": 10000
+  },
+
+  "cors": {
+    "enabled": false
+  },
+
+  "rate_limit": {
+    "enabled": false
+  },
+
+  "logging": {
+    "level": "error",
+    "format": "json",
+    "log_requests": false,
+    "log_responses": false
+  }
+}

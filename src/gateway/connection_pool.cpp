@@ -24,6 +24,9 @@
 #include <algorithm>
 
 #include "../core/logging.hpp"
+#include "../core/socket.hpp"
+
+using titan::core::close_fd;
 
 namespace titan::gateway {
 
@@ -81,7 +84,7 @@ int BackendConnectionPool::acquire(const std::string& host, uint16_t port) {
                 return fd;
             } else {
                 // Unhealthy - close and remove
-                close(it->fd);
+                close_fd(it->fd);
                 pool_.erase(std::next(it).base());
                 ++health_fails_;
                 // Continue searching
@@ -101,7 +104,7 @@ void BackendConnectionPool::release(int fd, const std::string& host, uint16_t po
     // Check if pool is full
     if (pool_.size() >= max_size_) {
         // Pool full - close connection
-        close(fd);
+        close_fd(fd);
         ++pool_full_closes_;
         return;
     }
@@ -115,7 +118,7 @@ void BackendConnectionPool::release(int fd, const std::string& host, uint16_t po
 
     if (!conn.is_healthy()) {
         // Unhealthy - close instead of pooling
-        close(fd);
+        close_fd(fd);
         ++health_fails_;
         return;
     }
@@ -131,7 +134,7 @@ void BackendConnectionPool::cleanup_stale() {
     pool_.erase(std::remove_if(pool_.begin(), pool_.end(),
                                [this, now](const PooledConnection& conn) {
                                    if (conn.is_stale(max_idle_)) {
-                                       close(conn.fd);
+                                       close_fd(conn.fd);
                                        return true;  // Remove from pool
                                    }
                                    return false;
@@ -143,7 +146,7 @@ void BackendConnectionPool::clear() {
     // Close all connections
     for (const auto& conn : pool_) {
         if (conn.fd >= 0) {
-            close(conn.fd);
+            close_fd(conn.fd);
         }
     }
     pool_.clear();
