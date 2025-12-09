@@ -20,6 +20,7 @@
 #pragma once
 
 #include <cstdint>
+#include <list>
 #include <memory>
 #include <optional>
 #include <string>
@@ -98,6 +99,76 @@ public:
     std::string param_name;    // Parameter name (if is_param)
 };
 
+/// Route cache key (method + path)
+struct RouteCacheKey {
+    http::Method method;
+    std::string path;
+
+    bool operator==(const RouteCacheKey& other) const noexcept {
+        return method == other.method && path == other.path;
+    }
+};
+
+}  // namespace titan::gateway
+
+/// Hash specialization for RouteCacheKey
+template <>
+struct std::hash<titan::gateway::RouteCacheKey> {
+    size_t operator()(const titan::gateway::RouteCacheKey& key) const noexcept {
+        // FNV-1a hash combining method and path
+        size_t hash = 2166136261u;
+        hash ^= static_cast<size_t>(key.method);
+        hash *= 16777619u;
+        for (char c : key.path) {
+            hash ^= static_cast<unsigned char>(c);
+            hash *= 16777619u;
+        }
+        return hash;
+    }
+};
+
+namespace titan::gateway {
+
+/// Thread-local LRU route cache
+class ThreadLocalRouteCache {
+public:
+    explicit ThreadLocalRouteCache(size_t capacity = 1000) : capacity_(capacity) {}
+    ~ThreadLocalRouteCache() = default;
+
+    // Non-copyable, movable
+    ThreadLocalRouteCache(const ThreadLocalRouteCache&) = delete;
+    ThreadLocalRouteCache& operator=(const ThreadLocalRouteCache&) = delete;
+    ThreadLocalRouteCache(ThreadLocalRouteCache&&) noexcept = default;
+    ThreadLocalRouteCache& operator=(ThreadLocalRouteCache&&) noexcept = default;
+
+    /// Cached route entry
+    struct CachedRoute {
+        RouteMatch match;
+    };
+
+    /// Get cached route (returns nullopt on miss)
+    [[nodiscard]] std::optional<CachedRoute> get(http::Method method, std::string_view path);
+
+    /// Put route in cache (evicts by LRU)
+    void put(http::Method method, std::string_view path, RouteMatch match);
+
+    /// Clear cache
+    void clear();
+
+    /// Get cache statistics
+    [[nodiscard]] size_t size() const noexcept { return cache_.size(); }
+    [[nodiscard]] size_t capacity() const noexcept { return capacity_; }
+    [[nodiscard]] size_t hits() const noexcept { return hits_; }
+    [[nodiscard]] size_t misses() const noexcept { return misses_; }
+
+private:
+    size_t capacity_;
+    size_t hits_ = 0;
+    size_t misses_ = 0;
+    std::list<std::pair<RouteCacheKey, CachedRoute>> lru_list_;
+    std::unordered_map<RouteCacheKey, decltype(lru_list_)::iterator> cache_;
+};
+
 /// Router with Radix tree for path matching
 class Router {
 public:
@@ -113,20 +184,30 @@ public:
     /// Add a route to the router
     void add_route(Route route);
 
-    /// Find matching route for given method and path
+    /// Find matching route for given method and path (with caching)
     [[nodiscard]] RouteMatch match(http::Method method, std::string_view path) const;
 
     /// Get all registered routes
     [[nodiscard]] const std::vector<Route>& routes() const noexcept { return routes_; }
 
-    /// Clear all routes
+    /// Clear all routes (also clears cache)
     void clear();
+
+    /// Enable/disable route caching
+    void set_cache_enabled(bool enabled) { cache_enabled_ = enabled; }
+    [[nodiscard]] bool cache_enabled() const noexcept { return cache_enabled_; }
+
+    /// Clear route cache
+    void clear_cache() const;
 
     /// Get statistics
     struct Stats {
         size_t total_routes = 0;
         size_t total_nodes = 0;
         size_t max_depth = 0;
+        size_t cache_hits = 0;
+        size_t cache_misses = 0;
+        size_t cache_size = 0;
     };
     [[nodiscard]] Stats get_stats() const;
 
@@ -147,8 +228,14 @@ private:
     // Calculate tree statistics
     void calculate_stats(const RadixNode* node, Stats& stats, size_t depth) const;
 
+    // Get thread-local cache instance
+    [[nodiscard]] ThreadLocalRouteCache& get_cache() const;
+
     std::unique_ptr<RadixNode> root_;
     std::vector<Route> routes_;  // Keep track of all routes for inspection
+
+    // Cache control
+    bool cache_enabled_ = true;  // Route caching enabled by default
 };
 
 /// Route builder (fluent API)

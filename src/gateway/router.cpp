@@ -36,6 +36,54 @@ std::optional<std::string_view> RouteMatch::get_param(std::string_view name) con
     return std::nullopt;
 }
 
+// ThreadLocalRouteCache implementation
+
+std::optional<ThreadLocalRouteCache::CachedRoute> ThreadLocalRouteCache::get(
+    http::Method method, std::string_view path) {
+    RouteCacheKey key{method, std::string(path)};
+    auto it = cache_.find(key);
+    if (it == cache_.end()) {
+        ++misses_;
+        return std::nullopt;
+    }
+
+    // Move to front (most recently used)
+    lru_list_.splice(lru_list_.begin(), lru_list_, it->second);
+    ++hits_;
+    return it->second->second;
+}
+
+void ThreadLocalRouteCache::put(http::Method method, std::string_view path, RouteMatch match) {
+    RouteCacheKey key{method, std::string(path)};
+
+    // Check if already exists
+    auto it = cache_.find(key);
+    if (it != cache_.end()) {
+        // Update existing entry and move to front
+        it->second->second.match = std::move(match);
+        lru_list_.splice(lru_list_.begin(), lru_list_, it->second);
+        return;
+    }
+
+    // Evict LRU if at capacity
+    if (cache_.size() >= capacity_) {
+        auto lru = lru_list_.back();
+        cache_.erase(lru.first);
+        lru_list_.pop_back();
+    }
+
+    // Insert new entry at front
+    lru_list_.emplace_front(key, CachedRoute{std::move(match)});
+    cache_[key] = lru_list_.begin();
+}
+
+void ThreadLocalRouteCache::clear() {
+    cache_.clear();
+    lru_list_.clear();
+    hits_ = 0;
+    misses_ = 0;
+}
+
 // Router implementation
 
 Router::Router() : root_(std::make_unique<RadixNode>()) {}
@@ -51,19 +99,59 @@ void Router::add_route(Route route) {
 }
 
 RouteMatch Router::match(http::Method method, std::string_view path) const {
+    // Try cache first (if enabled)
+    if (cache_enabled_) {
+        auto& cache = get_cache();
+        auto cached = cache.get(method, path);
+        if (cached) {
+            return cached->match;
+        }
+    }
+
+    // Cache miss or disabled - perform tree search
     std::vector<RouteParam> params;
-    return search(root_.get(), path, method, params);
+    RouteMatch result = search(root_.get(), path, method, params);
+
+    // Cache the result (if enabled)
+    if (cache_enabled_ && result.matched()) {
+        auto& cache = get_cache();
+        cache.put(method, path, result);
+    }
+
+    return result;
 }
 
 void Router::clear() {
     root_ = std::make_unique<RadixNode>();
     routes_.clear();
+    clear_cache();
+}
+
+void Router::clear_cache() const {
+    if (cache_enabled_) {
+        get_cache().clear();
+    }
+}
+
+ThreadLocalRouteCache& Router::get_cache() const {
+    // Thread-local cache instance (one per thread)
+    thread_local ThreadLocalRouteCache cache(1000);  // 1000 routes per thread
+    return cache;
 }
 
 Router::Stats Router::get_stats() const {
     Stats stats;
     stats.total_routes = routes_.size();
     calculate_stats(root_.get(), stats, 0);
+
+    // Add cache statistics
+    if (cache_enabled_) {
+        auto& cache = get_cache();
+        stats.cache_hits = cache.hits();
+        stats.cache_misses = cache.misses();
+        stats.cache_size = cache.size();
+    }
+
     return stats;
 }
 
