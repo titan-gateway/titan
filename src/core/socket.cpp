@@ -175,7 +175,7 @@ void close_fd(int fd) {
         }
         fd_metrics.track_close(fd);
 #endif
-        close_fd(fd);
+        close(fd);  // Actually close the fd (do NOT call close_fd recursively!)
     }
 }
 
