@@ -707,7 +707,7 @@ bool Server::proxy_to_backend(Connection& conn, gateway::RequestContext& ctx) {
 
     // Store timing and metadata for response middleware
     conn.backend_conn->start_time = ctx.start_time;
-    conn.backend_conn->metadata = ctx.metadata;
+    conn.backend_conn->metadata = std::move(ctx.metadata);  // Move instead of copy
     conn.backend_conn->metadata["correlation_id"] = ctx.correlation_id;
 
     // Try to acquire from pool first
@@ -735,7 +735,7 @@ bool Server::proxy_to_backend(Connection& conn, gateway::RequestContext& ctx) {
     }
 
     // Build request and store in send buffer (use transformed path/query from metadata if present)
-    std::string request_str = build_backend_request(conn.request, ctx.metadata);
+    std::string request_str = build_backend_request(conn.request, conn.backend_conn->metadata);
     conn.backend_conn->send_buffer.assign(
         reinterpret_cast<const uint8_t*>(request_str.data()),
         reinterpret_cast<const uint8_t*>(request_str.data() + request_str.size()));
