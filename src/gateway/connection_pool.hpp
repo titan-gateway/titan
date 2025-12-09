@@ -81,10 +81,15 @@ public:
     [[nodiscard]] size_t max_size() const noexcept { return max_size_; }
     [[nodiscard]] size_t hits() const noexcept { return hits_; }
     [[nodiscard]] size_t misses() const noexcept { return misses_; }
+    [[nodiscard]] size_t health_fails() const noexcept { return health_fails_; }
+    [[nodiscard]] size_t pool_full_closes() const noexcept { return pool_full_closes_; }
     [[nodiscard]] double hit_rate() const noexcept {
         auto total = hits_ + misses_;
         return total > 0 ? static_cast<double>(hits_) / total : 0.0;
     }
+
+    /// Log pool statistics (call periodically for monitoring)
+    void log_stats() const;
 
 private:
     std::vector<PooledConnection> pool_;  // LIFO stack (back = top)
@@ -92,8 +97,10 @@ private:
     std::chrono::seconds max_idle_;
 
     // Statistics
-    size_t hits_ = 0;    // Pool hit (reused connection)
-    size_t misses_ = 0;  // Pool miss (created new connection)
+    size_t hits_ = 0;           // Pool hit (reused connection)
+    size_t misses_ = 0;         // Pool miss (created new connection)
+    size_t health_fails_ = 0;   // Health check failures
+    size_t pool_full_closes_ = 0;  // Closes due to pool being full
 };
 
 }  // namespace titan::gateway

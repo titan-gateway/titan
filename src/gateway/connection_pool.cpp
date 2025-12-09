@@ -23,6 +23,8 @@
 
 #include <algorithm>
 
+#include "../core/logging.hpp"
+
 namespace titan::gateway {
 
 bool PooledConnection::is_healthy() const noexcept {
@@ -81,6 +83,7 @@ int BackendConnectionPool::acquire(const std::string& host, uint16_t port) {
                 // Unhealthy - close and remove
                 close(it->fd);
                 pool_.erase(std::next(it).base());
+                ++health_fails_;
                 // Continue searching
             }
         }
@@ -99,6 +102,7 @@ void BackendConnectionPool::release(int fd, const std::string& host, uint16_t po
     if (pool_.size() >= max_size_) {
         // Pool full - close connection
         close(fd);
+        ++pool_full_closes_;
         return;
     }
 
@@ -112,6 +116,7 @@ void BackendConnectionPool::release(int fd, const std::string& host, uint16_t po
     if (!conn.is_healthy()) {
         // Unhealthy - close instead of pooling
         close(fd);
+        ++health_fails_;
         return;
     }
 
@@ -142,6 +147,30 @@ void BackendConnectionPool::clear() {
         }
     }
     pool_.clear();
+}
+
+void BackendConnectionPool::log_stats() const {
+    auto* logger = logging::get_current_logger();
+    if (!logger) {
+        return;
+    }
+
+    auto total_requests = hits_ + misses_;
+    if (total_requests == 0) {
+        LOG_INFO(logger, "[POOL] No requests processed yet");
+        return;
+    }
+
+    LOG_INFO(logger,
+             "[POOL] Stats: size={}/{}, hits={}, misses={}, hit_rate={:.2f}%, "
+             "health_fails={}, pool_full_closes={}",
+             pool_.size(),
+             max_size_,
+             hits_,
+             misses_,
+             hit_rate() * 100.0,
+             health_fails_,
+             pool_full_closes_);
 }
 
 }  // namespace titan::gateway
