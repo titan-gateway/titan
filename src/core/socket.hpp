@@ -33,4 +33,11 @@ namespace titan::core {
 
 void close_fd(int fd);
 
+// Performance instrumentation - track fd origins for debugging
+#if defined(TITAN_ENABLE_FD_TRACKING) || !defined(TITAN_DISABLE_PERF_INSTRUMENTATION)
+void track_fd_origin(int fd, const char* origin);
+#else
+inline void track_fd_origin(int, const char*) {}  // No-op in production
+#endif
+
 }  // namespace titan::core

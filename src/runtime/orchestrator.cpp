@@ -28,6 +28,8 @@
 #include "../core/socket.hpp"
 #include "../gateway/factory.hpp"
 
+using titan::core::close_fd;
+
 #ifdef __linux__
 #include <sys/epoll.h>
 #elif defined(__APPLE__) || defined(__FreeBSD__)
@@ -108,7 +110,7 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
 
     int backend_epoll_fd = server.backend_epoll_fd();
     if (backend_epoll_fd < 0) {
-        close(client_epoll_fd);
+        close_fd(client_epoll_fd);
         return;
     }
 
@@ -117,7 +119,7 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
     ev.events = EPOLLIN | EPOLLET;
     ev.data.fd = listen_fd;
     if (epoll_ctl(client_epoll_fd, EPOLL_CTL_ADD, listen_fd, &ev) < 0) {
-        close(client_epoll_fd);
+        close_fd(client_epoll_fd);
         return;
     }
 
@@ -148,7 +150,7 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
                     }
 
                     if (auto ec = core::set_nonblocking(client_fd); ec) {
-                        close(client_fd);
+                        close_fd(client_fd);
                         continue;
                     }
 
@@ -251,7 +253,7 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
     for (int fd : active_client_fds) {
         server.handle_close(fd);
     }
-    close(client_epoll_fd);
+    close_fd(client_epoll_fd);
     server.stop();
 }
 
@@ -306,7 +308,7 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
     // Backend kqueue is managed by Server class
     int backend_kq = server.backend_epoll_fd();
     if (backend_kq < 0) {
-        close(client_kq);
+        close_fd(client_kq);
         return;
     }
 
@@ -314,7 +316,7 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
     struct kevent change;
     EV_SET(&change, listen_fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0, nullptr);
     if (kevent(client_kq, &change, 1, nullptr, 0, nullptr) < 0) {
-        close(client_kq);
+        close_fd(client_kq);
         return;
     }
 
@@ -347,7 +349,7 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
                     }
 
                     if (auto ec = core::set_nonblocking(client_fd); ec) {
-                        close(client_fd);
+                        close_fd(client_fd);
                         continue;
                     }
 
@@ -450,7 +452,7 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
     for (int fd : active_client_fds) {
         server.handle_close(fd);
     }
-    close(client_kq);
+    close_fd(client_kq);
     server.stop();
 }
 #endif
@@ -500,7 +502,7 @@ std::error_code run_simple_server(const control::Config& config) {
     // Get backend epoll fd (managed by Server class)
     int backend_epoll_fd = server.backend_epoll_fd();
     if (backend_epoll_fd < 0) {
-        close(epoll_fd);
+        close_fd(epoll_fd);
         return std::error_code(errno, std::system_category());
     }
 
@@ -509,7 +511,7 @@ std::error_code run_simple_server(const control::Config& config) {
     ev.events = EPOLLIN | EPOLLET;
     ev.data.fd = listen_fd;
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, listen_fd, &ev) < 0) {
-        close(epoll_fd);
+        close_fd(epoll_fd);
         return std::error_code(errno, std::system_category());
     }
 
@@ -528,7 +530,7 @@ std::error_code run_simple_server(const control::Config& config) {
         if (n_events < 0) {
             if (errno == EINTR)
                 continue;
-            close(epoll_fd);
+            close_fd(epoll_fd);
             return std::error_code(errno, std::system_category());
         }
 
@@ -552,7 +554,7 @@ std::error_code run_simple_server(const control::Config& config) {
                     }
 
                     if (auto ec = core::set_nonblocking(client_fd); ec) {
-                        close(client_fd);
+                        close_fd(client_fd);
                         continue;
                     }
 
@@ -607,7 +609,7 @@ std::error_code run_simple_server(const control::Config& config) {
     for (int fd : active_fds) {
         server.handle_close(fd);
     }
-    close(epoll_fd);
+    close_fd(epoll_fd);
     server.stop();
     return {};
 }
@@ -657,7 +659,7 @@ std::error_code run_simple_server(const control::Config& config) {
     // Get backend kqueue fd (managed by Server class)
     int backend_kq = server.backend_epoll_fd();
     if (backend_kq < 0) {
-        close(kq);
+        close_fd(kq);
         return std::error_code(errno, std::system_category());
     }
 
@@ -665,7 +667,7 @@ std::error_code run_simple_server(const control::Config& config) {
     struct kevent change;
     EV_SET(&change, listen_fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0, nullptr);
     if (kevent(kq, &change, 1, nullptr, 0, nullptr) < 0) {
-        close(kq);
+        close_fd(kq);
         return std::error_code(errno, std::system_category());
     }
 
@@ -685,7 +687,7 @@ std::error_code run_simple_server(const control::Config& config) {
         if (n_events < 0) {
             if (errno == EINTR)
                 continue;
-            close(kq);
+            close_fd(kq);
             return std::error_code(errno, std::system_category());
         }
 
@@ -709,7 +711,7 @@ std::error_code run_simple_server(const control::Config& config) {
                     }
 
                     if (auto ec = core::set_nonblocking(client_fd); ec) {
-                        close(client_fd);
+                        close_fd(client_fd);
                         continue;
                     }
 
@@ -763,7 +765,7 @@ std::error_code run_simple_server(const control::Config& config) {
     for (int fd : active_fds) {
         server.handle_close(fd);
     }
-    close(kq);
+    close_fd(kq);
     server.stop();
     return {};
 }

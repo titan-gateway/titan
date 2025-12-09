@@ -196,3 +196,181 @@ release: PRESET=release
 release: clean configure build test ## Build optimized release binary
 	@echo "✅ Release build complete: $(BUILD_DIR)/src/titan"
 	@ls -lh $(BUILD_DIR)/src/titan
+
+##@ Profiling & Benchmarking
+
+# Profiling directories
+PROFILE_DIR := profiling
+RESULTS_DIR := results
+FLAMEGRAPH_DIR := tools/flamegraph
+
+# Benchmark parameters
+BENCH_DURATION ?= 30
+BENCH_CONNECTIONS ?= 100
+BENCH_THREADS ?= 4
+BENCH_HOST ?= http://localhost:8080
+BENCH_PATH ?= /api
+
+# Backend server
+BACKEND_PORT ?= 3001
+
+check-tools: ## Check for required profiling/benchmarking tools
+	@./scripts/check_tools.sh
+
+profile-cpu: ## CPU profiling with gperftools (PRESET=release)
+	@echo "==> CPU Profiling with gperftools..."
+	@mkdir -p $(PROFILE_DIR)
+	@./scripts/check_tools.sh pprof
+	@echo "Building with profiling enabled..."
+	@PRESET=release make build
+	@echo "Starting Titan with CPU profiling..."
+	@CPUPROFILE=$(PROFILE_DIR)/cpu.prof $(BUILD_DIR)/src/titan --config config/benchmark-http1.json &
+	@TITAN_PID=$$!; \
+	echo "Titan PID: $$TITAN_PID"; \
+	sleep 2; \
+	echo "Generating load for $(BENCH_DURATION) seconds..."; \
+	wrk -t$(BENCH_THREADS) -c$(BENCH_CONNECTIONS) -d$(BENCH_DURATION)s $(BENCH_HOST)$(BENCH_PATH) || true; \
+	echo "Stopping Titan..."; \
+	kill $$TITAN_PID 2>/dev/null || true; \
+	wait $$TITAN_PID 2>/dev/null || true
+	@echo "✅ CPU profile saved to $(PROFILE_DIR)/cpu.prof"
+	@echo "Analyze with: pprof --text $(BUILD_DIR)/src/titan $(PROFILE_DIR)/cpu.prof"
+	@echo "Visualize with: pprof --web $(BUILD_DIR)/src/titan $(PROFILE_DIR)/cpu.prof"
+
+profile-cpu-perf: ## CPU profiling with perf + flamegraph (Linux only)
+	@echo "==> CPU Profiling with perf + flamegraph..."
+	@mkdir -p $(PROFILE_DIR)
+	@./scripts/check_tools.sh perf
+	@./scripts/generate_flamegraph.sh $(BENCH_DURATION) $(BENCH_CONNECTIONS) $(BENCH_THREADS)
+	@echo "✅ Flamegraph saved to $(PROFILE_DIR)/flamegraph.svg"
+	@echo "Open with: open $(PROFILE_DIR)/flamegraph.svg"
+
+profile-heap: ## Heap profiling with gperftools
+	@echo "==> Heap Profiling with gperftools..."
+	@mkdir -p $(PROFILE_DIR)
+	@./scripts/check_tools.sh pprof
+	@echo "Building with profiling enabled..."
+	@PRESET=release make build
+	@echo "Starting Titan with heap profiling..."
+	@HEAPPROFILE=$(PROFILE_DIR)/heap.prof $(BUILD_DIR)/src/titan --config config/benchmark-http1.json &
+	@TITAN_PID=$$!; \
+	echo "Titan PID: $$TITAN_PID"; \
+	sleep 2; \
+	echo "Generating load for $(BENCH_DURATION) seconds..."; \
+	wrk -t$(BENCH_THREADS) -c$(BENCH_CONNECTIONS) -d$(BENCH_DURATION)s $(BENCH_HOST)$(BENCH_PATH) || true; \
+	echo "Stopping Titan..."; \
+	kill $$TITAN_PID 2>/dev/null || true; \
+	wait $$TITAN_PID 2>/dev/null || true
+	@echo "✅ Heap profile saved to $(PROFILE_DIR)/heap.prof.*"
+	@echo "Analyze with: pprof --text $(BUILD_DIR)/src/titan $(PROFILE_DIR)/heap.prof.*"
+
+analyze-profiles: ## Analyze and generate reports from profiles
+	@echo "==> Analyzing profiles..."
+	@if [ -f $(PROFILE_DIR)/cpu.prof ]; then \
+		echo "CPU Profile Summary:"; \
+		pprof --text $(BUILD_DIR)/src/titan $(PROFILE_DIR)/cpu.prof | head -20; \
+	fi
+	@if ls $(PROFILE_DIR)/heap.prof.* 1>/dev/null 2>&1; then \
+		echo ""; \
+		echo "Heap Profile Summary:"; \
+		pprof --text $(BUILD_DIR)/src/titan $$(ls -t $(PROFILE_DIR)/heap.prof.* | head -1) | head -20; \
+	fi
+
+bench-http1: ## Benchmark HTTP/1.1 cleartext (baseline)
+	@echo "==> Benchmarking HTTP/1.1 Cleartext..."
+	@mkdir -p $(RESULTS_DIR)
+	@./scripts/benchmark_runner.py \
+		--scenario http1 \
+		--config config/benchmark-http1.json \
+		--duration $(BENCH_DURATION) \
+		--connections $(BENCH_CONNECTIONS) \
+		--threads $(BENCH_THREADS) \
+		--output $(RESULTS_DIR)/bench-http1.json
+
+bench-http2-tls: ## Benchmark HTTP/2 with TLS (production scenario)
+	@echo "==> Benchmarking HTTP/2 with TLS..."
+	@mkdir -p $(RESULTS_DIR)
+	@./scripts/benchmark_runner.py \
+		--scenario http2-tls \
+		--config config/benchmark-http2-tls.json \
+		--duration $(BENCH_DURATION) \
+		--connections $(BENCH_CONNECTIONS) \
+		--threads $(BENCH_THREADS) \
+		--output $(RESULTS_DIR)/bench-http2-tls.json
+
+bench-jwt: ## Benchmark with JWT authentication
+	@echo "==> Benchmarking with JWT Authentication..."
+	@mkdir -p $(RESULTS_DIR)
+	@./scripts/benchmark_runner.py \
+		--scenario jwt \
+		--config config/benchmark-jwt.json \
+		--duration $(BENCH_DURATION) \
+		--connections $(BENCH_CONNECTIONS) \
+		--threads $(BENCH_THREADS) \
+		--output $(RESULTS_DIR)/bench-jwt.json
+
+bench-pool: ## Benchmark connection pool stress test
+	@echo "==> Benchmarking Connection Pool..."
+	@mkdir -p $(RESULTS_DIR)
+	@./scripts/benchmark_runner.py \
+		--scenario pool \
+		--config config/benchmark-pool.json \
+		--duration $(BENCH_DURATION) \
+		--connections $(BENCH_CONNECTIONS) \
+		--threads $(BENCH_THREADS) \
+		--output $(RESULTS_DIR)/bench-pool.json
+
+bench-middleware-none: ## Benchmark with zero middleware (raw proxy)
+	@echo "==> Benchmarking with Zero Middleware..."
+	@mkdir -p $(RESULTS_DIR)
+	@./scripts/benchmark_runner.py \
+		--scenario middleware-none \
+		--config config/benchmark-middleware-none.json \
+		--duration $(BENCH_DURATION) \
+		--connections $(BENCH_CONNECTIONS) \
+		--threads $(BENCH_THREADS) \
+		--output $(RESULTS_DIR)/bench-middleware-none.json
+
+bench-middleware-all: ## Benchmark with all middleware enabled
+	@echo "==> Benchmarking with All Middleware..."
+	@mkdir -p $(RESULTS_DIR)
+	@./scripts/benchmark_runner.py \
+		--scenario middleware-all \
+		--config config/benchmark-middleware-all.json \
+		--duration $(BENCH_DURATION) \
+		--connections $(BENCH_CONNECTIONS) \
+		--threads $(BENCH_THREADS) \
+		--output $(RESULTS_DIR)/bench-middleware-all.json
+
+bench-all: ## Run all benchmark scenarios
+	@echo "==> Running All Benchmark Scenarios..."
+	@make bench-http1 BENCH_DURATION=$(BENCH_DURATION)
+	@make bench-http2-tls BENCH_DURATION=$(BENCH_DURATION)
+	@make bench-jwt BENCH_DURATION=$(BENCH_DURATION)
+	@make bench-pool BENCH_DURATION=$(BENCH_DURATION)
+	@make bench-middleware-none BENCH_DURATION=$(BENCH_DURATION)
+	@make bench-middleware-all BENCH_DURATION=$(BENCH_DURATION)
+	@echo "✅ All benchmarks complete! Results in $(RESULTS_DIR)/"
+	@echo "Generate report with: make bench-report"
+
+bench-compare: ## Compare benchmark results (BEFORE=file1.json AFTER=file2.json)
+	@if [ -z "$(BEFORE)" ] || [ -z "$(AFTER)" ]; then \
+		echo "Error: Please specify BEFORE and AFTER files"; \
+		echo "Usage: make bench-compare BEFORE=results/before.json AFTER=results/after.json"; \
+		exit 1; \
+	fi
+	@./scripts/compare_results.py $(BEFORE) $(AFTER)
+
+bench-report: ## Generate comprehensive benchmark report
+	@echo "==> Generating Benchmark Report..."
+	@./scripts/benchmark_runner.py --report $(RESULTS_DIR)
+
+setup-backend: ## Start mock backend for benchmarking
+	@echo "==> Starting mock backend on port $(BACKEND_PORT)..."
+	@cd tests/mock-backend && python3 main.py $(BACKEND_PORT) &
+	@echo "✅ Backend started on http://localhost:$(BACKEND_PORT)"
+
+clean-profiles: ## Clean profiling and benchmark data
+	@echo "Cleaning profiling data..."
+	@rm -rf $(PROFILE_DIR)/ $(RESULTS_DIR)/
+	@echo "✅ Profiling data cleaned"

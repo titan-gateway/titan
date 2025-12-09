@@ -23,6 +23,11 @@
 
 #include <algorithm>
 
+#include "../core/logging.hpp"
+#include "../core/socket.hpp"
+
+using titan::core::close_fd;
+
 namespace titan::gateway {
 
 bool PooledConnection::is_healthy() const noexcept {
@@ -79,8 +84,9 @@ int BackendConnectionPool::acquire(const std::string& host, uint16_t port) {
                 return fd;
             } else {
                 // Unhealthy - close and remove
-                close(it->fd);
+                close_fd(it->fd);
                 pool_.erase(std::next(it).base());
+                ++health_fails_;
                 // Continue searching
             }
         }
@@ -98,7 +104,8 @@ void BackendConnectionPool::release(int fd, const std::string& host, uint16_t po
     // Check if pool is full
     if (pool_.size() >= max_size_) {
         // Pool full - close connection
-        close(fd);
+        close_fd(fd);
+        ++pool_full_closes_;
         return;
     }
 
@@ -111,7 +118,8 @@ void BackendConnectionPool::release(int fd, const std::string& host, uint16_t po
 
     if (!conn.is_healthy()) {
         // Unhealthy - close instead of pooling
-        close(fd);
+        close_fd(fd);
+        ++health_fails_;
         return;
     }
 
@@ -126,7 +134,7 @@ void BackendConnectionPool::cleanup_stale() {
     pool_.erase(std::remove_if(pool_.begin(), pool_.end(),
                                [this, now](const PooledConnection& conn) {
                                    if (conn.is_stale(max_idle_)) {
-                                       close(conn.fd);
+                                       close_fd(conn.fd);
                                        return true;  // Remove from pool
                                    }
                                    return false;
@@ -138,10 +146,34 @@ void BackendConnectionPool::clear() {
     // Close all connections
     for (const auto& conn : pool_) {
         if (conn.fd >= 0) {
-            close(conn.fd);
+            close_fd(conn.fd);
         }
     }
     pool_.clear();
+}
+
+void BackendConnectionPool::log_stats() const {
+    auto* logger = logging::get_current_logger();
+    if (!logger) {
+        return;
+    }
+
+    auto total_requests = hits_ + misses_;
+    if (total_requests == 0) {
+        LOG_INFO(logger, "[POOL] No requests processed yet");
+        return;
+    }
+
+    LOG_INFO(logger,
+             "[POOL] Stats: size={}/{}, hits={}, misses={}, hit_rate={:.2f}%, "
+             "health_fails={}, pool_full_closes={}",
+             pool_.size(),
+             max_size_,
+             hits_,
+             misses_,
+             hit_rate() * 100.0,
+             health_fails_,
+             pool_full_closes_);
 }
 
 }  // namespace titan::gateway

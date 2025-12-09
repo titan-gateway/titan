@@ -236,6 +236,10 @@ massif.out.*
 gmon.out
 *.svg
 
+# Private profiling/optimization notes and tools
+profiling/
+tools/
+
 # Keep specific flamegraph results you want to track
 !docs/performance/*.svg
 !assets/*.svg
@@ -277,3 +281,4 @@ ROADMAP.md
 .DS_Store
 COMPETITIVE_ANALYSIS.md
 ROADMAP.md
+KUBERNETES_DEPLOYMENT.md
