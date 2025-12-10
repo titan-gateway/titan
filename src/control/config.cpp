@@ -23,7 +23,7 @@
 #include <nlohmann/json.hpp>
 #include <sstream>
 
-#include "../core/jwt.hpp"   // For security constants (MAX_REQUIRED_SCOPES_ROLES)
+#include "../core/jwt.hpp"    // For security constants (MAX_REQUIRED_SCOPES_ROLES)
 #include "../http/regex.hpp"  // For regex pattern validation
 
 namespace titan::control {

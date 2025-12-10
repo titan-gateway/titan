@@ -59,10 +59,7 @@ struct FdMetrics {
         // Log first 10 closes and then every 10 closes for debugging
         if (old_count < 10 || old_count % 10 == 0) {
             std::fprintf(stderr, "[PERF] Thread %p close #%lu (fd=%d), created: %lu, ratio: %.2f\n",
-                         (void*)pthread_self(),
-                         old_count + 1,
-                         fd,
-                         create_count.load(),
+                         (void*)pthread_self(), old_count + 1, fd, create_count.load(),
                          static_cast<double>(old_count + 1) / std::max(1UL, create_count.load()));
             std::fflush(stderr);
         }

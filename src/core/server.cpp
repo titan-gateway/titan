@@ -17,7 +17,6 @@
 // Titan Server - Implementation
 
 #include "server.hpp"
-#include "socket.hpp"
 
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -32,6 +31,7 @@
 #include <unordered_set>
 
 #include "logging.hpp"
+#include "socket.hpp"
 
 #ifdef __linux__
 #include <sys/epoll.h>
