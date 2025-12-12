@@ -119,7 +119,7 @@ public:
     /// Add a route to the router
     void add_route(Route route);
 
-    /// Find matching route for given method and path
+    /// Find matching route for given method and path (with caching)
     [[nodiscard]] RouteMatch match(http::Method method, std::string_view path) const;
 
     /// Get all registered routes
