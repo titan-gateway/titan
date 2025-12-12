@@ -51,6 +51,9 @@ struct RouteMatch {
     // Per-route transform configuration (optional)
     std::optional<control::TransformConfig> transform_config;
 
+    // Per-route compression configuration (optional)
+    std::optional<control::CompressionConfig> compression_config;
+
     [[nodiscard]] bool matched() const noexcept { return !handler_id.empty(); }
 
     // Helper: Get parameter value by name
@@ -75,6 +78,9 @@ struct Route {
 
     // Request/Response transformation (per-route)
     std::optional<control::TransformConfig> transform_config;
+
+    // Compression configuration (per-route)
+    std::optional<control::CompressionConfig> compression_config;
 };
 
 /// Radix tree node (internal)

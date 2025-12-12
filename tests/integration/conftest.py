@@ -162,6 +162,34 @@ def titan_config(tmp_path, mock_backend_1, mock_backend_2):
         "rate_limit": {"enabled": False, "requests_per_second": 1000, "burst_size": 2000},
         "auth": {"enabled": False},
         "transform": {"enabled": False, "path_rewrites": [], "request_headers": [], "response_headers": [], "query_params": []},
+        "compression": {
+            "enabled": True,
+            "min_size": 1024,
+            "streaming_threshold": 102400,
+            "algorithms": ["zstd", "gzip", "br"],
+            "content_types": [
+                "text/html",
+                "text/plain",
+                "text/css",
+                "text/xml",
+                "application/json",
+                "application/javascript",
+                "application/xml",
+                "image/svg+xml"
+            ],
+            "levels": {
+                "gzip": 6,
+                "zstd": 5,
+                "brotli": 4
+            },
+            "disable_for_paths": [],
+            "disable_when_setting_cookies": True,
+            "precompressed": {
+                "enabled": True,
+                "extensions": [".gz", ".zst", ".br"],
+                "cache_control": "public, max-age=31536000"
+            }
+        },
         "logging": {"level": "info", "format": "text"},
         "metrics": {"enabled": True, "port": 9090, "path": "/metrics"},
     }

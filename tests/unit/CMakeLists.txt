@@ -17,6 +17,7 @@ add_executable(titan_tests
   test_proxy.cpp
   test_simd.cpp
   test_circuit_breaker.cpp
+  test_compression.cpp
   test_logging.cpp
   test_jwt.cpp
   test_jwks.cpp

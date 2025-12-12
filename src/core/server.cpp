@@ -278,6 +278,33 @@ void Server::handle_http1(Connection& conn) {
         auto [result, consumed] = conn.parser.parse_request(remaining_data, conn.request);
 
         if (result == http::ParseResult::Complete) {
+            // Copy ALL string_views to owned storage BEFORE buffer compaction
+            // (path/uri/query/headers all point into recv_buffer which may be erased)
+
+            // 1. Copy path/uri/query to owned storage
+            conn.owned_request_path = conn.request.path;
+            conn.owned_request_uri = conn.request.uri;
+            conn.owned_request_query = conn.request.query;
+
+            // 2. Copy headers to owned storage
+            conn.request_header_storage.clear();
+            conn.request_header_storage.reserve(conn.request.headers.size());
+            for (const auto& header : conn.request.headers) {
+                conn.request_header_storage.emplace_back(std::string(header.name),
+                                                         std::string(header.value));
+            }
+
+            // 3. Fix string_views to point to owned storage
+            conn.request.path = conn.owned_request_path;
+            conn.request.uri = conn.owned_request_uri;
+            conn.request.query = conn.owned_request_query;
+
+            conn.request.headers.clear();
+            conn.request.headers.reserve(conn.request_header_storage.size());
+            for (const auto& [name, value] : conn.request_header_storage) {
+                conn.request.headers.push_back({name, value});
+            }
+
             // Process complete request
             bool keep_alive = process_request(conn);
 
@@ -708,8 +735,36 @@ bool Server::proxy_to_backend(Connection& conn, gateway::RequestContext& ctx) {
 
     // Store timing and metadata for response middleware
     conn.backend_conn->start_time = ctx.start_time;
-    conn.backend_conn->metadata = std::move(ctx.metadata);  // Move instead of copy
+    conn.backend_conn->metadata = std::move(ctx.metadata);
     conn.backend_conn->metadata["correlation_id"] = ctx.correlation_id;
+    conn.backend_conn->route_match = ctx.route_match;
+
+    // Preserve request for response middleware (HTTP/1.1 keep-alive safety)
+    // conn.request will be overwritten by next pipelined request, so copy it now
+
+    // 1. Copy path/uri/query to owned storage (string_views point into recv_buffer)
+    conn.backend_conn->owned_path = conn.request.path;
+    conn.backend_conn->owned_uri = conn.request.uri;
+    conn.backend_conn->owned_query = conn.request.query;
+
+    // 2. Copy headers to owned storage
+    conn.backend_conn->request_header_storage = conn.request_header_storage;
+
+    // 3. Copy request struct (copies all fields including string_views)
+    conn.backend_conn->preserved_request = conn.request;
+
+    // 4. Fix string_views to point to owned storage (not recv_buffer!)
+    conn.backend_conn->preserved_request.path = conn.backend_conn->owned_path;
+    conn.backend_conn->preserved_request.uri = conn.backend_conn->owned_uri;
+    conn.backend_conn->preserved_request.query = conn.backend_conn->owned_query;
+
+    // 5. Fix headers to point to owned storage
+    conn.backend_conn->preserved_request.headers.clear();
+    conn.backend_conn->preserved_request.headers.reserve(
+        conn.backend_conn->request_header_storage.size());
+    for (const auto& [name, value] : conn.backend_conn->request_header_storage) {
+        conn.backend_conn->preserved_request.headers.push_back({name, value});
+    }
 
     // Try to acquire from pool first
     conn.backend_conn->backend_fd = upstream->backend_pool().acquire(backend.host, backend.port);
@@ -1377,9 +1432,12 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
 
             // Execute response middleware
             gateway::ResponseContext resp_ctx;
-            resp_ctx.request = &client_conn.request;
+            resp_ctx.request =
+                &backend_conn
+                     ->preserved_request;  // Use preserved request (not current conn.request)
             resp_ctx.response = &client_conn.response;
             resp_ctx.correlation_id = backend_conn->metadata["correlation_id"];
+            resp_ctx.route_match = backend_conn->route_match;
             resp_ctx.client_ip = client_conn.remote_ip;
             resp_ctx.client_port = client_conn.remote_port;
             resp_ctx.start_time = backend_conn->start_time;

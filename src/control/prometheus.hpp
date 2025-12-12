@@ -23,6 +23,7 @@
 #include <string>
 #include <string_view>
 
+#include "../gateway/compression_middleware.hpp"
 #include "../gateway/upstream.hpp"
 #include "metrics.hpp"
 
@@ -178,6 +179,83 @@ public:
                              backend.circuit_breaker->get_state_transitions(), labels);
             }
         }
+
+        return out.str();
+    }
+
+    /// Export compression metrics
+    [[nodiscard]] static std::string export_compression_metrics(
+        const gateway::CompressionMetrics& metrics, uint32_t worker_id = 0,
+        std::string_view namespace_prefix = "titan") {
+        std::ostringstream out;
+
+        std::vector<Label> worker_label = {{"worker", std::to_string(worker_id)}};
+
+        write_metric(out, namespace_prefix, "compression_requests_total",
+                     "Total requests compressed", PrometheusType::Counter,
+                     metrics.requests_compressed, worker_label);
+
+        write_metric(out, namespace_prefix, "compression_bytes_in_total",
+                     "Total uncompressed bytes", PrometheusType::Counter, metrics.bytes_in,
+                     worker_label);
+
+        write_metric(out, namespace_prefix, "compression_bytes_out_total", "Total compressed bytes",
+                     PrometheusType::Counter, metrics.bytes_out, worker_label);
+
+        write_metric(out, namespace_prefix, "compression_time_microseconds_total",
+                     "Total compression time in microseconds", PrometheusType::Counter,
+                     metrics.compression_time_us, worker_label);
+
+        write_metric(out, namespace_prefix, "compression_ratio", "Average compression ratio",
+                     PrometheusType::Gauge, metrics.compression_ratio(), worker_label);
+
+        write_metric(out, namespace_prefix, "compression_time_milliseconds_avg",
+                     "Average compression time in milliseconds", PrometheusType::Gauge,
+                     metrics.avg_compression_time_ms(), worker_label);
+
+        write_metric(out, namespace_prefix, "compression_algorithm_total",
+                     "Requests compressed by algorithm", PrometheusType::Counter,
+                     metrics.gzip_count,
+                     {{"algorithm", "gzip"}, {"worker", std::to_string(worker_id)}});
+
+        write_metric(out, namespace_prefix, "compression_algorithm_total",
+                     "Requests compressed by algorithm", PrometheusType::Counter,
+                     metrics.zstd_count,
+                     {{"algorithm", "zstd"}, {"worker", std::to_string(worker_id)}});
+
+        write_metric(out, namespace_prefix, "compression_algorithm_total",
+                     "Requests compressed by algorithm", PrometheusType::Counter,
+                     metrics.brotli_count,
+                     {{"algorithm", "brotli"}, {"worker", std::to_string(worker_id)}});
+
+        write_metric(out, namespace_prefix, "compression_skipped_total",
+                     "Requests skipped by reason", PrometheusType::Counter,
+                     metrics.skipped_too_small,
+                     {{"reason", "too_small"}, {"worker", std::to_string(worker_id)}});
+
+        write_metric(out, namespace_prefix, "compression_skipped_total",
+                     "Requests skipped by reason", PrometheusType::Counter,
+                     metrics.skipped_wrong_type,
+                     {{"reason", "wrong_type"}, {"worker", std::to_string(worker_id)}});
+
+        write_metric(out, namespace_prefix, "compression_skipped_total",
+                     "Requests skipped by reason", PrometheusType::Counter,
+                     metrics.skipped_client_unsupported,
+                     {{"reason", "client_unsupported"}, {"worker", std::to_string(worker_id)}});
+
+        write_metric(out, namespace_prefix, "compression_skipped_total",
+                     "Requests skipped by reason", PrometheusType::Counter,
+                     metrics.skipped_disabled,
+                     {{"reason", "disabled"}, {"worker", std::to_string(worker_id)}});
+
+        write_metric(out, namespace_prefix, "compression_skipped_total",
+                     "Requests skipped by reason", PrometheusType::Counter,
+                     metrics.skipped_breach_mitigation,
+                     {{"reason", "breach_mitigation"}, {"worker", std::to_string(worker_id)}});
+
+        write_metric(out, namespace_prefix, "compression_precompressed_total",
+                     "Requests served from precompressed files", PrometheusType::Counter,
+                     metrics.precompressed_hits, worker_label);
 
         return out.str();
     }

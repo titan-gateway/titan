@@ -45,6 +45,7 @@ namespace titan::core {
 extern std::atomic<bool> g_server_running;
 extern std::atomic<bool> g_graceful_shutdown;
 extern std::atomic<const gateway::UpstreamManager*> g_upstream_manager_for_metrics;
+extern std::atomic<const gateway::CompressionMetrics*> g_compression_metrics_for_export;
 }  // namespace titan::core
 
 namespace titan::runtime {
@@ -96,6 +97,8 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
     if (worker_id == 0) {
         core::g_upstream_manager_for_metrics.store(server.upstream_manager(),
                                                    std::memory_order_release);
+        core::g_compression_metrics_for_export.store(&gateway::compression_metrics,
+                                                     std::memory_order_release);
     }
 
     int listen_fd = server.listen_fd();
@@ -293,6 +296,8 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
     if (worker_id == 0) {
         core::g_upstream_manager_for_metrics.store(server.upstream_manager(),
                                                    std::memory_order_release);
+        core::g_compression_metrics_for_export.store(&gateway::compression_metrics,
+                                                     std::memory_order_release);
     }
 
     int listen_fd = server.listen_fd();

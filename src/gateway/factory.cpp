@@ -21,6 +21,7 @@
 #include "../core/jwks_fetcher.hpp"
 #include "../core/jwt.hpp"
 #include "circuit_breaker.hpp"
+#include "compression_middleware.hpp"
 #include "jwt_authz_middleware.hpp"
 #include "jwt_middleware.hpp"
 #include "rate_limit.hpp"
@@ -74,7 +75,8 @@ std::unique_ptr<Router> build_router(const control::Config& config) {
         route.auth_required = route_config.auth_required;
         route.required_scopes = route_config.required_scopes;
         route.required_roles = route_config.required_roles;
-        route.transform_config = route_config.transform;  // Per-route transform config
+        route.transform_config = route_config.transform;      // Per-route transform config
+        route.compression_config = route_config.compression;  // Per-route compression config
 
         router->add_route(std::move(route));
     }
@@ -262,6 +264,13 @@ std::unique_ptr<Pipeline> build_pipeline(const control::Config& config,
     // Runs after Auth, before Proxy (per-route can override global config)
     if (config.transform.enabled) {
         pipeline->use(std::make_unique<TransformMiddleware>(config.transform));
+    }
+
+    // Compression middleware (response compression with Gzip/Zstd/Brotli)
+    // Runs in response phase (after proxy response is received)
+    // IMPORTANT: Compression runs in Response Phase, not Request Phase
+    if (config.compression.enabled) {
+        pipeline->use(std::make_unique<CompressionMiddleware>(config.compression));
     }
 
     pipeline->use(std::make_unique<ProxyMiddleware>(upstream_manager));

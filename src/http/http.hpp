@@ -146,6 +146,9 @@ struct Response {
         }
     }
 
+    // Body storage for owned data (e.g., compressed responses)
+    std::vector<uint8_t> body_storage;
+
     // Body (may be owned or view)
     std::span<const uint8_t> body;
 

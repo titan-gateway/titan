@@ -81,22 +81,22 @@ struct RequestContext {
 /// Response context (passed through response middleware chain)
 struct ResponseContext {
     // Request/Response
-    http::Request* request = nullptr;    // Original request (read-only)
-    http::Response* response = nullptr;  // Backend response (modifiable)
+    http::Request* request = nullptr;
+    http::Response* response = nullptr;
 
     std::string correlation_id;
+
+    RouteMatch route_match;
 
     // Connection info
     std::string client_ip;
     uint16_t client_port = 0;
 
     // Backend (for circuit breaker feedback)
-    Backend* backend = nullptr;  // Which backend served this request
+    Backend* backend = nullptr;
 
-    // Error flag (for circuit breaker - true if timeout/connection error)
     bool backend_error = false;
 
-    // Metadata (from request phase)
     std::unordered_map<std::string, std::string> metadata;
 
     // Timing

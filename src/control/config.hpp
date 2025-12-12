@@ -138,6 +138,65 @@ struct TransformConfig {
     std::vector<QueryRule> query_params;
 };
 
+/// Pre-compressed file serving configuration
+struct PrecompressedConfig {
+    bool enabled = true;
+    std::vector<std::string> extensions = {".gz", ".zst", ".br"};
+    std::string cache_control = "public, max-age=31536000";  // 1 year
+};
+
+/// Compression middleware configuration
+struct CompressionConfig {
+    bool enabled = false;
+    size_t min_size = 1024;               // Don't compress responses < 1KB
+    size_t streaming_threshold = 102400;  // Use streaming for responses > 100KB
+
+    // Algorithm priority (negotiate with client Accept-Encoding)
+    std::vector<std::string> algorithms = {"zstd", "gzip", "brotli"};
+
+    // Content-Type filtering
+    std::vector<std::string> content_types = {"text/html",        "text/plain",
+                                              "text/css",         "text/xml",
+                                              "application/json", "application/javascript",
+                                              "application/xml",  "image/svg+xml"};
+
+    // Excluded content types (takes precedence over content_types)
+    std::vector<std::string> excluded_content_types = {"image/jpeg",
+                                                       "image/png",
+                                                       "image/gif",
+                                                       "image/webp",
+                                                       "video/mp4",
+                                                       "video/mpeg",
+                                                       "audio/mp3",
+                                                       "audio/aac",
+                                                       "application/zip",
+                                                       "application/gzip",
+                                                       "application/x-brotli",
+                                                       "application/pdf",
+                                                       "application/octet-stream"};
+
+    // Compression levels per algorithm
+    struct CompressionLevels {
+        int gzip = 6;    // 1-9 (6 = balanced)
+        int zstd = 5;    // 1-22 (5 = balanced)
+        int brotli = 4;  // 0-11 (4 = balanced for dynamic content)
+    } levels;
+
+    // BREACH attack mitigation (disable compression for sensitive endpoints)
+    // Paths matching these patterns will NOT be compressed (protects auth endpoints)
+    // Example: ["/auth/*", "/login", "/api/csrf-token", "/api/token"]
+    // User must explicitly configure - no hardcoded defaults
+    std::vector<std::string> disable_for_paths;
+
+    // Disable compression when response sets cookies (BREACH mitigation)
+    // Cookies often contain session tokens which are vulnerable to BREACH
+    // Safe default: enabled - works for all applications
+    bool disable_when_setting_cookies = true;
+
+    // Pre-compressed file serving
+    PrecompressedConfig precompressed;
+};
+
 /// Route configuration
 struct RouteConfig {
     std::string path;
@@ -157,6 +216,9 @@ struct RouteConfig {
 
     // Request/Response transformation (per-route, overrides global)
     std::optional<TransformConfig> transform;
+
+    // Compression (per-route, overrides global)
+    std::optional<CompressionConfig> compression;
 
     // Authorization (JWT claims-based)
     bool auth_required = false;                // Require JWT authentication
@@ -280,7 +342,8 @@ struct Config {
     AuthConfig auth;
     JwtConfig jwt;
     JwtAuthzConfig jwt_authz;
-    TransformConfig transform;  // Global transform config
+    TransformConfig transform;      // Global transform config
+    CompressionConfig compression;  // Global compression config
 
     // Observability
     LogConfig logging;
@@ -421,6 +484,63 @@ inline void to_json(nlohmann::json& j, const TransformConfig& t) {
                        {"query_params", t.query_params}};
 }
 
+// Compression serialization (must come before RouteConfig which uses it)
+inline void from_json(const nlohmann::json& j, PrecompressedConfig& p) {
+    p.enabled = j.value("enabled", true);
+    p.extensions = j.value("extensions", std::vector<std::string>{".gz", ".zst", ".br"});
+    p.cache_control = j.value("cache_control", std::string("public, max-age=31536000"));
+}
+
+inline void to_json(nlohmann::json& j, const PrecompressedConfig& p) {
+    j = nlohmann::json{
+        {"enabled", p.enabled}, {"extensions", p.extensions}, {"cache_control", p.cache_control}};
+}
+
+inline void from_json(const nlohmann::json& j, CompressionConfig::CompressionLevels& l) {
+    l.gzip = j.value("gzip", 6);
+    l.zstd = j.value("zstd", 5);
+    l.brotli = j.value("brotli", 4);
+}
+
+inline void to_json(nlohmann::json& j, const CompressionConfig::CompressionLevels& l) {
+    j = nlohmann::json{{"gzip", l.gzip}, {"zstd", l.zstd}, {"brotli", l.brotli}};
+}
+
+inline void from_json(const nlohmann::json& j, CompressionConfig& c) {
+    c.enabled = j.value("enabled", false);
+    c.min_size = j.value("min_size", size_t(1024));
+    c.streaming_threshold = j.value("streaming_threshold", size_t(102400));
+    c.algorithms = j.value("algorithms", std::vector<std::string>{"zstd", "gzip", "brotli"});
+    c.content_types = j.value(
+        "content_types", std::vector<std::string>{"text/html", "text/plain", "text/css", "text/xml",
+                                                  "application/json", "application/javascript",
+                                                  "application/xml", "image/svg+xml"});
+    c.excluded_content_types =
+        j.value("excluded_content_types",
+                std::vector<std::string>{
+                    "image/jpeg", "image/png", "image/gif", "image/webp", "video/mp4", "video/mpeg",
+                    "audio/mp3", "audio/aac", "application/zip", "application/gzip",
+                    "application/x-brotli", "application/pdf", "application/octet-stream"});
+    c.levels = j.value("levels", CompressionConfig::CompressionLevels{});
+    // BREACH mitigation - empty by default, user must configure
+    c.disable_for_paths = j.value("disable_for_paths", std::vector<std::string>{});
+    c.disable_when_setting_cookies = j.value("disable_when_setting_cookies", true);
+    c.precompressed = j.value("precompressed", PrecompressedConfig{});
+}
+
+inline void to_json(nlohmann::json& j, const CompressionConfig& c) {
+    j["enabled"] = c.enabled;
+    j["min_size"] = c.min_size;
+    j["streaming_threshold"] = c.streaming_threshold;
+    j["algorithms"] = c.algorithms;
+    j["content_types"] = c.content_types;
+    j["excluded_content_types"] = c.excluded_content_types;
+    j["levels"] = c.levels;
+    j["disable_for_paths"] = c.disable_for_paths;
+    j["disable_when_setting_cookies"] = c.disable_when_setting_cookies;
+    j["precompressed"] = c.precompressed;
+}
+
 inline void from_json(const nlohmann::json& j, RouteConfig& r) {
     // Required fields
     j.at("path").get_to(r.path);
@@ -445,6 +565,9 @@ inline void from_json(const nlohmann::json& j, RouteConfig& r) {
     if (j.contains("transform")) {
         j.at("transform").get_to(r.transform);
     }
+    if (j.contains("compression")) {
+        j.at("compression").get_to(r.compression);
+    }
     if (j.contains("required_scopes")) {
         j.at("required_scopes").get_to(r.required_scopes);
     }
@@ -454,18 +577,19 @@ inline void from_json(const nlohmann::json& j, RouteConfig& r) {
 }
 
 inline void to_json(nlohmann::json& j, const RouteConfig& r) {
-    j = nlohmann::json{{"path", r.path},
-                       {"method", r.method},
-                       {"upstream", r.upstream},
-                       {"handler_id", r.handler_id},
-                       {"priority", r.priority},
-                       {"rewrite_path", r.rewrite_path},
-                       {"timeout", r.timeout},
-                       {"middleware", r.middleware},
-                       {"transform", r.transform},
-                       {"auth_required", r.auth_required},
-                       {"required_scopes", r.required_scopes},
-                       {"required_roles", r.required_roles}};
+    j["path"] = r.path;
+    j["method"] = r.method;
+    j["upstream"] = r.upstream;
+    j["handler_id"] = r.handler_id;
+    j["priority"] = r.priority;
+    j["rewrite_path"] = r.rewrite_path;
+    j["timeout"] = r.timeout;
+    j["middleware"] = r.middleware;
+    j["transform"] = r.transform;
+    j["compression"] = r.compression;
+    j["auth_required"] = r.auth_required;
+    j["required_scopes"] = r.required_scopes;
+    j["required_roles"] = r.required_roles;
 }
 
 inline void from_json(const nlohmann::json& j, CorsConfig& c) {
@@ -581,6 +705,9 @@ inline void from_json(const nlohmann::json& j, Config& c) {
     }
     if (j.contains("transform")) {
         j.at("transform").get_to(c.transform);
+    }
+    if (j.contains("compression")) {
+        j.at("compression").get_to(c.compression);
     }
     if (j.contains("logging")) {
         j.at("logging").get_to(c.logging);
@@ -723,19 +850,20 @@ inline void to_json(nlohmann::json& j, const MetricsConfig& m) {
 }
 
 inline void to_json(nlohmann::json& j, const Config& c) {
-    j = nlohmann::json{{"server", c.server},
-                       {"routes", c.routes},
-                       {"upstreams", c.upstreams},
-                       {"cors", c.cors},
-                       {"rate_limit", c.rate_limit},
-                       {"auth", c.auth},
-                       {"jwt", c.jwt},
-                       {"jwt_authz", c.jwt_authz},
-                       {"transform", c.transform},
-                       {"logging", c.logging},
-                       {"metrics", c.metrics},
-                       {"version", c.version},
-                       {"description", c.description}};
+    j["server"] = c.server;
+    j["routes"] = c.routes;
+    j["upstreams"] = c.upstreams;
+    j["cors"] = c.cors;
+    j["rate_limit"] = c.rate_limit;
+    j["auth"] = c.auth;
+    j["jwt"] = c.jwt;
+    j["jwt_authz"] = c.jwt_authz;
+    j["transform"] = c.transform;
+    j["compression"] = c.compression;
+    j["logging"] = c.logging;
+    j["metrics"] = c.metrics;
+    j["version"] = c.version;
+    j["description"] = c.description;
 }
 
 /// Configuration validation result
