@@ -23,7 +23,9 @@
     "nghttp2",
     "quill",
     "cpp-httplib",
-    "pcre2"
+    "pcre2",
+    "zstd",
+    "brotli"
   ],
   "builtin-baseline": "782419385291ae2db643c928314efe626853c702",
   "overrides": []

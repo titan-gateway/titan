@@ -46,6 +46,11 @@ pkg_check_modules(NGHTTP2 REQUIRED IMPORTED_TARGET libnghttp2)
 # PCRE2 (regex library for path transformation)
 find_package(pcre2 CONFIG REQUIRED)
 
+# Compression libraries
+find_package(ZLIB REQUIRED)
+find_package(zstd CONFIG REQUIRED)
+find_package(unofficial-brotli CONFIG REQUIRED)
+
 # Compiler-specific flags
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(

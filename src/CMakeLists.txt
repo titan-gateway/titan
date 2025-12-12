@@ -14,6 +14,8 @@ add_library(titan_lib
   core/admin_server.cpp
   core/logging.hpp
   core/logging.cpp
+  core/compression.hpp
+  core/compression.cpp
   core/jwt.hpp
   core/jwt.cpp
   core/jwks_fetcher.hpp
@@ -46,6 +48,8 @@ add_library(titan_lib
   gateway/jwt_authz_middleware.cpp
   gateway/transform_middleware.hpp
   gateway/transform_middleware.cpp
+  gateway/compression_middleware.hpp
+  gateway/compression_middleware.cpp
   gateway/factory.hpp
   gateway/factory.cpp
   control/config.hpp
@@ -73,6 +77,9 @@ target_link_libraries(titan_lib
     quill::quill
     httplib::httplib
     PCRE2::8BIT
+    ZLIB::ZLIB
+    $<IF:$<TARGET_EXISTS:zstd::libzstd_static>,zstd::libzstd_static,zstd::libzstd_shared>
+    unofficial::brotli::brotlienc
 )
 
 # Titan executable
