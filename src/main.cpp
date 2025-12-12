@@ -32,6 +32,8 @@ std::atomic<bool> g_server_running{true};
 std::atomic<bool> g_graceful_shutdown{false};
 // Global upstream manager pointer for metrics (set by worker 0)
 std::atomic<const gateway::UpstreamManager*> g_upstream_manager_for_metrics{nullptr};
+// Global compression metrics pointer for export (set by worker 0)
+std::atomic<const gateway::CompressionMetrics*> g_compression_metrics_for_export{nullptr};
 }  // namespace titan::core
 
 namespace {

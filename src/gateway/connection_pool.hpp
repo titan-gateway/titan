@@ -97,9 +97,9 @@ private:
     std::chrono::seconds max_idle_;
 
     // Statistics
-    size_t hits_ = 0;           // Pool hit (reused connection)
-    size_t misses_ = 0;         // Pool miss (created new connection)
-    size_t health_fails_ = 0;   // Health check failures
+    size_t hits_ = 0;              // Pool hit (reused connection)
+    size_t misses_ = 0;            // Pool miss (created new connection)
+    size_t health_fails_ = 0;      // Health check failures
     size_t pool_full_closes_ = 0;  // Closes due to pool being full
 };
 

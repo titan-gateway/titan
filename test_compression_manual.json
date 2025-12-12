@@ -1,0 +1,35 @@
+{
+  "version": "1.0",
+  "server": {
+    "worker_threads": 1,
+    "listen_address": "127.0.0.1",
+    "listen_port": 8080,
+    "backlog": 128
+  },
+  "upstreams": [
+    {
+      "name": "test_backend",
+      "load_balancing": "round_robin",
+      "backends": [
+        {"host": "127.0.0.1", "port": 3001, "weight": 1, "max_connections": 100}
+      ]
+    }
+  ],
+  "routes": [
+    {"path": "/large", "method": "GET", "handler_id": "large", "upstream": "test_backend", "priority": 5}
+  ],
+  "compression": {
+    "enabled": true,
+    "min_size": 1024,
+    "streaming_threshold": 102400,
+    "algorithms": ["zstd", "gzip", "br"],
+    "content_types": [
+      "application/json"
+    ],
+    "levels": {
+      "gzip": 6,
+      "zstd": 5,
+      "brotli": 4
+    }
+  }
+}

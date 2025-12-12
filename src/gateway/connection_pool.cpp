@@ -167,12 +167,7 @@ void BackendConnectionPool::log_stats() const {
     LOG_INFO(logger,
              "[POOL] Stats: size={}/{}, hits={}, misses={}, hit_rate={:.2f}%, "
              "health_fails={}, pool_full_closes={}",
-             pool_.size(),
-             max_size_,
-             hits_,
-             misses_,
-             hit_rate() * 100.0,
-             health_fails_,
+             pool_.size(), max_size_, hits_, misses_, hit_rate() * 100.0, health_fails_,
              pool_full_closes_);
 }
 

@@ -71,6 +71,15 @@ struct BackendConnection {
     // Timing for response middleware
     std::chrono::steady_clock::time_point start_time;
     std::unordered_map<std::string, std::string> metadata;  // For middleware communication
+    gateway::RouteMatch route_match;                        // Route match for per-route config
+
+    // Request preservation for async response middleware (HTTP/1.1)
+    http::Request preserved_request;  // Copy of original request (for response middleware)
+    std::vector<std::pair<std::string, std::string>>
+        request_header_storage;  // Owned header strings (for preserved_request)
+    std::string owned_path;      // Owned path string (request.path points here)
+    std::string owned_uri;       // Owned URI string (request.uri points here)
+    std::string owned_query;     // Owned query string (request.query points here)
 };
 
 /// Active client connection
@@ -84,7 +93,12 @@ struct Connection {
     size_t recv_cursor = 0;  // Current read position in recv_buffer (avoids expensive erase)
     std::vector<uint8_t> response_body;  // Owned body data for proxied responses
     std::vector<std::pair<std::string, std::string>>
-        response_header_storage;  // Owned header strings
+        request_header_storage;  // Owned request header strings (HTTP/1.1)
+    std::vector<std::pair<std::string, std::string>>
+        response_header_storage;      // Owned response header strings
+    std::string owned_request_path;   // Owned path string (request.path points here)
+    std::string owned_request_uri;    // Owned URI string (request.uri points here)
+    std::string owned_request_query;  // Owned query string (request.query points here)
 
     // TLS state
     SSL* ssl = nullptr;        // OpenSSL connection object (owned by unique_ptr in Server)

@@ -26,9 +26,14 @@
 #include "socket.hpp"
 
 // Forward declare global for metrics
+namespace titan::gateway {
+struct CompressionMetrics;
+}
+
 namespace titan::core {
 extern std::atomic<const gateway::UpstreamManager*> g_upstream_manager_for_metrics;
-}
+extern std::atomic<const gateway::CompressionMetrics*> g_compression_metrics_for_export;
+}  // namespace titan::core
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -154,12 +159,19 @@ void AdminServer::handle_connection(int client_fd) {
         }
 
         if (req.path == "/metrics" || req.path == config_.metrics.path) {
-            // Metrics endpoint - read from global set by worker 0
             const gateway::UpstreamManager* upstream_mgr =
                 titan::core::g_upstream_manager_for_metrics.load(std::memory_order_acquire);
+            const gateway::CompressionMetrics* compression_metrics_ptr =
+                titan::core::g_compression_metrics_for_export.load(std::memory_order_acquire);
 
-            std::string body = control::PrometheusExporter::export_circuit_breaker_metrics(
+            std::string body;
+            body += control::PrometheusExporter::export_circuit_breaker_metrics(
                 upstream_mgr, worker_id_, "titan");
+            if (compression_metrics_ptr) {
+                body += control::PrometheusExporter::export_compression_metrics(
+                    *compression_metrics_ptr, worker_id_, "titan");
+            }
+
             send_response(client_fd, 200, "text/plain; version=0.0.4", body);
             return;
         }
