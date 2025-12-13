@@ -84,7 +84,7 @@ MiddlewareResult CompressionMiddleware::process_response(ResponseContext& ctx) {
         compression_metrics.skipped_client_unsupported++;
         ctx.set_metadata("compression_skip_reason", "client_unsupported");
         // Still add Vary header for proper caching
-        ctx.response->add_header("Vary", "Accept-Encoding");
+        ctx.response->add_middleware_header("Vary", "Accept-Encoding");
         return MiddlewareResult::Continue;
     }
 
@@ -430,9 +430,9 @@ bool CompressionMiddleware::try_serve_precompressed(ResponseContext& ctx,
     ctx.response->body_storage = std::move(compressed_data);
     ctx.response->body = ctx.response->body_storage;
 
-    // Update headers
-    ctx.response->add_header("Content-Encoding", core::encoding_to_string(encoding));
-    ctx.response->add_header("Vary", "Accept-Encoding");
+    // Update headers using hybrid storage
+    ctx.response->add_middleware_header("Content-Encoding", core::encoding_to_string(encoding));
+    ctx.response->add_middleware_header("Vary", "Accept-Encoding");
 
     // Update metrics
     compression_metrics.bytes_in += original_size;
@@ -459,25 +459,26 @@ bool CompressionMiddleware::try_serve_precompressed(ResponseContext& ctx,
 
 void CompressionMiddleware::update_headers(http::Response& response,
                                            core::CompressionEncoding encoding) {
-    // Add Content-Encoding header
-    response.add_header("Content-Encoding", core::encoding_to_string(encoding));
+    // Add Content-Encoding header using hybrid storage
+    response.add_middleware_header("Content-Encoding", core::encoding_to_string(encoding));
 
     // Add Vary header for proper caching
     auto existing_vary = response.get_header("Vary");
     if (existing_vary.empty()) {
-        response.add_header("Vary", "Accept-Encoding");
+        response.add_middleware_header("Vary", "Accept-Encoding");
     } else if (existing_vary.find("Accept-Encoding") == std::string_view::npos) {
         // Append to existing Vary header
         std::string new_vary = std::string(existing_vary) + ", Accept-Encoding";
         response.remove_header("Vary");
-        response.add_header("Vary", new_vary);
+        response.add_middleware_header("Vary", new_vary);
     }
 
     // Convert strong ETag to weak ETag (compression changes byte representation)
     auto etag = response.get_header("ETag");
     if (!etag.empty() && etag[0] != 'W') {
         response.remove_header("ETag");
-        response.add_header("ETag", "W/" + std::string(etag));
+        std::string weak_etag = "W/" + std::string(etag);
+        response.add_middleware_header("ETag", weak_etag);
     }
 
     // Update Content-Length if present
