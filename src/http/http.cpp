@@ -69,11 +69,32 @@ bool Request::keep_alive() const noexcept {
 // Response helper methods
 
 const Header* Response::find_header(std::string_view name) const noexcept {
+    // Search backend headers first (zero-copy from upstream)
+    for (const auto& header : backend_headers) {
+        if (header_name_equals(header.name, name)) {
+            return &header;
+        }
+    }
+
+    // Search middleware headers (owned strings)
+    // Note: We return a temporary Header pointing to the owned strings
+    // This is safe because std::string is stable as long as the vector doesn't reallocate
+    static thread_local Header temp_header;
+    for (const auto& [hdr_name, hdr_value] : middleware_headers) {
+        if (header_name_equals(hdr_name, name)) {
+            temp_header.name = hdr_name;
+            temp_header.value = hdr_value;
+            return &temp_header;
+        }
+    }
+
+    // Fallback: search deprecated headers field for backward compatibility
     for (const auto& header : headers) {
         if (header_name_equals(header.name, name)) {
             return &header;
         }
     }
+
     return nullptr;
 }
 
@@ -94,8 +115,10 @@ void Response::add_header(std::string_view name, std::string_view value) {
 
     ensure_header_storage_capacity();  // Reserve 2KB on first use (inline, fast)
 
-    // Capture old buffer pointer to detect reallocation
+    // Capture old buffer pointer and size to detect reallocation
     const char* old_data = header_storage.data();
+    const size_t old_size = header_storage.size();
+    const char* old_end = old_data + old_size;
 
     // Append name to flat buffer and capture offset
     size_t name_offset = header_storage.size();
@@ -107,15 +130,23 @@ void Response::add_header(std::string_view name, std::string_view value) {
 
     // Detect reallocation by comparing buffer addresses
     if (header_storage.data() != old_data) {
-        // Buffer was reallocated - fix all existing string_views to point to new buffer
-        // This is rare (only when exceeding 2KB), but critical for correctness
+        // Buffer was reallocated - fix ONLY string_views that point to old header_storage
+        // CRITICAL: Some headers may point to response_header_storage (backend headers)
+        // We must NOT corrupt those by calculating offsets from wrong base pointer!
         for (auto& h : headers) {
-            // Calculate offsets from old buffer start
-            size_t name_off = h.name.data() - old_data;
-            size_t value_off = h.value.data() - old_data;
-            // Rebuild string_views with new buffer base address
-            h.name = {header_storage.data() + name_off, h.name.size()};
-            h.value = {header_storage.data() + value_off, h.value.size()};
+            // Check if name points into OLD header_storage range
+            bool name_in_old_storage = (h.name.data() >= old_data && h.name.data() < old_end);
+            if (name_in_old_storage) {
+                size_t name_off = h.name.data() - old_data;
+                h.name = {header_storage.data() + name_off, h.name.size()};
+            }
+
+            // Check if value points into OLD header_storage range
+            bool value_in_old_storage = (h.value.data() >= old_data && h.value.data() < old_end);
+            if (value_in_old_storage) {
+                size_t value_off = h.value.data() - old_data;
+                h.value = {header_storage.data() + value_off, h.value.size()};
+            }
         }
     }
 
@@ -128,20 +159,60 @@ void Response::add_header(std::string_view name, std::string_view value) {
 }
 
 bool Response::remove_header(std::string_view name) {
-    // Remove all headers matching the name (case-insensitive)
-    auto it = std::remove_if(headers.begin(), headers.end(),
-                             [name](const Header& h) { return header_name_equals(h.name, name); });
+    bool found = false;
 
-    if (it == headers.end()) {
-        return false;  // Header not found
+    // Remove from backend headers
+    auto backend_it = std::remove_if(
+        backend_headers.begin(), backend_headers.end(),
+        [name](const Header& h) { return header_name_equals(h.name, name); });
+    if (backend_it != backend_headers.end()) {
+        backend_headers.erase(backend_it, backend_headers.end());
+        found = true;
     }
 
-    headers.erase(it, headers.end());
-    return true;  // Header(s) removed
+    // Remove from middleware headers
+    auto middleware_it = std::remove_if(
+        middleware_headers.begin(), middleware_headers.end(),
+        [name](const auto& pair) { return header_name_equals(pair.first, name); });
+    if (middleware_it != middleware_headers.end()) {
+        middleware_headers.erase(middleware_it, middleware_headers.end());
+        found = true;
+    }
+
+    // Fallback: remove from deprecated headers field
+    auto headers_it = std::remove_if(
+        headers.begin(), headers.end(),
+        [name](const Header& h) { return header_name_equals(h.name, name); });
+    if (headers_it != headers.end()) {
+        headers.erase(headers_it, headers.end());
+        found = true;
+    }
+
+    return found;
 }
 
 bool Response::modify_header(std::string_view name, std::string_view new_value) {
-    // Find first header matching the name (case-insensitive)
+    // Search middleware headers first (owned, safe to modify)
+    for (auto& [hdr_name, hdr_value] : middleware_headers) {
+        if (header_name_equals(hdr_name, name)) {
+            hdr_value = std::string(new_value);  // Update owned string
+            return true;
+        }
+    }
+
+    // Search backend headers (zero-copy, can't modify in place)
+    // If found in backend, remove it and add as middleware header
+    for (size_t i = 0; i < backend_headers.size(); ++i) {
+        if (header_name_equals(backend_headers[i].name, name)) {
+            // Move to middleware headers with new value
+            std::string name_str(backend_headers[i].name);
+            backend_headers.erase(backend_headers.begin() + i);
+            middleware_headers.emplace_back(std::move(name_str), std::string(new_value));
+            return true;
+        }
+    }
+
+    // Fallback: search deprecated headers field
     for (auto& header : headers) {
         if (header_name_equals(header.name, name)) {
             // Append new value to flat buffer
@@ -187,6 +258,56 @@ bool Response::keep_alive() const noexcept {
 
     // HTTP/1.0 defaults to close
     return connection == "keep-alive";
+}
+
+// HYBRID STORAGE API (Phase 2)
+
+void Response::add_backend_header(std::string_view name, std::string_view value) {
+    // Zero-copy: Store string_views pointing to external storage (recv_buffer or
+    // response_header_storage) CRITICAL: Caller must ensure lifetime (typically points to
+    // recv_buffer)
+    backend_headers.push_back({name, value});
+}
+
+void Response::add_middleware_header(std::string_view name, std::string_view value) {
+    // Safe: Always copies to owned strings, no lifetime concerns
+    // Cannot create dangling pointers - type system enforces correctness
+    middleware_headers.emplace_back(std::string(name), std::string(value));
+}
+
+std::pair<std::string_view, std::string_view> Response::AllHeadersIterator::operator*() const {
+    if (backend_idx < response->backend_headers.size()) {
+        // Return backend header as string_view pair
+        const auto& h = response->backend_headers[backend_idx];
+        return {h.name, h.value};
+    } else {
+        // Return middleware header as string_view pair (convert from std::string)
+        // Use backend_idx to calculate position in middleware_headers
+        size_t mid_idx = backend_idx - response->backend_headers.size();
+        const auto& [name, value] = response->middleware_headers[mid_idx];
+        return {std::string_view(name), std::string_view(value)};
+    }
+}
+
+Response::AllHeadersIterator& Response::AllHeadersIterator::operator++() {
+    // backend_idx tracks total position across both vectors
+    ++backend_idx;
+    return *this;
+}
+
+bool Response::AllHeadersIterator::operator!=(const AllHeadersIterator& other) const {
+    // Only compare backend_idx (total position)
+    return backend_idx != other.backend_idx;
+}
+
+Response::AllHeadersIterator Response::all_headers_begin() const {
+    return AllHeadersIterator{this, 0, 0};
+}
+
+Response::AllHeadersIterator Response::all_headers_end() const {
+    size_t total = backend_headers.size() + middleware_headers.size();
+    // backend_idx = total position, middleware_idx unused
+    return AllHeadersIterator{this, total, 0};
 }
 
 // Conversion functions

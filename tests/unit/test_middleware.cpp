@@ -382,8 +382,10 @@ TEST_CASE("ProxyMiddleware - Response phase adds headers", "[middleware][proxy]"
 
     // Check X-Proxy header
     bool found_proxy_header = false;
-    for (const auto& header : res.headers) {
-        if (header.name == "X-Proxy" && header.value == "Titan") {
+    // Use iterator to check both backend and middleware headers
+    for (auto it = res.all_headers_begin(); it != res.all_headers_end(); ++it) {
+        auto [name, value] = *it;
+        if (name == "X-Proxy" && value == "Titan") {
             found_proxy_header = true;
         }
     }
@@ -391,11 +393,12 @@ TEST_CASE("ProxyMiddleware - Response phase adds headers", "[middleware][proxy]"
 
     // Check X-Response-Time header
     bool found_time_header = false;
-    for (const auto& header : res.headers) {
-        if (header.name == "X-Response-Time") {
+    for (auto it = res.all_headers_begin(); it != res.all_headers_end(); ++it) {
+        auto [name, value] = *it;
+        if (name == "X-Response-Time") {
             found_time_header = true;
             // Should contain "ms"
-            REQUIRE(header.value.find("ms") != std::string::npos);
+            REQUIRE(value.find("ms") != std::string::npos);
         }
     }
     REQUIRE(found_time_header);
@@ -462,19 +465,20 @@ TEST_CASE("CorsMiddleware - Adds CORS headers in request phase", "[middleware][c
 
     REQUIRE(result == MiddlewareResult::Continue);
 
-    // Check headers were added
+    // Check headers were added using iterator (hybrid storage)
     bool found_origin = false;
     bool found_methods = false;
     bool found_headers = false;
 
-    for (const auto& header : res.headers) {
-        if (header.name == "Access-Control-Allow-Origin") {
+    for (auto it = res.all_headers_begin(); it != res.all_headers_end(); ++it) {
+        auto [name, value] = *it;
+        if (name == "Access-Control-Allow-Origin") {
             found_origin = true;
         }
-        if (header.name == "Access-Control-Allow-Methods") {
+        if (name == "Access-Control-Allow-Methods") {
             found_methods = true;
         }
-        if (header.name == "Access-Control-Allow-Headers") {
+        if (name == "Access-Control-Allow-Headers") {
             found_headers = true;
         }
     }
@@ -524,15 +528,16 @@ TEST_CASE("CorsMiddleware - Custom configuration", "[middleware][cors]") {
 
     (void)middleware.process_request(ctx);
 
-    // Check custom origin
+    // Check custom origin using iterator (hybrid storage)
     bool found_origin = false;
     bool found_credentials = false;
 
-    for (const auto& header : res.headers) {
-        if (header.name == "Access-Control-Allow-Origin" && header.value == "https://example.com") {
+    for (auto it = res.all_headers_begin(); it != res.all_headers_end(); ++it) {
+        auto [name, value] = *it;
+        if (name == "Access-Control-Allow-Origin" && value == "https://example.com") {
             found_origin = true;
         }
-        if (header.name == "Access-Control-Allow-Credentials" && header.value == "true") {
+        if (name == "Access-Control-Allow-Credentials" && value == "true") {
             found_credentials = true;
         }
     }

@@ -193,15 +193,16 @@ std::error_code H2Session::submit_response(int32_t stream_id, const Response& re
                        const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(status.c_str())), 7,
                        status.size(), NGHTTP2_NV_FLAG_NONE});
 
-    // Regular headers
-    for (const auto& header : response.headers) {
-        if (header.name.empty() || header.value.empty()) {
+    // Regular headers - iterate over ALL headers (backend + middleware)
+    for (auto it = response.all_headers_begin(); it != response.all_headers_end(); ++it) {
+        auto [name, value] = *it;
+        if (name.empty() || value.empty()) {
             continue;  // Skip empty headers
         }
         headers.push_back(
-            {const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(header.name.data())),
-             const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(header.value.data())),
-             header.name.size(), header.value.size(), NGHTTP2_NV_FLAG_NONE});
+            {const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(name.data())),
+             const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(value.data())), name.size(),
+             value.size(), NGHTTP2_NV_FLAG_NONE});
     }
 
     // Prepare data provider if body exists

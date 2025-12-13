@@ -123,7 +123,7 @@ MiddlewareResult JwtAuthzMiddleware::send_403(RequestContext& ctx, std::string_v
             R"({"error":"forbidden","message":"Insufficient permissions"})";
         ctx.response->body = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(error_body),
                                                       std::char_traits<char>::length(error_body));
-        ctx.response->add_header("Content-Type", "application/json");
+        ctx.response->add_middleware_header("Content-Type", "application/json");
     }
 
     ctx.set_error("Authorization failed: " + std::string(error));

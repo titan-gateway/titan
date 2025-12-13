@@ -118,8 +118,9 @@ MiddlewareResult TransformMiddleware::process_response(ResponseContext& ctx) {
 
         // Now apply collected operations (safe - not iterating anymore)
         for (auto& [name, value] : headers_to_add) {
-            ctx.set_metadata("response_header_val_" + name, std::move(value));
-            ctx.response->add_header(name, ctx.get_metadata("response_header_val_" + name));
+            // Hybrid storage: add_middleware_header() copies to owned strings
+            // Completely safe - no need for metadata storage anymore!
+            ctx.response->add_middleware_header(name, value);
         }
 
         for (const auto& name : headers_to_remove) {
@@ -128,9 +129,8 @@ MiddlewareResult TransformMiddleware::process_response(ResponseContext& ctx) {
 
         for (auto& [name, value] : headers_to_modify) {
             if (!ctx.response->modify_header(name, value)) {
-                // Header doesn't exist, add it
-                ctx.set_metadata("response_header_val_" + name, std::move(value));
-                ctx.response->add_header(name, ctx.get_metadata("response_header_val_" + name));
+                // Header doesn't exist, add it using hybrid storage
+                ctx.response->add_middleware_header(name, value);
             }
         }
     } else {
@@ -338,15 +338,12 @@ void TransformMiddleware::apply_response_header_transformations(
         } else if (rule.action == "modify") {
             // Modify existing header (or add if doesn't exist)
             if (!ctx.response->modify_header(rule.name, rule.value)) {
-                // Header doesn't exist, add it
-                ctx.set_metadata("response_header_" + rule.name, rule.value);
-                ctx.response->add_header(rule.name,
-                                         ctx.get_metadata("response_header_" + rule.name));
+                // Header doesn't exist, add it using hybrid storage
+                ctx.response->add_middleware_header(rule.name, rule.value);
             }
         } else if (rule.action == "add") {
-            // Store value in metadata to prevent dangling string_view
-            ctx.set_metadata("response_header_" + rule.name, rule.value);
-            ctx.response->add_header(rule.name, ctx.get_metadata("response_header_" + rule.name));
+            // Hybrid storage: add_middleware_header() copies to owned strings
+            ctx.response->add_middleware_header(rule.name, rule.value);
         }
     }
 }

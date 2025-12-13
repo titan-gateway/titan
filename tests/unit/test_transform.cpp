@@ -515,8 +515,8 @@ TEST_CASE("TransformMiddleware - Memory Safety", "[transform][memory]") {
         // Verify value is correct
         REQUIRE(header_value == "temporary_value");
 
-        // Verify metadata contains the owned value
-        REQUIRE_FALSE(ctx.get_metadata("response_header_X-Test").empty());
+        // With hybrid storage, headers are now owned by middleware_headers vector
+        // No need to check metadata - add_middleware_header() copies to owned storage
     }
 }
 

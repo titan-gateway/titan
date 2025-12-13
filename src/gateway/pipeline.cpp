@@ -49,10 +49,10 @@ MiddlewareResult CorsMiddleware::process_request(RequestContext& ctx) {
         return MiddlewareResult::Error;
     }
 
-    // Add CORS headers (store strings in metadata to keep them alive)
+    // Add CORS headers using hybrid storage (add_middleware_header copies strings - safe!)
     if (!config_.allowed_origins.empty()) {
-        ctx.set_metadata("cors_origin", config_.allowed_origins[0]);
-        ctx.response->add_header("Access-Control-Allow-Origin", ctx.get_metadata("cors_origin"));
+        ctx.response->add_middleware_header("Access-Control-Allow-Origin",
+                                            config_.allowed_origins[0]);
     }
 
     if (!config_.allowed_methods.empty()) {
@@ -62,8 +62,7 @@ MiddlewareResult CorsMiddleware::process_request(RequestContext& ctx) {
                 methods += ", ";
             methods += config_.allowed_methods[i];
         }
-        ctx.set_metadata("cors_methods", std::move(methods));
-        ctx.response->add_header("Access-Control-Allow-Methods", ctx.get_metadata("cors_methods"));
+        ctx.response->add_middleware_header("Access-Control-Allow-Methods", methods);
     }
 
     if (!config_.allowed_headers.empty()) {
@@ -73,16 +72,15 @@ MiddlewareResult CorsMiddleware::process_request(RequestContext& ctx) {
                 headers += ", ";
             headers += config_.allowed_headers[i];
         }
-        ctx.set_metadata("cors_headers", std::move(headers));
-        ctx.response->add_header("Access-Control-Allow-Headers", ctx.get_metadata("cors_headers"));
+        ctx.response->add_middleware_header("Access-Control-Allow-Headers", headers);
     }
 
     if (config_.allow_credentials) {
-        ctx.response->add_header("Access-Control-Allow-Credentials", "true");
+        ctx.response->add_middleware_header("Access-Control-Allow-Credentials", "true");
     }
 
-    ctx.set_metadata("cors_max_age", std::to_string(config_.max_age));
-    ctx.response->add_header("Access-Control-Max-Age", ctx.get_metadata("cors_max_age"));
+    std::string max_age = std::to_string(config_.max_age);
+    ctx.response->add_middleware_header("Access-Control-Max-Age", max_age);
 
     // Handle OPTIONS preflight
     if (ctx.request->method == http::Method::OPTIONS) {
@@ -207,15 +205,18 @@ MiddlewareResult ProxyMiddleware::process_response(ResponseContext& ctx) {
         }
     }
 
-    // Add proxy identification header
+    // Add proxy identification header using hybrid storage
     if (ctx.response) {
-        ctx.response->add_header("X-Proxy", "Titan");
+        // add_middleware_header() copies strings to owned storage - safe from stack-use-after-return
+        ctx.response->add_middleware_header("X-Proxy", "Titan");
 
-        // Add timing information (store in metadata to keep string alive)
+        // Add timing information
         auto now = std::chrono::steady_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - ctx.start_time);
-        ctx.set_metadata("response_time", std::to_string(duration.count()) + "ms");
-        ctx.response->add_header("X-Response-Time", ctx.get_metadata("response_time"));
+
+        // Temporary string is copied by add_middleware_header() - completely safe!
+        std::string timing_value = std::to_string(duration.count()) + "ms";
+        ctx.response->add_middleware_header("X-Response-Time", timing_value);
     }
 
     return MiddlewareResult::Continue;

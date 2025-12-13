@@ -137,15 +137,15 @@ MiddlewareResult JwtAuthMiddleware::send_401(RequestContext& ctx, std::string_vi
             // TODO: Make this configurable via environment variable or config
             // auth_challenge += ", error=\"" + std::string(error) + "\"";
         }
-        ctx.set_metadata("www-authenticate", auth_challenge);
-        ctx.response->add_header("WWW-Authenticate", ctx.get_metadata("www-authenticate"));
+        // Hybrid storage: add_middleware_header() copies to owned strings
+        ctx.response->add_middleware_header("WWW-Authenticate", auth_challenge);
 
         // Set generic error body (don't leak validation details)
         static constexpr const char* error_body =
             R"({"error":"unauthorized","message":"Authentication required"})";
         ctx.response->body = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(error_body),
                                                       std::char_traits<char>::length(error_body));
-        ctx.response->add_header("Content-Type", "application/json");
+        ctx.response->add_middleware_header("Content-Type", "application/json");
     }
 
     ctx.set_error("JWT validation failed: " + std::string(error));
