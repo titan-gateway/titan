@@ -56,6 +56,7 @@ struct ServerConfig {
     std::string tls_certificate_path;  // Path to certificate file (PEM format)
     std::string tls_private_key_path;  // Path to private key file (PEM format)
     std::vector<std::string> tls_alpn_protocols = {"h2", "http/1.1"};  // ALPN protocol list
+    bool route_cache_enabled = true;  // Thread-local LRU route cache
 };
 
 /// Backend server configuration
