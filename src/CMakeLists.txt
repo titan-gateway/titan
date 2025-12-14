@@ -80,6 +80,7 @@ target_link_libraries(titan_lib
     ZLIB::ZLIB
     $<IF:$<TARGET_EXISTS:zstd::libzstd_static>,zstd::libzstd_static,zstd::libzstd_shared>
     unofficial::brotli::brotlienc
+    unordered_dense::unordered_dense
 )
 
 # Titan executable

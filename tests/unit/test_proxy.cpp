@@ -32,7 +32,7 @@ public:
 
     // Wrapper methods to access private Server methods
     std::string test_build_backend_request(const Request& req) {
-        std::unordered_map<std::string, std::string> empty_metadata;
+        titan::core::fast_map<std::string, std::string> empty_metadata;
         return server_.build_backend_request(req, empty_metadata);
     }
 

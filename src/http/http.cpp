@@ -162,27 +162,27 @@ bool Response::remove_header(std::string_view name) {
     bool found = false;
 
     // Remove from backend headers
-    auto backend_it = std::remove_if(
-        backend_headers.begin(), backend_headers.end(),
-        [name](const Header& h) { return header_name_equals(h.name, name); });
+    auto backend_it =
+        std::remove_if(backend_headers.begin(), backend_headers.end(),
+                       [name](const Header& h) { return header_name_equals(h.name, name); });
     if (backend_it != backend_headers.end()) {
         backend_headers.erase(backend_it, backend_headers.end());
         found = true;
     }
 
     // Remove from middleware headers
-    auto middleware_it = std::remove_if(
-        middleware_headers.begin(), middleware_headers.end(),
-        [name](const auto& pair) { return header_name_equals(pair.first, name); });
+    auto middleware_it =
+        std::remove_if(middleware_headers.begin(), middleware_headers.end(),
+                       [name](const auto& pair) { return header_name_equals(pair.first, name); });
     if (middleware_it != middleware_headers.end()) {
         middleware_headers.erase(middleware_it, middleware_headers.end());
         found = true;
     }
 
     // Fallback: remove from deprecated headers field
-    auto headers_it = std::remove_if(
-        headers.begin(), headers.end(),
-        [name](const Header& h) { return header_name_equals(h.name, name); });
+    auto headers_it = std::remove_if(headers.begin(), headers.end(), [name](const Header& h) {
+        return header_name_equals(h.name, name);
+    });
     if (headers_it != headers.end()) {
         headers.erase(headers_it, headers.end());
         found = true;

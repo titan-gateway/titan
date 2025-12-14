@@ -27,9 +27,9 @@
 #include <span>
 #include <string>
 #include <system_error>
-#include <unordered_map>
 #include <vector>
 
+#include "../core/containers.hpp"
 #include "http.hpp"
 
 namespace titan::http {
@@ -61,6 +61,7 @@ struct H2Stream {
 
     std::vector<uint8_t> request_body;   // Accumulated request body data
     std::vector<uint8_t> response_body;  // Accumulated response body data
+    size_t response_body_offset = 0;     // Offset for chunked response body sending
 
     // Storage for HTTP/2 pseudo-headers (request.path/uri are views into these)
     std::string path_storage;  // Owned storage for :path pseudo-header
@@ -72,6 +73,9 @@ struct H2Stream {
     // Storage for response header strings (response.headers views point into these)
     std::vector<std::pair<std::string, std::string>> response_header_storage;
 
+    // Storage for :status pseudo-header value (must persist during nghttp2_session_send)
+    std::string status_storage;
+
     // Data provider for response body (must persist during nghttp2_session_send)
     nghttp2_data_provider data_provider;
 
@@ -82,6 +86,9 @@ struct H2Stream {
 /// HTTP/2 session managing multiple streams over a single connection
 class H2Session {
 public:
+    /// Callback invoked when a stream is closed by nghttp2
+    using StreamCloseCallback = std::function<void(int32_t stream_id)>;
+
     /// Create HTTP/2 session
     /// is_server: true for server mode, false for client mode
     explicit H2Session(bool is_server);
@@ -119,14 +126,20 @@ public:
     /// Check if connection should be closed
     [[nodiscard]] bool should_close() const noexcept;
 
+    /// Set callback to be invoked when streams are closed
+    void set_stream_close_callback(StreamCloseCallback callback);
+
 private:
     bool is_server_;
     nghttp2_session* session_ = nullptr;
 
-    std::unordered_map<int32_t, std::unique_ptr<H2Stream>> streams_;
+    titan::core::fast_map<int32_t, std::unique_ptr<H2Stream>> streams_;
     std::vector<uint8_t> send_buffer_;
 
     bool should_close_ = false;
+
+    // Callback invoked when streams are closed
+    StreamCloseCallback stream_close_callback_;
 
     // nghttp2 callbacks
     static ssize_t send_callback(nghttp2_session* session, const uint8_t* data, size_t length,

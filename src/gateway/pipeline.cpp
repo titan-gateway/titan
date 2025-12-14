@@ -207,7 +207,8 @@ MiddlewareResult ProxyMiddleware::process_response(ResponseContext& ctx) {
 
     // Add proxy identification header using hybrid storage
     if (ctx.response) {
-        // add_middleware_header() copies strings to owned storage - safe from stack-use-after-return
+        // add_middleware_header() copies strings to owned storage - safe from
+        // stack-use-after-return
         ctx.response->add_middleware_header("X-Proxy", "Titan");
 
         // Add timing information

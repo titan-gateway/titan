@@ -51,6 +51,9 @@ find_package(ZLIB REQUIRED)
 find_package(zstd CONFIG REQUIRED)
 find_package(unofficial-brotli CONFIG REQUIRED)
 
+# High-performance hash map library
+find_package(unordered_dense CONFIG REQUIRED)
+
 # Compiler-specific flags
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(

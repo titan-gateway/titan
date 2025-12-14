@@ -228,9 +228,9 @@ std::vector<std::string> JwtAuthzMiddleware::parse_space_separated(std::string_v
     return result;
 }
 
-std::unordered_set<std::string> JwtAuthzMiddleware::parse_space_separated_set(
+titan::core::fast_set<std::string> JwtAuthzMiddleware::parse_space_separated_set(
     std::string_view input, size_t max_tokens) const {
-    std::unordered_set<std::string> result;
+    titan::core::fast_set<std::string> result;
 
     if (input.empty()) {
         return result;

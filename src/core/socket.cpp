@@ -28,8 +28,8 @@
 #include <atomic>
 #include <cstdio>
 #include <cstring>
-#include <unordered_map>
 
+#include "containers.hpp"
 #include "logging.hpp"
 
 // Performance instrumentation - enabled by default for profiling
@@ -44,7 +44,7 @@ namespace titan::core {
 struct FdMetrics {
     std::atomic<uint64_t> close_count{0};
     std::atomic<uint64_t> create_count{0};
-    std::unordered_map<int, std::string> fd_origins;
+    titan::core::fast_map<int, std::string> fd_origins;
 
     void track_fd(int fd, const char* origin) {
         if (fd >= 0) {

@@ -23,7 +23,8 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
-#include <unordered_map>
+
+#include "../core/containers.hpp"
 
 namespace titan::gateway {
 
@@ -106,7 +107,7 @@ public:
 private:
     const uint64_t capacity_;
     const uint64_t refill_rate_;
-    std::unordered_map<std::string, TokenBucket> buckets_;  // Thread-local, no mutex
+    titan::core::fast_map<std::string, TokenBucket> buckets_;  // Thread-local, no mutex
 };
 
 }  // namespace titan::gateway

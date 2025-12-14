@@ -221,7 +221,10 @@ void Server::handle_read(int client_fd) {
         if (n <= 0) {
             int err = SSL_get_error(conn.ssl, n);
             if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
-                // Would block - try again later
+                // Would block - but if HTTP/2, send SETTINGS first (edge-triggered epoll fix)
+                if (conn.protocol == Protocol::HTTP_2 && conn.h2_session) {
+                    handle_http2(conn);  // Send SETTINGS with empty buffer
+                }
                 return;
             }
             // Error or EOF - close connection
@@ -361,6 +364,7 @@ void Server::handle_http2(Connection& conn) {
 
     // Process completed streams
     auto active_streams = conn.h2_session->get_active_streams();
+
     for (auto* stream : active_streams) {
         if (stream->request_complete && !stream->response_complete) {
             // Process HTTP/2 request (similar to HTTP/1.1 but for stream)
@@ -371,6 +375,7 @@ void Server::handle_http2(Connection& conn) {
     // Send any pending data
     if (conn.h2_session->want_write()) {
         auto send_data = conn.h2_session->send_data();
+
         if (!send_data.empty()) {
             ssize_t sent;
             if (conn.tls_enabled) {
@@ -472,18 +477,6 @@ void Server::handle_close(int client_fd) {
     }
 
     Connection& conn = *it->second;
-
-    // Log connection close with protocol and HTTP/2 status
-    if (conn.protocol == Protocol::HTTP_2) {
-        const char* reason = "UNKNOWN";
-        if (conn.h2_session && conn.h2_session->should_close()) {
-            reason = "HTTP2_GOAWAY";
-        } else if (!conn.tls_handshake_complete) {
-            reason = "TLS_INCOMPLETE";
-        } else {
-            reason = "NORMAL_CLOSE";
-        }
-    }
 
     // Clean up backend connection if exists (HTTP/1.1)
     if (conn.backend_conn) {
@@ -635,10 +628,8 @@ void Server::send_response(Connection& conn, bool keep_alive) {
     // Pre-reserve capacity to avoid allocations (estimate: 200 bytes headers + body size)
     size_t body_size = conn.response.body.empty() ? 0 : conn.response.body.size();
     size_t estimated_size = 200 + body_size;
-    // Iterate over ALL headers (backend + middleware) using hybrid storage iterator
-    for (auto it = conn.response.all_headers_begin(); it != conn.response.all_headers_end(); ++it) {
-        auto [name, value] = *it;
-        estimated_size += name.size() + value.size() + 4;  // ": \r\n"
+    for (const auto& header : conn.response.headers) {
+        estimated_size += header.name.size() + header.value.size() + 4;  // ": \r\n"
     }
     response_str.reserve(estimated_size);
 
@@ -649,17 +640,16 @@ void Server::send_response(Connection& conn, bool keep_alive) {
     response_str += http::to_reason_phrase(conn.response.status);
     response_str += "\r\n";
 
-    // Forward ALL headers (backend + middleware) except Content-Length and Connection
-    for (auto it = conn.response.all_headers_begin(); it != conn.response.all_headers_end(); ++it) {
-        auto [name, value] = *it;
+    // Forward headers from backend response (except Content-Length and Connection)
+    for (const auto& header : conn.response.headers) {
         // Skip headers we'll add ourselves
-        if (name == "Content-Length" || name == "content-length" ||
-            name == "Connection" || name == "connection") {
+        if (header.name == "Content-Length" || header.name == "content-length" ||
+            header.name == "Connection" || header.name == "connection") {
             continue;
         }
-        response_str += name;
+        response_str += header.name;
         response_str += ": ";
-        response_str += value;
+        response_str += header.value;
         response_str += "\r\n";
     }
 
@@ -936,7 +926,7 @@ int Server::connect_to_backend_async(const std::string& host, uint16_t port) {
 }
 
 std::string Server::build_backend_request(
-    const http::Request& request, const std::unordered_map<std::string, std::string>& metadata) {
+    const http::Request& request, const titan::core::fast_map<std::string, std::string>& metadata) {
     std::string req;
 
     // Use transformed path/query from metadata if present (from TransformMiddleware)
@@ -1423,11 +1413,10 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
             }
 
             // Now create Headers with string_views pointing to our owned storage
-            // Use add_backend_header() for zero-copy (points to response_header_storage)
-            client_conn.response.backend_headers.clear();
-            client_conn.response.backend_headers.reserve(client_conn.response_header_storage.size());
+            client_conn.response.headers.clear();
+            client_conn.response.headers.reserve(client_conn.response_header_storage.size());
             for (const auto& [name, value] : client_conn.response_header_storage) {
-                client_conn.response.add_backend_header(name, value);
+                client_conn.response.headers.push_back({name, value});
             }
 
             // Copy body to owned buffer
@@ -1518,18 +1507,16 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
                         stream->response.reason_phrase = client_conn.response.reason_phrase;
 
                         // Store headers in persistent storage, then create views to them
-                        // Use hybrid storage iterator to get ALL headers (backend + middleware)
                         stream->response_header_storage.clear();
-                        stream->response.backend_headers.clear();
-
-                        // Iterate over both backend and middleware headers
-                        for (auto it = client_conn.response.all_headers_begin();
-                             it != client_conn.response.all_headers_end(); ++it) {
-                            auto [name, value] = *it;
-                            stream->response_header_storage.emplace_back(std::string(name),
-                                                                         std::string(value));
+                        stream->response_header_storage.reserve(
+                            client_conn.response.headers.size());  // Prevent reallocation
+                        stream->response.headers.clear();
+                        stream->response.headers.reserve(client_conn.response.headers.size());
+                        for (const auto& h : client_conn.response.headers) {
+                            stream->response_header_storage.emplace_back(std::string(h.name),
+                                                                         std::string(h.value));
                             const auto& stored = stream->response_header_storage.back();
-                            stream->response.add_backend_header(stored.first, stored.second);
+                            stream->response.headers.push_back({stored.first, stored.second});
                         }
 
                         // Copy body
@@ -1540,7 +1527,7 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
                         // Filter out HTTP/1.1-specific headers forbidden in HTTP/2
                         // Per RFC 7540 Section 8.1.2: connection-specific headers must not be
                         // included Also filter out empty headers
-                        auto& headers = stream->response.backend_headers;
+                        auto& headers = stream->response.headers;
                         headers.erase(std::remove_if(headers.begin(), headers.end(),
                                                      [](const http::Header& h) {
                                                          // Remove empty headers

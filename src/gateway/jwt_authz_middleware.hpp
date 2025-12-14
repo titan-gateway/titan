@@ -21,9 +21,9 @@
 
 #include <string>
 #include <string_view>
-#include <unordered_set>
 #include <vector>
 
+#include "../core/containers.hpp"
 #include "../core/jwt.hpp"
 #include "pipeline.hpp"
 
@@ -70,7 +70,7 @@ private:
         std::string_view input, size_t max_tokens = core::MAX_SCOPE_ROLE_COUNT) const;
 
     /// Parse space-separated scope/role string into hash set for O(1) lookup (with count limit)
-    [[nodiscard]] std::unordered_set<std::string> parse_space_separated_set(
+    [[nodiscard]] titan::core::fast_set<std::string> parse_space_separated_set(
         std::string_view input, size_t max_tokens = core::MAX_SCOPE_ROLE_COUNT) const;
 
     /// Sanitize string for safe logging (escape control characters, truncate)
