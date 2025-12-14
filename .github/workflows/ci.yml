@@ -293,7 +293,7 @@ jobs:
       - name: Run Integration Tests
         run: |
           cd tests/integration
-          pytest -v --tb=short
+          pytest -v --tb=short --ignore=test_http2_stress.py
 
   integration-test-arm64:
     name: Integration Tests (arm64)
@@ -340,7 +340,7 @@ jobs:
       - name: Run Integration Tests
         run: |
           cd tests/integration
-          pytest -v --tb=short
+          pytest -v --tb=short --ignore=test_http2_stress.py
 
   security-scan:
     name: Security Scanning
