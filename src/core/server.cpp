@@ -628,8 +628,10 @@ void Server::send_response(Connection& conn, bool keep_alive) {
     // Pre-reserve capacity to avoid allocations (estimate: 200 bytes headers + body size)
     size_t body_size = conn.response.body.empty() ? 0 : conn.response.body.size();
     size_t estimated_size = 200 + body_size;
-    for (const auto& header : conn.response.headers) {
-        estimated_size += header.name.size() + header.value.size() + 4;  // ": \r\n"
+    // Estimate header sizes using all_headers iterator (backend + middleware)
+    for (auto it = conn.response.all_headers_begin(); it != conn.response.all_headers_end(); ++it) {
+        auto [name, value] = *it;
+        estimated_size += name.size() + value.size() + 4;  // ": \r\n"
     }
     response_str.reserve(estimated_size);
 
@@ -640,16 +642,17 @@ void Server::send_response(Connection& conn, bool keep_alive) {
     response_str += http::to_reason_phrase(conn.response.status);
     response_str += "\r\n";
 
-    // Forward headers from backend response (except Content-Length and Connection)
-    for (const auto& header : conn.response.headers) {
+    // Forward all headers (backend + middleware, except Content-Length and Connection)
+    for (auto it = conn.response.all_headers_begin(); it != conn.response.all_headers_end(); ++it) {
+        auto [name, value] = *it;
         // Skip headers we'll add ourselves
-        if (header.name == "Content-Length" || header.name == "content-length" ||
-            header.name == "Connection" || header.name == "connection") {
+        if (name == "Content-Length" || name == "content-length" ||
+            name == "Connection" || name == "connection") {
             continue;
         }
-        response_str += header.name;
+        response_str += name;
         response_str += ": ";
-        response_str += header.value;
+        response_str += value;
         response_str += "\r\n";
     }
 
@@ -1507,14 +1510,16 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
                         stream->response.reason_phrase = client_conn.response.reason_phrase;
 
                         // Store headers in persistent storage, then create views to them
+                        // IMPORTANT: Use all_headers iterator to include BOTH backend and middleware headers
                         stream->response_header_storage.clear();
-                        stream->response_header_storage.reserve(
-                            client_conn.response.headers.size());  // Prevent reallocation
                         stream->response.headers.clear();
-                        stream->response.headers.reserve(client_conn.response.headers.size());
-                        for (const auto& h : client_conn.response.headers) {
-                            stream->response_header_storage.emplace_back(std::string(h.name),
-                                                                         std::string(h.value));
+
+                        // Iterate over all headers (backend + middleware)
+                        for (auto it = client_conn.response.all_headers_begin();
+                             it != client_conn.response.all_headers_end(); ++it) {
+                            auto [name, value] = *it;
+                            stream->response_header_storage.emplace_back(std::string(name),
+                                                                         std::string(value));
                             const auto& stored = stream->response_header_storage.back();
                             stream->response.headers.push_back({stored.first, stored.second});
                         }
