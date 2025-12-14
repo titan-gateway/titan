@@ -33,8 +33,9 @@
 #include <memory>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <vector>
+
+#include "containers.hpp"
 
 namespace titan::core {
 
@@ -119,7 +120,7 @@ private:
     // jti → exp_timestamp
     // Tokens are automatically invalid after exp, but we keep them
     // in blacklist until cleanup_expired() is called
-    std::unordered_map<std::string, uint64_t> blacklist_;
+    titan::core::fast_map<std::string, uint64_t> blacklist_;
 };
 
 }  // namespace titan::core

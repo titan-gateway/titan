@@ -22,10 +22,10 @@
 #include <functional>
 #include <memory>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include "../http/http.hpp"
+#include "core/containers.hpp"
 #include "rate_limit.hpp"
 #include "router.hpp"
 #include "upstream.hpp"
@@ -51,7 +51,7 @@ struct RequestContext {
     Upstream* upstream = nullptr;
 
     // Metadata (for middleware communication)
-    std::unordered_map<std::string, std::string> metadata;
+    titan::core::fast_map<std::string, std::string> metadata;
 
     // Timing
     std::chrono::steady_clock::time_point start_time;
@@ -97,7 +97,7 @@ struct ResponseContext {
 
     bool backend_error = false;
 
-    std::unordered_map<std::string, std::string> metadata;
+    titan::core::fast_map<std::string, std::string> metadata;
 
     // Timing
     std::chrono::steady_clock::time_point start_time;

@@ -25,9 +25,10 @@ def test_http2_preface_detection(titan_server):
         text=True,
     )
 
-    # curl should successfully connect
-    # Note: Server may not fully support HTTP/2 yet, but it should accept the connection
-    assert result.returncode in [0, 52, 56]  # 0 = success, 52 = empty reply, 56 = recv failure
+    # curl should successfully connect and receive response
+    assert result.returncode == 0, f"HTTP/2 request failed: {result.stderr}"
+    # Verify HTTP/2 was used
+    assert "HTTP/2" in result.stderr or "h2" in result.stderr.lower()
 
 
 def test_http2_get_request(titan_server):
@@ -44,8 +45,12 @@ def test_http2_get_request(titan_server):
         text=True,
     )
 
+    # Request must succeed
+    assert result.returncode == 0, f"HTTP/2 GET failed: {result.stderr}"
     # Check that HTTP/2 was used (visible in stderr)
-    assert "HTTP/2" in result.stderr or "h2" in result.stderr
+    assert "HTTP/2" in result.stderr or "h2" in result.stderr.lower()
+    # Verify response received
+    assert len(result.stdout) > 0, "No response body received"
 
 
 def test_http2_multiple_requests(titan_server):
@@ -65,8 +70,10 @@ def test_http2_multiple_requests(titan_server):
         text=True,
     )
 
-    # Curl should attempt multiple requests
-    assert result.returncode in [0, 52, 56]
+    # All requests must succeed
+    assert result.returncode == 0, f"HTTP/2 multiple requests failed: {result.stderr}"
+    # Verify responses received for all URLs
+    assert len(result.stdout) > 0, "No response bodies received"
 
 
 def test_http1_still_works(titan_server):
@@ -92,6 +99,7 @@ def test_http1_and_http2_coexist(titan_server):
         [
             "curl",
             "--http2-prior-knowledge",
+            "-v",
             "-m", "5",
             f"{titan_server}/",
         ],
@@ -101,7 +109,10 @@ def test_http1_and_http2_coexist(titan_server):
 
     # Both should work
     assert resp1.status_code == 200
-    assert result.returncode in [0, 52, 56]
+    assert result.returncode == 0, f"HTTP/2 request failed: {result.stderr}"
+    # Verify HTTP/2 was used
+    assert "HTTP/2" in result.stderr or "h2" in result.stderr.lower()
+    assert len(result.stdout) > 0, "No response body received"
 
 
 def test_http2_proxied_request(titan_server):
@@ -119,12 +130,12 @@ def test_http2_proxied_request(titan_server):
         text=True,
     )
 
-    # Request should succeed (or at least attempt)
-    assert result.returncode in [0, 52, 56]
-
-    # If successful, check for response body
-    if result.returncode == 0:
-        assert len(result.stdout) > 0
+    # Request must succeed
+    assert result.returncode == 0, f"HTTP/2 proxied request failed: {result.stderr}"
+    # Verify HTTP/2 was used
+    assert "HTTP/2" in result.stderr or "h2" in result.stderr.lower()
+    # Verify response received
+    assert len(result.stdout) > 0, "No response body received"
 
 
 def test_http2_parametrized_proxied_route(titan_server):
@@ -134,6 +145,7 @@ def test_http2_parametrized_proxied_route(titan_server):
         [
             "curl",
             "--http2-prior-knowledge",
+            "-v",
             "-m", "5",
             f"{titan_server}/api/users/123",
         ],
@@ -141,8 +153,12 @@ def test_http2_parametrized_proxied_route(titan_server):
         text=True,
     )
 
-    # Request should attempt
-    assert result.returncode in [0, 52, 56]
+    # Request must succeed
+    assert result.returncode == 0, f"HTTP/2 parametrized route failed: {result.stderr}"
+    # Verify HTTP/2 was used
+    assert "HTTP/2" in result.stderr or "h2" in result.stderr.lower()
+    # Verify response received
+    assert len(result.stdout) > 0, "No response body received"
 
 
 def test_http2_large_proxied_response(titan_server):
@@ -152,6 +168,7 @@ def test_http2_large_proxied_response(titan_server):
         [
             "curl",
             "--http2-prior-knowledge",
+            "-v",
             "-m", "5",
             f"{titan_server}/large",
         ],
@@ -159,9 +176,9 @@ def test_http2_large_proxied_response(titan_server):
         text=True,
     )
 
-    # Request should complete
-    assert result.returncode in [0, 52, 56]
-
-    # If successful, verify large response
-    if result.returncode == 0:
-        assert len(result.stdout) > 10000  # Large response is ~30KB
+    # Request must succeed
+    assert result.returncode == 0, f"HTTP/2 large response failed: {result.stderr}"
+    # Verify HTTP/2 was used
+    assert "HTTP/2" in result.stderr or "h2" in result.stderr.lower()
+    # Verify large response received
+    assert len(result.stdout) > 10000, f"Expected large response (>10KB), got {len(result.stdout)} bytes"

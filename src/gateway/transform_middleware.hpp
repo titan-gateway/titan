@@ -22,10 +22,10 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include "../control/config.hpp"
+#include "../core/containers.hpp"
 #include "../http/regex.hpp"
 #include "pipeline.hpp"
 
@@ -49,7 +49,7 @@ private:
 
     // Compiled regex cache (thread-local, lazy compilation)
     // Maps pattern → compiled regex
-    mutable std::unordered_map<std::string, titan::http::Regex> regex_cache_;
+    mutable titan::core::fast_map<std::string, titan::http::Regex> regex_cache_;
 
     // Helper: Get compiled regex (with caching)
     [[nodiscard]] const titan::http::Regex* get_compiled_regex(const std::string& pattern) const;

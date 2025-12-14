@@ -30,8 +30,9 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <vector>
+
+#include "containers.hpp"
 
 namespace titan::core {
 
@@ -206,7 +207,7 @@ private:
     size_t max_size_bytes_;        // Max total size in bytes
     size_t total_size_bytes_ = 0;  // Current total size in bytes
     std::list<std::pair<std::string, CachedToken>> lru_list_;
-    std::unordered_map<std::string, decltype(lru_list_)::iterator> cache_;
+    titan::core::fast_map<std::string, decltype(lru_list_)::iterator> cache_;
 };
 
 /// JWT validator configuration

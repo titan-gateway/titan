@@ -24,10 +24,10 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <vector>
 
 #include "../control/config.hpp"
+#include "../core/containers.hpp"
 #include "../http/http.hpp"
 
 namespace titan::gateway {
@@ -95,9 +95,9 @@ public:
     RadixNode(RadixNode&&) noexcept = default;
     RadixNode& operator=(RadixNode&&) noexcept = default;
 
-    std::string prefix;                                // Path prefix for this node
-    std::unordered_map<http::Method, Route> handlers;  // Method -> Route mapping
-    std::vector<std::unique_ptr<RadixNode>> children;  // Child nodes
+    std::string prefix;                                   // Path prefix for this node
+    titan::core::fast_map<http::Method, Route> handlers;  // Method -> Route mapping
+    std::vector<std::unique_ptr<RadixNode>> children;     // Child nodes
 
     bool is_param = false;     // True if this is a :param node
     bool is_wildcard = false;  // True if this is a * wildcard node

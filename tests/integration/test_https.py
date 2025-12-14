@@ -9,7 +9,7 @@ import time
 import pytest
 
 
-def test_https_connection(titan_server):
+def test_https_connection(titan_server_tls):
     """Test basic HTTPS connection with self-signed certificate"""
     # For now, we'll use curl with --insecure flag for self-signed cert
     result = subprocess.run(
@@ -24,11 +24,15 @@ def test_https_connection(titan_server):
         text=True,
     )
 
-    # Should connect successfully (or attempt to)
-    assert result.returncode in [0, 7, 35, 60]  # 0 = success, 7 = connection refused, 35 = SSL error, 60 = cert error
+    # Connection must succeed with --insecure flag
+    assert result.returncode == 0, f"HTTPS connection failed: {result.stderr}"
+    # Verify TLS was used
+    assert "SSL connection" in result.stderr or "TLS" in result.stderr
+    # Verify response received
+    assert len(result.stdout) > 0, "No response body received"
 
 
-def test_https_http2_alpn(titan_server):
+def test_https_http2_alpn(titan_server_tls):
     """Test HTTPS with HTTP/2 ALPN negotiation"""
     result = subprocess.run(
         [
@@ -43,18 +47,19 @@ def test_https_http2_alpn(titan_server):
         text=True,
     )
 
-    # Check that connection was attempted
-    assert result.returncode in [0, 7, 35, 60]
+    # Connection must succeed
+    assert result.returncode == 0, f"HTTPS HTTP/2 connection failed: {result.stderr}"
 
-    # If successful, check for HTTP/2 or ALPN in verbose output
-    if result.returncode == 0:
-        # Look for ALPN or HTTP/2 indicators in stderr (curl's verbose output)
-        verbose_output = result.stderr.lower()
-        # ALPN negotiation should appear in verbose output
-        assert ("alpn" in verbose_output or "http/2" in verbose_output or "h2" in verbose_output)
+    # Verify ALPN negotiated HTTP/2
+    verbose_output = result.stderr.lower()
+    assert ("alpn" in verbose_output or "http/2" in verbose_output or "h2" in verbose_output), \
+        "ALPN did not negotiate HTTP/2"
+
+    # Verify response received
+    assert len(result.stdout) > 0, "No response body received"
 
 
-def test_https_http11_fallback(titan_server):
+def test_https_http11_fallback(titan_server_tls):
     """Test HTTPS with HTTP/1.1 fallback"""
     result = subprocess.run(
         [
@@ -69,8 +74,12 @@ def test_https_http11_fallback(titan_server):
         text=True,
     )
 
-    # Connection should work
-    assert result.returncode in [0, 7, 35, 60]
+    # Connection must succeed with HTTP/1.1
+    assert result.returncode == 0, f"HTTPS HTTP/1.1 connection failed: {result.stderr}"
+    # Verify TLS was used
+    assert "SSL connection" in result.stderr or "TLS" in result.stderr
+    # Verify response received
+    assert len(result.stdout) > 0, "No response body received"
 
 
 def test_https_certificate_validation():
@@ -116,7 +125,7 @@ def test_https_and_cleartext_coexist():
             http_result.returncode in [0, 7])
 
 
-def test_https_proxied_request():
+def test_https_proxied_request(titan_server_tls):
     """Test HTTPS request to proxied backend endpoint"""
     result = subprocess.run(
         [
@@ -131,15 +140,19 @@ def test_https_proxied_request():
         text=True,
     )
 
-    # Request should attempt
-    assert result.returncode in [0, 7, 35, 60]
+    # Request must succeed
+    assert result.returncode == 0, f"HTTPS proxied request failed: {result.stderr}"
 
-    # If successful, verify response
-    if result.returncode == 0:
-        assert len(result.stdout) > 0
+    # Verify HTTP/2 was used
+    verbose_output = result.stderr.lower()
+    assert ("alpn" in verbose_output or "http/2" in verbose_output or "h2" in verbose_output), \
+        "HTTP/2 not used"
+
+    # Verify response received
+    assert len(result.stdout) > 0, "No response body received"
 
 
-def test_https_http2_multiplexing():
+def test_https_http2_multiplexing(titan_server_tls):
     """Test HTTP/2 multiplexing over HTTPS"""
     # Send multiple requests over same HTTPS connection
     result = subprocess.run(
@@ -156,5 +169,13 @@ def test_https_http2_multiplexing():
         text=True,
     )
 
-    # Requests should attempt
-    assert result.returncode in [0, 7, 35, 60]
+    # Requests must succeed
+    assert result.returncode == 0, f"HTTPS HTTP/2 multiplexing failed: {result.stderr}"
+
+    # Verify HTTP/2 was used
+    verbose_output = result.stderr.lower()
+    assert ("alpn" in verbose_output or "http/2" in verbose_output or "h2" in verbose_output), \
+        "HTTP/2 not used"
+
+    # Verify responses received
+    assert len(result.stdout) > 0, "No response bodies received"

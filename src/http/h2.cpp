@@ -92,11 +92,26 @@ std::span<const uint8_t> H2Session::send_data() {
     // Trigger nghttp2 to serialize frames into send_buffer_
     send_buffer_.clear();
 
+    int iterations = 0;
     while (nghttp2_session_want_write(session_)) {
         int rv = nghttp2_session_send(session_);
+        iterations++;
         if (rv != 0) {
+            FILE* f = fopen("/tmp/h2_debug.log", "a");
+            if (f) {
+                fprintf(f, "[H2-SEND] nghttp2_session_send FAILED after %d iterations, rv=%d\n",
+                        iterations, rv);
+                fclose(f);
+            }
             break;
         }
+    }
+
+    FILE* f = fopen("/tmp/h2_debug.log", "a");
+    if (f) {
+        fprintf(f, "[H2-SEND] Generated %zu bytes in %d iterations, want_write=%d\n",
+                send_buffer_.size(), iterations, nghttp2_session_want_write(session_));
+        fclose(f);
     }
 
     return std::span<const uint8_t>(send_buffer_);
@@ -165,9 +180,26 @@ static ssize_t data_read_callback(nghttp2_session* /*session*/, int32_t /*stream
         return 0;
     }
 
-    size_t to_copy = std::min(length, stream->response_body.size());
-    std::memcpy(buf, stream->response_body.data(), to_copy);
-    *data_flags |= NGHTTP2_DATA_FLAG_EOF;  // Send all data in one frame
+    // Calculate how much data remains to send
+    size_t remaining = stream->response_body.size() - stream->response_body_offset;
+    if (remaining == 0) {
+        // All data has been sent
+        *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+        return 0;
+    }
+
+    // Copy up to 'length' bytes from current offset
+    size_t to_copy = std::min(length, remaining);
+    std::memcpy(buf, stream->response_body.data() + stream->response_body_offset, to_copy);
+
+    // Advance offset
+    stream->response_body_offset += to_copy;
+
+    // Only set EOF if ALL data has been sent
+    if (stream->response_body_offset >= stream->response_body.size()) {
+        *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+    }
+
     return static_cast<ssize_t>(to_copy);
 }
 
@@ -184,33 +216,57 @@ std::error_code H2Session::submit_response(int32_t stream_id, const Response& re
         return std::make_error_code(std::errc::operation_not_supported);
     }
 
-    // Convert HTTP/1.1 Response to HTTP/2 headers
-    std::vector<nghttp2_nv> headers;
-
-    // :status pseudo-header
-    std::string status = std::to_string(static_cast<int>(response.status));
-    headers.push_back({const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(":status")),
-                       const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(status.c_str())), 7,
-                       status.size(), NGHTTP2_NV_FLAG_NONE});
-
-    // Regular headers - iterate over ALL headers (backend + middleware)
-    for (auto it = response.all_headers_begin(); it != response.all_headers_end(); ++it) {
-        auto [name, value] = *it;
-        if (name.empty() || value.empty()) {
-            continue;  // Skip empty headers
-        }
-        headers.push_back(
-            {const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(name.data())),
-             const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(value.data())), name.size(),
-             value.size(), NGHTTP2_NV_FLAG_NONE});
-    }
-
-    // Prepare data provider if body exists
+    // Get stream first (need it to store headers)
     auto* stream = get_stream(stream_id);
     if (!stream) {
+        FILE* f = fopen("/tmp/h2_debug.log", "a");
+        if (f) {
+            fprintf(f, "[H2-SUBMIT] Stream %d: NOT FOUND in streams map!\n", stream_id);
+            fclose(f);
+        }
         return std::make_error_code(std::errc::invalid_argument);
     }
 
+    FILE* f = fopen("/tmp/h2_debug.log", "a");
+    if (f) {
+        fprintf(f, "[H2-SUBMIT] Stream %d: status=%d, headers=%zu, body=%zu bytes\n", stream_id,
+                static_cast<int>(response.status), stream->response_header_storage.size(),
+                stream->response_body.size());
+        fclose(f);
+    }
+
+    // Convert HTTP/1.1 Response to HTTP/2 headers
+    std::vector<nghttp2_nv> headers;
+
+    // :status pseudo-header - STORE IN STREAM to persist during async send
+    stream->status_storage = std::to_string(static_cast<int>(response.status));
+    headers.push_back(
+        {const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(":status")),
+         const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(stream->status_storage.c_str())), 7,
+         stream->status_storage.size(), NGHTTP2_NV_FLAG_NONE});
+
+    // Regular headers - use stream's owned storage (for concurrent stream safety)
+    // NOTE: handle_backend_event() already populates response_header_storage for backend responses.
+    // For direct responses (404, middleware errors, etc.), we need to populate it here.
+    if (stream->response_header_storage.empty()) {
+        // First submission - copy headers to stream storage
+        for (auto it = response.all_headers_begin(); it != response.all_headers_end(); ++it) {
+            auto [name, value] = *it;
+            if (name.empty() || value.empty()) {
+                continue;  // Skip empty headers
+            }
+            stream->response_header_storage.emplace_back(std::string(name), std::string(value));
+        }
+    }
+
+    // Build nghttp2_nv array from stream's owned storage (stable pointers)
+    for (const auto& [name, value] : stream->response_header_storage) {
+        headers.push_back({const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(name.data())),
+                           const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(value.data())),
+                           name.size(), value.size(), NGHTTP2_NV_FLAG_NONE});
+    }
+
+    // Prepare data provider if body exists
     // Only copy body data if stream doesn't already have it
     // (handle_backend_event may have already moved it to stream->response_body)
     if (!response.body.empty() && stream->response_body.empty()) {
@@ -232,8 +288,25 @@ std::error_code H2Session::submit_response(int32_t stream_id, const Response& re
     // Submit response with headers and persistent data provider
     int rv = nghttp2_submit_response(session_, stream_id, headers.data(), headers.size(),
                                      &stream->data_provider);
-    if (rv != 0) {
-        return std::make_error_code(std::errc::protocol_error);
+
+    FILE* f2 = fopen("/tmp/h2_debug.log", "a");
+    if (f2) {
+        if (rv != 0) {
+            fprintf(f2, "[H2-SUBMIT] Stream %d: nghttp2_submit_response FAILED, rv=%d\n", stream_id,
+                    rv);
+            fclose(f2);
+            return std::make_error_code(std::errc::protocol_error);
+        }
+
+        // Get flow control windows
+        int32_t stream_window =
+            nghttp2_session_get_stream_effective_local_window_size(session_, stream_id);
+        int32_t conn_window = nghttp2_session_get_effective_local_window_size(session_);
+
+        fprintf(f2,
+                "[H2-SUBMIT] Stream %d: SUCCESS, stream_window=%d, conn_window=%d, want_write=%d\n",
+                stream_id, stream_window, conn_window, nghttp2_session_want_write(session_));
+        fclose(f2);
     }
 
     return {};
@@ -263,6 +336,10 @@ bool H2Session::want_write() const noexcept {
 
 bool H2Session::should_close() const noexcept {
     return should_close_;
+}
+
+void H2Session::set_stream_close_callback(StreamCloseCallback callback) {
+    stream_close_callback_ = std::move(callback);
 }
 
 H2Stream& H2Session::get_or_create_stream(int32_t stream_id) {
@@ -355,8 +432,21 @@ int H2Session::on_stream_close_callback(nghttp2_session* /*session*/, int32_t st
     auto* stream = self->get_stream(stream_id);
     if (stream) {
         stream->state = H2StreamState::Closed;
-        // Immediately remove closed stream to free memory and allow new streams
+
+        // Notify server to cleanup backend mappings BEFORE removing stream
+        if (self->stream_close_callback_) {
+            self->stream_close_callback_(stream_id);
+        }
+
+        // Then remove closed stream to free memory and allow new streams
         self->remove_stream(stream_id);
+
+        FILE* f = fopen("/tmp/h2_debug.log", "a");
+        if (f) {
+            fprintf(f, "[H2-STREAM-CLOSE] Stream %d: closed and removed, remaining=%zu\n",
+                    stream_id, self->streams_.size());
+            fclose(f);
+        }
     }
 
     return 0;

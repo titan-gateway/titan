@@ -132,8 +132,8 @@ static void run_worker_thread(const control::Config& config, int worker_id) {
     epoll_event backend_events[MAX_EVENTS];
 
     while (core::g_server_running) {
-        // Process client events (non-blocking poll with 0 timeout)
-        int n_client = epoll_wait(client_epoll_fd, client_events, MAX_EVENTS, 0);
+        // Process client events (with timeout to balance with backend processing)
+        int n_client = epoll_wait(client_epoll_fd, client_events, MAX_EVENTS, 1);
 
         for (int i = 0; i < n_client; ++i) {
             int fd = client_events[i].data.fd;
