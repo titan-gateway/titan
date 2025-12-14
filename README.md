@@ -80,8 +80,6 @@ Titan delivers industry-leading throughput and latency, competitive with the fas
 - **JWT Authentication & Authorization**: RS256/ES256/HS256 signature validation with thread-local caching (10k tokens/worker), per-route scope/role-based authorization (OAuth 2.0 scopes, RBAC)
 - **Hot Reload**: Zero-downtime configuration updates via `SIGHUP` (RCU pattern)
 - **Observability**: Prometheus metrics endpoint (`/metrics`), request/response logging
-
-### Recently Added
 - **Request/Response Transformation**: Header manipulation, path rewriting with PCRE2 regex
 - **Response Compression**: gzip/brotli/zstd with BREACH attack mitigation
 
