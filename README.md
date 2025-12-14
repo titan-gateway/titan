@@ -58,6 +58,7 @@ Titan delivers industry-leading throughput and latency, competitive with the fas
 **Key Performance Features:**
 - **Thread-Per-Core Architecture**: Lock-free hot path, linear multi-core scaling
 - **Zero-Copy I/O**: Minimal memory allocations during request processing
+- **High-Performance Containers**: `fast_map` (ankerl::unordered_dense) provides 25% faster lookups, 400% faster iteration, and 30% less memory vs `std::unordered_map`
 - **Connection Pooling**: Automatic backend connection reuse, prevents CLOSE-WAIT leaks
 - **Efficient Event Loop**: epoll (Linux) / kqueue (macOS) for optimal I/O multiplexing
 
@@ -80,9 +81,11 @@ Titan delivers industry-leading throughput and latency, competitive with the fas
 - **Hot Reload**: Zero-downtime configuration updates via `SIGHUP` (RCU pattern)
 - **Observability**: Prometheus metrics endpoint (`/metrics`), request/response logging
 
+### Recently Added
+- **Request/Response Transformation**: Header manipulation, path rewriting with PCRE2 regex
+- **Response Compression**: gzip/brotli/zstd with BREACH attack mitigation
+
 ### In Development
-- **Request/Response Transformation**: Header manipulation, path rewriting
-- **Response Compression**: gzip/brotli with SIMD optimization
 - **WebSocket Proxying**: HTTP to WebSocket upgrade, bidirectional streaming
 - **gRPC Support**: Protocol detection, streaming support
 - **Docker Service Discovery**: Auto-register containers as backends
@@ -252,16 +255,4 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ```
 
-### Third-Party Licenses
-
-Titan includes the following open-source components:
-
-- [mimalloc](https://github.com/microsoft/mimalloc) - MIT License
-- [OpenSSL](https://www.openssl.org/) - Apache License 2.0
-- [Catch2](https://github.com/catchorg/Catch2) - Boost Software License 1.0
-- [glaze](https://github.com/stephenberry/glaze) - MIT License
-- [{fmt}](https://github.com/fmtlib/fmt) - MIT License
-- [llhttp](https://github.com/nodejs/llhttp) - MIT License
-- [nghttp2](https://github.com/nghttp2/nghttp2) - MIT License
-
-See [NOTICE](NOTICE) for full attribution and license information.
+See [NOTICE](NOTICE) for full attribution and third-party license information.

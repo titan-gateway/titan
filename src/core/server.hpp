@@ -26,7 +26,6 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include "../control/config.hpp"
@@ -36,6 +35,7 @@
 #include "../gateway/upstream.hpp"
 #include "../http/h2.hpp"
 #include "../http/parser.hpp"
+#include "containers.hpp"
 #include "core.hpp"
 #include "socket.hpp"
 #include "tls.hpp"
@@ -114,7 +114,7 @@ struct Connection {
     // HTTP/2 state
     std::unique_ptr<http::H2Session> h2_session;
     // Map stream_id → backend connection (for HTTP/2 multiplexing)
-    std::unordered_map<int32_t, std::unique_ptr<BackendConnection>> h2_stream_backends;
+    titan::core::fast_map<int32_t, std::unique_ptr<BackendConnection>> h2_stream_backends;
 
     // Backend proxy state (for async operations - HTTP/1.1 only)
     std::unique_ptr<BackendConnection> backend_conn;
@@ -189,20 +189,20 @@ private:
 
     // TLS support
     std::optional<TlsContext> tls_context_;
-    std::unordered_map<int, SslPtr> ssl_connections_;  // fd -> SSL object mapping
+    titan::core::fast_map<int, SslPtr> ssl_connections_;  // fd -> SSL object mapping
 
-    std::unordered_map<int, std::unique_ptr<Connection>> connections_;
+    titan::core::fast_map<int, std::unique_ptr<Connection>> connections_;
 
     // DNS resolution cache (hostname -> resolved address)
     // Cache is never invalidated for simplicity (MVP)
     // TODO: Add TTL-based expiration for production
-    std::unordered_map<std::string, sockaddr_in> dns_cache_;
+    titan::core::fast_map<std::string, sockaddr_in> dns_cache_;
 
     // Dual epoll for non-blocking backend I/O
     int backend_epoll_fd_ = -1;  // Separate epoll instance for backend sockets
     // Map backend_fd -> (client_fd, stream_id) to avoid storing dangling raw pointers
     // stream_id = -1 for HTTP/1.1, >= 0 for HTTP/2 streams
-    std::unordered_map<int, std::pair<int, int32_t>> backend_connections_;
+    titan::core::fast_map<int, std::pair<int, int32_t>> backend_connections_;
 
     /// Process request and send response
     /// returns false if connection was/should be closed
