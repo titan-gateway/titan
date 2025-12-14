@@ -9,7 +9,7 @@ import time
 import pytest
 
 
-def test_https_connection(titan_server):
+def test_https_connection(titan_server_tls):
     """Test basic HTTPS connection with self-signed certificate"""
     # For now, we'll use curl with --insecure flag for self-signed cert
     result = subprocess.run(
@@ -32,7 +32,7 @@ def test_https_connection(titan_server):
     assert len(result.stdout) > 0, "No response body received"
 
 
-def test_https_http2_alpn(titan_server):
+def test_https_http2_alpn(titan_server_tls):
     """Test HTTPS with HTTP/2 ALPN negotiation"""
     result = subprocess.run(
         [
@@ -59,7 +59,7 @@ def test_https_http2_alpn(titan_server):
     assert len(result.stdout) > 0, "No response body received"
 
 
-def test_https_http11_fallback(titan_server):
+def test_https_http11_fallback(titan_server_tls):
     """Test HTTPS with HTTP/1.1 fallback"""
     result = subprocess.run(
         [
@@ -125,7 +125,7 @@ def test_https_and_cleartext_coexist():
             http_result.returncode in [0, 7])
 
 
-def test_https_proxied_request():
+def test_https_proxied_request(titan_server_tls):
     """Test HTTPS request to proxied backend endpoint"""
     result = subprocess.run(
         [
@@ -152,7 +152,7 @@ def test_https_proxied_request():
     assert len(result.stdout) > 0, "No response body received"
 
 
-def test_https_http2_multiplexing():
+def test_https_http2_multiplexing(titan_server_tls):
     """Test HTTP/2 multiplexing over HTTPS"""
     # Send multiple requests over same HTTPS connection
     result = subprocess.run(

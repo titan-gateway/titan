@@ -215,20 +215,33 @@ void Server::handle_read(int client_fd) {
     ssize_t n;
 
     if (conn.tls_enabled) {
-        // TLS read
-        n = ssl_read_nonblocking(conn.ssl, buffer);
+        // TLS read - drain ALL data until WANT_READ (critical for HTTP/2 multiplexing + edge-triggered epoll)
+        // With edge-triggered epoll, we MUST read until WANT_READ or we won't get notified again
+        while (true) {
+            n = ssl_read_nonblocking(conn.ssl, buffer);
 
-        if (n <= 0) {
-            int err = SSL_get_error(conn.ssl, n);
-            if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
-                // Would block - but if HTTP/2, send SETTINGS first (edge-triggered epoll fix)
-                if (conn.protocol == Protocol::HTTP_2 && conn.h2_session) {
-                    handle_http2(conn);  // Send SETTINGS with empty buffer
+            if (n > 0) {
+                // Append to buffer
+                conn.recv_buffer.insert(conn.recv_buffer.end(), buffer, buffer + n);
+                // Continue reading - there might be more data
+            } else {
+                int err = SSL_get_error(conn.ssl, n);
+                if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+                    // Would block - but if HTTP/2, send SETTINGS first (edge-triggered epoll fix)
+                    if (conn.recv_buffer.empty() && conn.protocol == Protocol::HTTP_2 &&
+                        conn.h2_session) {
+                        handle_http2(conn);  // Send SETTINGS with empty buffer
+                    }
+                    break;  // No more data available, exit loop
                 }
+                // Error or EOF - close connection
+                handle_close(client_fd);
                 return;
             }
-            // Error or EOF - close connection
-            handle_close(client_fd);
+        }
+
+        // If we read nothing, return
+        if (conn.recv_buffer.empty()) {
             return;
         }
     } else {
@@ -240,10 +253,10 @@ void Server::handle_read(int client_fd) {
             handle_close(client_fd);
             return;
         }
-    }
 
-    // Append to buffer
-    conn.recv_buffer.insert(conn.recv_buffer.end(), buffer, buffer + n);
+        // Append to buffer
+        conn.recv_buffer.insert(conn.recv_buffer.end(), buffer, buffer + n);
+    }
 
     // Detect protocol on first data (for cleartext connections)
     if (!conn.tls_enabled && conn.protocol == Protocol::Unknown) {
@@ -1558,10 +1571,52 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
 
                         // Serialize and send HTTP/2 frames
                         auto data = client_conn.h2_session->send_data();
-                        if (!data.empty() && client_conn.tls_enabled) {
-                            ssize_t sent = ssl_write_nonblocking(client_conn.ssl, data);
-                            (void)sent;  // Suppress unused variable warning
-                            client_conn.h2_session->consume_send_buffer(data.size());
+                        if (!data.empty()) {
+                            ssize_t sent;
+                            if (client_conn.tls_enabled) {
+                                sent = ssl_write_nonblocking(client_conn.ssl, data);
+                            } else {
+                                sent = send(client_conn.fd, data.data(), data.size(), 0);
+                            }
+
+                            if (sent > 0) {
+                                client_conn.h2_session->consume_send_buffer(sent);
+                            }
+                        }
+
+                        // CRITICAL FIX for TLS HTTP/2 multiplexing:
+                        // After sending a response, check if there's more client data buffered in SSL.
+                        // This handles edge-triggered epoll + SSL buffering: when multiple HTTP/2 requests
+                        // arrive in the same TLS record, subsequent requests sit in SSL's internal buffer
+                        // and epoll won't fire again (data already decrypted, not at socket layer).
+                        // Without this, the second request on a multiplexed connection hangs forever.
+                        if (client_conn.tls_enabled) {
+                            while (SSL_pending(client_conn.ssl) > 0) {
+                                // Drain SSL internal buffer
+                                size_t available =
+                                    client_conn.recv_buffer.capacity() - client_conn.recv_buffer.size();
+                                if (available == 0) {
+                                    client_conn.recv_buffer.reserve(client_conn.recv_buffer.capacity() +
+                                                                    8192);
+                                    available =
+                                        client_conn.recv_buffer.capacity() - client_conn.recv_buffer.size();
+                                }
+
+                                int n = SSL_read(client_conn.ssl,
+                                                 client_conn.recv_buffer.data() +
+                                                     client_conn.recv_buffer.size(),
+                                                 available);
+                                if (n > 0) {
+                                    client_conn.recv_buffer.resize(client_conn.recv_buffer.size() + n);
+                                } else {
+                                    break;  // No more data or would block
+                                }
+                            }
+
+                            // Process any buffered client frames
+                            if (!client_conn.recv_buffer.empty()) {
+                                handle_http2(client_conn);
+                            }
                         }
                     }
                 }
