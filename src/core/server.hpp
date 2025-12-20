@@ -72,6 +72,8 @@ struct BackendConnection {
     std::chrono::steady_clock::time_point start_time;
     titan::core::fast_map<std::string, std::string> metadata;  // For middleware communication
     gateway::RouteMatch route_match;                           // Route match for per-route config
+    std::optional<gateway::HeaderTransformations>
+        header_transforms;  // Zero-copy header modifications
 
     // Request preservation for async response middleware (HTTP/1.1)
     http::Request preserved_request;  // Copy of original request (for response middleware)
@@ -227,7 +229,8 @@ private:
     /// Build HTTP request string to send to backend
     std::string build_backend_request(
         const http::Request& request,
-        const titan::core::fast_map<std::string, std::string>& metadata);
+        const titan::core::fast_map<std::string, std::string>& metadata,
+        const std::optional<gateway::HeaderTransformations>& header_transforms = std::nullopt);
 
     /// Receive and parse HTTP response from backend
     bool receive_backend_response(int backend_fd, http::Response& response,

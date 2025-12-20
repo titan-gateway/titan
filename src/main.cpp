@@ -113,10 +113,8 @@ int main(int argc, char* argv[]) {
     printf("Loading configuration from %s...\n", config_path.c_str());
 
     try {
-        fprintf(stderr, "[DEBUG] Creating ConfigManager...\n");
         g_config_manager = std::make_unique<titan::control::ConfigManager>();
 
-        fprintf(stderr, "[DEBUG] Calling ConfigManager::load()...\n");
         if (!g_config_manager->load(config_path)) {
             fprintf(stderr, "Failed to load configuration\n");
 
@@ -132,7 +130,6 @@ int main(int argc, char* argv[]) {
             titan::core::cleanup_openssl();
             return EXIT_FAILURE;
         }
-        fprintf(stderr, "[DEBUG] ConfigManager::load() succeeded\n");
     } catch (const std::exception& e) {
         fprintf(stderr, "EXCEPTION during config load: %s\n", e.what());
         titan::core::cleanup_openssl();

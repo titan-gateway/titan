@@ -316,9 +316,9 @@ def titan_server(process_manager, titan_config, mock_backend_1, mock_backend_2):
     time.sleep(0.5)  # Ensure port 8080 is released
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def titan_server_tls(process_manager, mock_backend_1, mock_backend_2):
-    """Start Titan server with TLS enabled on port 8443 (session-scoped for h2load tests)"""
+    """Start Titan server with TLS enabled on port 8443 (function-scoped to restart between tests)"""
     # Ensure binary exists
     if not TITAN_BINARY.exists():
         raise RuntimeError(
@@ -397,6 +397,18 @@ def titan_server_tls(process_manager, mock_backend_1, mock_backend_2):
     time.sleep(2.0)
 
     yield "https://127.0.0.1:8443"
+
+    # Explicit cleanup: stop Titan between tests to avoid resource exhaustion
+    if proc.poll() is None:
+        print(f"Stopping titan-tls (PID {proc.pid})")
+        try:
+            proc.terminate()
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+    # Allow TIME_WAIT sockets to clear and resources to recover
+    time.sleep(1.0)
 
     # Cleanup
     try:

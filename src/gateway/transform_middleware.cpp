@@ -64,8 +64,16 @@ MiddlewareResult TransformMiddleware::process_request(RequestContext& ctx) {
     }
 
     // 3. Apply request header transformations
-    if (!active_config.request_headers.empty()) {
-        apply_request_header_transformations(ctx, active_config.request_headers);
+    // Select config source (per-route overrides global completely)
+    const control::TransformConfig* source_config = nullptr;
+    if (ctx.route_match.transform_config.has_value()) {
+        source_config = &(*ctx.route_match.transform_config);
+    } else {
+        source_config = &global_config_;
+    }
+
+    if (!source_config->request_headers.empty()) {
+        apply_request_header_transformations(ctx, source_config->request_headers);
     }
 
     // 4. Store response header transformations in metadata for response phase
@@ -307,24 +315,29 @@ void TransformMiddleware::apply_query_transformations(
     }
 }
 
-// Request header transformations
+// Request header transformations (async-safe with owned strings)
 void TransformMiddleware::apply_request_header_transformations(
     RequestContext& ctx, const std::vector<control::HeaderRule>& rules) {
-    // Note: We cannot directly modify ctx.request->headers (it's a view into the buffer)
-    // Instead, we store header transformations in metadata for the proxy to apply
-    // This is a design limitation - headers are zero-copy views
+    // Copy strings for async safety (especially HTTP/2 where RequestContext
+    // may be destroyed before backend response completes).
+    // Benefits over metadata approach:
+    //   - No string key encoding ("header_add:X-Custom" -> just "X-Custom")
+    //   - Direct vector iteration instead of map iteration + string parsing
+    //   - Better cache locality
 
-    // For now, we'll track header modifications in metadata
-    // Format: "header_add:<name>" → value, "header_remove:<name>" → "", "header_modify:<name>" →
-    // value
+    // Initialize HeaderTransformations if not already present
+    if (!ctx.header_transforms.has_value()) {
+        ctx.header_transforms.emplace();
+    }
 
+    // Populate with owned string copies
     for (const auto& rule : rules) {
         if (rule.action == "add") {
-            ctx.set_metadata("header_add:" + rule.name, rule.value);
+            ctx.header_transforms->add.emplace_back(rule.name, rule.value);
         } else if (rule.action == "remove") {
-            ctx.set_metadata("header_remove:" + rule.name, "true");
+            ctx.header_transforms->remove.emplace_back(rule.name);
         } else if (rule.action == "modify") {
-            ctx.set_metadata("header_modify:" + rule.name, rule.value);
+            ctx.header_transforms->modify.emplace_back(rule.name, rule.value);
         }
     }
 }

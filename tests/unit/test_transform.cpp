@@ -177,7 +177,11 @@ TEST_CASE("TransformMiddleware - Request Header Manipulation", "[transform][head
         auto result = middleware->process_request(ctx);
 
         REQUIRE(result == MiddlewareResult::Continue);
-        REQUIRE(ctx.get_metadata("header_add:X-API-Version") == "v1");
+        // Check header_transforms instead of metadata (zero-copy optimization)
+        REQUIRE(ctx.header_transforms.has_value());
+        REQUIRE(ctx.header_transforms->add.size() == 1);
+        REQUIRE(ctx.header_transforms->add[0].first == "X-API-Version");
+        REQUIRE(ctx.header_transforms->add[0].second == "v1");
     }
 
     SECTION("Remove request header") {
@@ -198,7 +202,10 @@ TEST_CASE("TransformMiddleware - Request Header Manipulation", "[transform][head
         auto result = middleware->process_request(ctx);
 
         REQUIRE(result == MiddlewareResult::Continue);
-        REQUIRE(ctx.get_metadata("header_remove:Authorization") == "true");
+        // Check header_transforms instead of metadata (zero-copy optimization)
+        REQUIRE(ctx.header_transforms.has_value());
+        REQUIRE(ctx.header_transforms->remove.size() == 1);
+        REQUIRE(ctx.header_transforms->remove[0] == "Authorization");
     }
 
     SECTION("Modify request header") {
@@ -219,7 +226,11 @@ TEST_CASE("TransformMiddleware - Request Header Manipulation", "[transform][head
         auto result = middleware->process_request(ctx);
 
         REQUIRE(result == MiddlewareResult::Continue);
-        REQUIRE(ctx.get_metadata("header_modify:Host") == "backend.internal");
+        // Check header_transforms instead of metadata (zero-copy optimization)
+        REQUIRE(ctx.header_transforms.has_value());
+        REQUIRE(ctx.header_transforms->modify.size() == 1);
+        REQUIRE(ctx.header_transforms->modify[0].first == "Host");
+        REQUIRE(ctx.header_transforms->modify[0].second == "backend.internal");
     }
 }
 
@@ -431,7 +442,11 @@ TEST_CASE("TransformMiddleware - Config Merging", "[transform][config]") {
         auto result = middleware->process_request(ctx);
 
         REQUIRE(result == MiddlewareResult::Continue);
-        REQUIRE(ctx.get_metadata("header_add:X-Global") == "1");
+        // Check header_transforms instead of metadata (zero-copy optimization)
+        REQUIRE(ctx.header_transforms.has_value());
+        REQUIRE(ctx.header_transforms->add.size() == 1);
+        REQUIRE(ctx.header_transforms->add[0].first == "X-Global");
+        REQUIRE(ctx.header_transforms->add[0].second == "1");
     }
 
     SECTION("Per-route config overrides global") {
@@ -460,9 +475,11 @@ TEST_CASE("TransformMiddleware - Config Merging", "[transform][config]") {
         auto result = middleware->process_request(ctx);
 
         REQUIRE(result == MiddlewareResult::Continue);
-        // Per-route overrides global completely
-        REQUIRE(ctx.get_metadata("header_add:X-Route") == "2");
-        REQUIRE(ctx.get_metadata("header_add:X-Global").empty());
+        // Per-route overrides global completely - check header_transforms
+        REQUIRE(ctx.header_transforms.has_value());
+        REQUIRE(ctx.header_transforms->add.size() == 1);
+        REQUIRE(ctx.header_transforms->add[0].first == "X-Route");
+        REQUIRE(ctx.header_transforms->add[0].second == "2");
     }
 
     SECTION("Disabled transform - no transformation") {
@@ -485,7 +502,8 @@ TEST_CASE("TransformMiddleware - Config Merging", "[transform][config]") {
         auto result = middleware->process_request(ctx);
 
         REQUIRE(result == MiddlewareResult::Continue);
-        REQUIRE(ctx.get_metadata("header_add:X-Test").empty());
+        // When disabled, header_transforms should not be populated
+        REQUIRE(!ctx.header_transforms.has_value());
     }
 }
 
