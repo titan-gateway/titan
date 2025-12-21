@@ -243,8 +243,26 @@ Middleware* Pipeline::get_named_middleware(const std::string& name) const {
 }
 
 MiddlewareResult Pipeline::execute_request(RequestContext& ctx) {
-    // Execute global middleware first
+    // Collect types of per-route middleware for override detection (REPLACEMENT model)
+    titan::core::fast_set<std::string_view> route_middleware_types;
+    for (const auto& middleware_name : ctx.route_match.middleware) {
+        Middleware* middleware = get_named_middleware(middleware_name);
+        if (middleware) {
+            auto type = middleware->type();
+            if (!type.empty()) {
+                route_middleware_types.insert(type);
+            }
+        }
+    }
+
+    // Execute global middleware (skip if route provides same type - REPLACEMENT)
     for (auto& middleware : middleware_) {
+        auto type = middleware->type();
+        if (!type.empty() && route_middleware_types.contains(type)) {
+            // Skip: route middleware will override this global middleware
+            continue;
+        }
+
         MiddlewareResult result = middleware->process_request(ctx);
 
         if (result == MiddlewareResult::Stop) {
@@ -256,7 +274,7 @@ MiddlewareResult Pipeline::execute_request(RequestContext& ctx) {
         }
     }
 
-    // Execute per-route middleware (if route specifies any)
+    // Execute per-route middleware
     for (const auto& middleware_name : ctx.route_match.middleware) {
         Middleware* middleware = get_named_middleware(middleware_name);
         if (middleware) {
@@ -270,15 +288,32 @@ MiddlewareResult Pipeline::execute_request(RequestContext& ctx) {
                 return MiddlewareResult::Error;
             }
         }
-        // Silently skip unknown middleware names (validated at config load time)
     }
 
     return MiddlewareResult::Continue;
 }
 
 MiddlewareResult Pipeline::execute_response(ResponseContext& ctx) {
-    // Execute global middleware first
+    // Collect types of per-route middleware for override detection (REPLACEMENT model)
+    titan::core::fast_set<std::string_view> route_middleware_types;
+    for (const auto& middleware_name : ctx.route_match.middleware) {
+        Middleware* middleware = get_named_middleware(middleware_name);
+        if (middleware) {
+            auto type = middleware->type();
+            if (!type.empty()) {
+                route_middleware_types.insert(type);
+            }
+        }
+    }
+
+    // Execute global middleware (skip if route provides same type - REPLACEMENT)
     for (auto& middleware : middleware_) {
+        auto type = middleware->type();
+        if (!type.empty() && route_middleware_types.contains(type)) {
+            // Skip: route middleware will override this global middleware
+            continue;
+        }
+
         MiddlewareResult result = middleware->process_response(ctx);
 
         if (result == MiddlewareResult::Stop) {
@@ -290,7 +325,7 @@ MiddlewareResult Pipeline::execute_response(ResponseContext& ctx) {
         }
     }
 
-    // Execute per-route middleware (if route specifies any)
+    // Execute per-route middleware
     for (const auto& middleware_name : ctx.route_match.middleware) {
         Middleware* middleware = get_named_middleware(middleware_name);
         if (middleware) {
@@ -304,7 +339,6 @@ MiddlewareResult Pipeline::execute_response(ResponseContext& ctx) {
                 return MiddlewareResult::Error;
             }
         }
-        // Silently skip unknown middleware names (validated at config load time)
     }
 
     return MiddlewareResult::Continue;

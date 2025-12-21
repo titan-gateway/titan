@@ -160,6 +160,11 @@ public:
 
     /// Get middleware name (for debugging)
     [[nodiscard]] virtual std::string_view name() const = 0;
+
+    /// Get middleware type (for override detection)
+    /// Examples: "rate_limit", "jwt_auth", "cors", "compression"
+    /// Returns empty string for middleware that doesn't support overrides
+    [[nodiscard]] virtual std::string_view type() const { return ""; }
 };
 
 /// Logging middleware (logs in response phase with timing)
@@ -212,6 +217,7 @@ public:
 
     MiddlewareResult process_request(RequestContext& ctx) override;
     std::string_view name() const override { return "RateLimitMiddleware"; }
+    std::string_view type() const override { return "rate_limit"; }
 
 private:
     Config config_;
