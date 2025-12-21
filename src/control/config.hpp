@@ -26,6 +26,7 @@
 #include <string>
 #include <vector>
 
+#include "../core/containers.hpp"
 #include "../gateway/upstream.hpp"
 #include "../http/http.hpp"
 

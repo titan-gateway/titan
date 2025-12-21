@@ -77,6 +77,7 @@ std::unique_ptr<Router> build_router(const control::Config& config) {
         route.required_roles = route_config.required_roles;
         route.transform_config = route_config.transform;      // Per-route transform config
         route.compression_config = route_config.compression;  // Per-route compression config
+        route.middleware = route_config.middleware;           // Per-route middleware
 
         router->add_route(std::move(route));
     }
