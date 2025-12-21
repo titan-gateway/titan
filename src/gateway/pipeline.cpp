@@ -233,7 +233,17 @@ void Pipeline::use(MiddlewareFunc func, std::string_view name) {
     middleware_.push_back(std::make_unique<FunctionMiddleware>(std::move(func), std::string(name)));
 }
 
+void Pipeline::register_named_middleware(std::string name, std::unique_ptr<Middleware> middleware) {
+    named_middleware_[std::move(name)] = std::move(middleware);
+}
+
+Middleware* Pipeline::get_named_middleware(const std::string& name) const {
+    auto it = named_middleware_.find(name);
+    return (it != named_middleware_.end()) ? it->second.get() : nullptr;
+}
+
 MiddlewareResult Pipeline::execute_request(RequestContext& ctx) {
+    // Execute global middleware first
     for (auto& middleware : middleware_) {
         MiddlewareResult result = middleware->process_request(ctx);
 
@@ -246,10 +256,28 @@ MiddlewareResult Pipeline::execute_request(RequestContext& ctx) {
         }
     }
 
+    // Execute per-route middleware (if route specifies any)
+    for (const auto& middleware_name : ctx.route_match.middleware) {
+        Middleware* middleware = get_named_middleware(middleware_name);
+        if (middleware) {
+            MiddlewareResult result = middleware->process_request(ctx);
+
+            if (result == MiddlewareResult::Stop) {
+                return MiddlewareResult::Stop;
+            }
+
+            if (result == MiddlewareResult::Error || ctx.has_error) {
+                return MiddlewareResult::Error;
+            }
+        }
+        // Silently skip unknown middleware names (validated at config load time)
+    }
+
     return MiddlewareResult::Continue;
 }
 
 MiddlewareResult Pipeline::execute_response(ResponseContext& ctx) {
+    // Execute global middleware first
     for (auto& middleware : middleware_) {
         MiddlewareResult result = middleware->process_response(ctx);
 
@@ -260,6 +288,23 @@ MiddlewareResult Pipeline::execute_response(ResponseContext& ctx) {
         if (result == MiddlewareResult::Error) {
             return MiddlewareResult::Error;
         }
+    }
+
+    // Execute per-route middleware (if route specifies any)
+    for (const auto& middleware_name : ctx.route_match.middleware) {
+        Middleware* middleware = get_named_middleware(middleware_name);
+        if (middleware) {
+            MiddlewareResult result = middleware->process_response(ctx);
+
+            if (result == MiddlewareResult::Stop) {
+                return MiddlewareResult::Stop;
+            }
+
+            if (result == MiddlewareResult::Error) {
+                return MiddlewareResult::Error;
+            }
+        }
+        // Silently skip unknown middleware names (validated at config load time)
     }
 
     return MiddlewareResult::Continue;

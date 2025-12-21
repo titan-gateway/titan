@@ -338,7 +338,8 @@ struct Config {
 
     // Middleware configurations
     CorsConfig cors;
-    RateLimitConfig rate_limit;
+    RateLimitConfig rate_limit;  // Global rate limit (backward compatibility)
+    titan::core::fast_map<std::string, RateLimitConfig> rate_limits;  // Named rate limiters
     AuthConfig auth;
     JwtConfig jwt;
     JwtAuthzConfig jwt_authz;
@@ -694,6 +695,9 @@ inline void from_json(const nlohmann::json& j, Config& c) {
     if (j.contains("rate_limit")) {
         j.at("rate_limit").get_to(c.rate_limit);
     }
+    if (j.contains("rate_limits")) {
+        j.at("rate_limits").get_to(c.rate_limits);
+    }
     if (j.contains("auth")) {
         j.at("auth").get_to(c.auth);
     }
@@ -855,6 +859,7 @@ inline void to_json(nlohmann::json& j, const Config& c) {
     j["upstreams"] = c.upstreams;
     j["cors"] = c.cors;
     j["rate_limit"] = c.rate_limit;
+    j["rate_limits"] = c.rate_limits;
     j["auth"] = c.auth;
     j["jwt"] = c.jwt;
     j["jwt_authz"] = c.jwt_authz;

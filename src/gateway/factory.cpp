@@ -252,12 +252,23 @@ std::unique_ptr<Pipeline> build_pipeline(const control::Config& config,
         pipeline->use(std::make_unique<JwtAuthzMiddleware>(authz_config));
     }
 
-    // Rate limiting (only if enabled in config)
+    // Global rate limiting (backward compatibility - only if enabled in config)
     if (config.rate_limit.enabled && config.rate_limit.requests_per_second > 0) {
         RateLimitMiddleware::Config rl_config;
         rl_config.requests_per_second = config.rate_limit.requests_per_second;
         rl_config.burst_size = config.rate_limit.burst_size;
         pipeline->use(std::make_unique<RateLimitMiddleware>(rl_config));
+    }
+
+    // Named rate limiters (for per-route rate limiting)
+    for (const auto& [name, rate_limit_config] : config.rate_limits) {
+        if (rate_limit_config.enabled && rate_limit_config.requests_per_second > 0) {
+            RateLimitMiddleware::Config rl_config;
+            rl_config.requests_per_second = rate_limit_config.requests_per_second;
+            rl_config.burst_size = rate_limit_config.burst_size;
+            pipeline->register_named_middleware(name,
+                                                std::make_unique<RateLimitMiddleware>(rl_config));
+        }
     }
 
     // Transform middleware (request/response transformations)

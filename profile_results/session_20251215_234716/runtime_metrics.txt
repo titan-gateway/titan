@@ -1,0 +1,13 @@
+Runtime Metrics
+===============
+
+Process Info:
+root      3921  345  0.2 393416 11156 ?        Sl   23:47   1:19 ./build/release/src/titan --config config/benchmark.json
+
+Memory Usage:
+VmPeak:	  458952 kB
+VmSize:	  393416 kB
+VmRSS:	   11156 kB
+
+File Descriptors:
+220

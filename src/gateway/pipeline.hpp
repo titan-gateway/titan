@@ -266,10 +266,20 @@ public:
     [[nodiscard]] size_t size() const noexcept { return middleware_.size(); }
 
     /// Clear all middleware
-    void clear() { middleware_.clear(); }
+    void clear() {
+        middleware_.clear();
+        named_middleware_.clear();
+    }
+
+    /// Register named middleware (for per-route execution)
+    void register_named_middleware(std::string name, std::unique_ptr<Middleware> middleware);
+
+    /// Get named middleware by name (returns nullptr if not found)
+    [[nodiscard]] Middleware* get_named_middleware(const std::string& name) const;
 
 private:
     std::vector<std::unique_ptr<Middleware>> middleware_;
+    titan::core::fast_map<std::string, std::unique_ptr<Middleware>> named_middleware_;
 };
 
 /// Pipeline builder (fluent API)
