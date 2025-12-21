@@ -97,21 +97,8 @@ std::span<const uint8_t> H2Session::send_data() {
         int rv = nghttp2_session_send(session_);
         iterations++;
         if (rv != 0) {
-            FILE* f = fopen("/tmp/h2_debug.log", "a");
-            if (f) {
-                fprintf(f, "[H2-SEND] nghttp2_session_send FAILED after %d iterations, rv=%d\n",
-                        iterations, rv);
-                fclose(f);
-            }
             break;
         }
-    }
-
-    FILE* f = fopen("/tmp/h2_debug.log", "a");
-    if (f) {
-        fprintf(f, "[H2-SEND] Generated %zu bytes in %d iterations, want_write=%d\n",
-                send_buffer_.size(), iterations, nghttp2_session_want_write(session_));
-        fclose(f);
     }
 
     return std::span<const uint8_t>(send_buffer_);
@@ -219,20 +206,12 @@ std::error_code H2Session::submit_response(int32_t stream_id, const Response& re
     // Get stream first (need it to store headers)
     auto* stream = get_stream(stream_id);
     if (!stream) {
-        FILE* f = fopen("/tmp/h2_debug.log", "a");
-        if (f) {
-            fprintf(f, "[H2-SUBMIT] Stream %d: NOT FOUND in streams map!\n", stream_id);
-            fclose(f);
-        }
         return std::make_error_code(std::errc::invalid_argument);
     }
 
-    FILE* f = fopen("/tmp/h2_debug.log", "a");
-    if (f) {
-        fprintf(f, "[H2-SUBMIT] Stream %d: status=%d, headers=%zu, body=%zu bytes\n", stream_id,
-                static_cast<int>(response.status), stream->response_header_storage.size(),
-                stream->response_body.size());
-        fclose(f);
+    // CRITICAL FIX: Prevent duplicate response submissions (causes duplicate headers)
+    if (stream->response_submitted) {
+        return {};  // Success - already submitted
     }
 
     // Convert HTTP/1.1 Response to HTTP/2 headers
@@ -289,25 +268,12 @@ std::error_code H2Session::submit_response(int32_t stream_id, const Response& re
     int rv = nghttp2_submit_response(session_, stream_id, headers.data(), headers.size(),
                                      &stream->data_provider);
 
-    FILE* f2 = fopen("/tmp/h2_debug.log", "a");
-    if (f2) {
-        if (rv != 0) {
-            fprintf(f2, "[H2-SUBMIT] Stream %d: nghttp2_submit_response FAILED, rv=%d\n", stream_id,
-                    rv);
-            fclose(f2);
-            return std::make_error_code(std::errc::protocol_error);
-        }
-
-        // Get flow control windows
-        int32_t stream_window =
-            nghttp2_session_get_stream_effective_local_window_size(session_, stream_id);
-        int32_t conn_window = nghttp2_session_get_effective_local_window_size(session_);
-
-        fprintf(f2,
-                "[H2-SUBMIT] Stream %d: SUCCESS, stream_window=%d, conn_window=%d, want_write=%d\n",
-                stream_id, stream_window, conn_window, nghttp2_session_want_write(session_));
-        fclose(f2);
+    if (rv != 0) {
+        return std::make_error_code(std::errc::protocol_error);
     }
+
+    // Mark response as submitted to prevent duplicate calls
+    stream->response_submitted = true;
 
     return {};
 }
@@ -440,13 +406,6 @@ int H2Session::on_stream_close_callback(nghttp2_session* /*session*/, int32_t st
 
         // Then remove closed stream to free memory and allow new streams
         self->remove_stream(stream_id);
-
-        FILE* f = fopen("/tmp/h2_debug.log", "a");
-        if (f) {
-            fprintf(f, "[H2-STREAM-CLOSE] Stream %d: closed and removed, remaining=%zu\n",
-                    stream_id, self->streams_.size());
-            fclose(f);
-        }
     }
 
     return 0;

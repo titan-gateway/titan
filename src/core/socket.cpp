@@ -54,24 +54,7 @@ struct FdMetrics {
     }
 
     void track_close(int fd) {
-        auto old_count = close_count.fetch_add(1);
-
-        // Log first 10 closes and then every 10 closes for debugging
-        if (old_count < 10 || old_count % 10 == 0) {
-            std::fprintf(stderr, "[PERF] Thread %p close #%lu (fd=%d), created: %lu, ratio: %.2f\n",
-                         (void*)pthread_self(), old_count + 1, fd, create_count.load(),
-                         static_cast<double>(old_count + 1) / std::max(1UL, create_count.load()));
-            std::fflush(stderr);
-        }
-
-        // Track origin of this fd
-        if (close_count % 100 == 0 && fd_origins.count(fd)) {
-            auto* logger = logging::get_current_logger();
-            if (logger) {
-                LOG_DEBUG(logger, "[PERF] Closing fd {} (origin: {})", fd, fd_origins[fd]);
-            }
-        }
-
+        close_count.fetch_add(1);
         fd_origins.erase(fd);
     }
 };
@@ -166,10 +149,6 @@ std::error_code set_reuseaddr(int fd) {
 void close_fd(int fd) {
     if (fd >= 0) {
 #ifdef TITAN_ENABLE_FD_TRACKING
-        static std::atomic<bool> first_call{true};
-        if (first_call.exchange(false)) {
-            std::fprintf(stderr, "[DEBUG] close_fd instrumentation is ACTIVE\n");
-        }
         fd_metrics.track_close(fd);
 #endif
         close(fd);  // Actually close the fd (do NOT call close_fd recursively!)

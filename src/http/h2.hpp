@@ -81,6 +81,7 @@ struct H2Stream {
 
     bool request_complete = false;
     bool response_complete = false;
+    bool response_submitted = false;  // Prevent duplicate nghttp2_submit_response calls
 };
 
 /// HTTP/2 session managing multiple streams over a single connection

@@ -32,6 +32,17 @@
 
 namespace titan::gateway {
 
+/// Header transformations (owned strings for async safety)
+/// NOTE: Uses std::string instead of string_view to ensure safety in async operations,
+/// especially HTTP/2 where RequestContext may be destroyed before backend response completes.
+/// Benefits over metadata approach: no string key encoding, direct vector iteration, better cache
+/// locality.
+struct HeaderTransformations {
+    std::vector<std::pair<std::string, std::string>> add;     // Headers to add
+    std::vector<std::string> remove;                          // Headers to remove
+    std::vector<std::pair<std::string, std::string>> modify;  // Headers to modify
+};
+
 /// Request context (passed through middleware chain)
 struct RequestContext {
     // Request/Response
@@ -52,6 +63,9 @@ struct RequestContext {
 
     // Metadata (for middleware communication)
     titan::core::fast_map<std::string, std::string> metadata;
+
+    // Header transformations (zero-copy optimization for header modifications)
+    std::optional<HeaderTransformations> header_transforms;
 
     // Timing
     std::chrono::steady_clock::time_point start_time;

@@ -215,8 +215,9 @@ void Server::handle_read(int client_fd) {
     ssize_t n;
 
     if (conn.tls_enabled) {
-        // TLS read - drain ALL data until WANT_READ (critical for HTTP/2 multiplexing + edge-triggered epoll)
-        // With edge-triggered epoll, we MUST read until WANT_READ or we won't get notified again
+        // TLS read - drain ALL data until WANT_READ (critical for HTTP/2 multiplexing +
+        // edge-triggered epoll) With edge-triggered epoll, we MUST read until WANT_READ or we won't
+        // get notified again
         while (true) {
             n = ssl_read_nonblocking(conn.ssl, buffer);
 
@@ -659,8 +660,8 @@ void Server::send_response(Connection& conn, bool keep_alive) {
     for (auto it = conn.response.all_headers_begin(); it != conn.response.all_headers_end(); ++it) {
         auto [name, value] = *it;
         // Skip headers we'll add ourselves
-        if (name == "Content-Length" || name == "content-length" ||
-            name == "Connection" || name == "connection") {
+        if (name == "Content-Length" || name == "content-length" || name == "Connection" ||
+            name == "connection") {
             continue;
         }
         response_str += name;
@@ -747,6 +748,7 @@ bool Server::proxy_to_backend(Connection& conn, gateway::RequestContext& ctx) {
     conn.backend_conn->metadata = std::move(ctx.metadata);
     conn.backend_conn->metadata["correlation_id"] = ctx.correlation_id;
     conn.backend_conn->route_match = ctx.route_match;
+    conn.backend_conn->header_transforms = std::move(ctx.header_transforms);
 
     // Preserve request for response middleware (HTTP/1.1 keep-alive safety)
     // conn.request will be overwritten by next pipelined request, so copy it now
@@ -800,7 +802,8 @@ bool Server::proxy_to_backend(Connection& conn, gateway::RequestContext& ctx) {
     }
 
     // Build request and store in send buffer (use transformed path/query from metadata if present)
-    std::string request_str = build_backend_request(conn.request, conn.backend_conn->metadata);
+    std::string request_str = build_backend_request(conn.request, conn.backend_conn->metadata,
+                                                    conn.backend_conn->header_transforms);
     conn.backend_conn->send_buffer.assign(
         reinterpret_cast<const uint8_t*>(request_str.data()),
         reinterpret_cast<const uint8_t*>(request_str.data() + request_str.size()));
@@ -942,7 +945,8 @@ int Server::connect_to_backend_async(const std::string& host, uint16_t port) {
 }
 
 std::string Server::build_backend_request(
-    const http::Request& request, const titan::core::fast_map<std::string, std::string>& metadata) {
+    const http::Request& request, const titan::core::fast_map<std::string, std::string>& metadata,
+    const std::optional<gateway::HeaderTransformations>& header_transforms) {
     std::string req;
 
     // Use transformed path/query from metadata if present (from TransformMiddleware)
@@ -986,11 +990,13 @@ std::string Server::build_backend_request(
     }
     req += " HTTP/1.1\r\n";
 
-    // Build set of headers to remove (from TransformMiddleware)
+    // Build set of headers to remove (zero-copy optimization)
+    // Old: Iterated metadata map, allocated strings for keys
+    // New: Direct vector access with string_views (no allocations)
     std::unordered_set<std::string_view> headers_to_remove;
-    for (const auto& [key, value] : metadata) {
-        if (key.starts_with("header_remove:")) {
-            headers_to_remove.insert(key.substr(14));  // Skip "header_remove:"
+    if (header_transforms.has_value()) {
+        for (const auto& header_name : header_transforms->remove) {
+            headers_to_remove.insert(header_name);  // Zero-copy string_view
         }
     }
 
@@ -1011,14 +1017,26 @@ std::string Server::build_backend_request(
             has_host = true;
         }
 
-        // Check if this header should be modified
-        std::string modify_key = "header_modify:" + std::string(header.name);
-        auto modify_it = metadata.find(modify_key);
-        if (modify_it != metadata.end()) {
+        // Check if this header should be modified (zero-copy optimization)
+        // Old: Allocated string for metadata key ("header_modify:" + name) per header
+        // New: Direct vector iteration with string_view comparison (no allocations)
+        std::string_view modified_value;
+        bool is_modified = false;
+        if (header_transforms.has_value()) {
+            for (const auto& [modify_name, modify_value] : header_transforms->modify) {
+                if (header.name == modify_name) {
+                    modified_value = modify_value;  // Zero-copy string_view
+                    is_modified = true;
+                    break;
+                }
+            }
+        }
+
+        if (is_modified) {
             // Use modified value
             req += header.name;
             req += ": ";
-            req += modify_it->second;
+            req += modified_value;
             req += "\r\n";
         } else {
             // Use original value
@@ -1029,13 +1047,14 @@ std::string Server::build_backend_request(
         }
     }
 
-    // Add new headers from TransformMiddleware
-    for (const auto& [key, value] : metadata) {
-        if (key.starts_with("header_add:")) {
-            std::string_view header_name = std::string_view(key).substr(11);  // Skip "header_add:"
-            req += header_name;
+    // Add new headers from TransformMiddleware (zero-copy optimization)
+    // Old: Iterated entire metadata map, allocated strings for key parsing
+    // New: Direct vector iteration with string_views (no allocations)
+    if (header_transforms.has_value()) {
+        for (const auto& [header_name, header_value] : header_transforms->add) {
+            req += header_name;  // Zero-copy string_view
             req += ": ";
-            req += value;
+            req += header_value;  // Zero-copy string_view
             req += "\r\n";
         }
     }
@@ -1209,6 +1228,8 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
         client_conn.response.status = http::StatusCode::BadGateway;
         client_conn.response.reason_phrase = "Bad Gateway";
         client_conn.response.headers.clear();
+        client_conn.response.backend_headers.clear();
+        client_conn.response.middleware_headers.clear();
         client_conn.response_body.clear();
         send_response(client_conn, false);
         return;
@@ -1250,7 +1271,9 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
             client_conn.response.status = http::StatusCode::BadGateway;
             client_conn.response.reason_phrase = "Bad Gateway";
             client_conn.response.headers.clear();  // Clear any residual headers from middleware
-                                                   // client_conn.response_body.clear();
+            client_conn.response.backend_headers.clear();
+            client_conn.response.middleware_headers.clear();
+            // client_conn.response_body.clear();
             send_response(client_conn, false);
             return;
         }
@@ -1286,7 +1309,9 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
             client_conn.response.status = http::StatusCode::BadGateway;
             client_conn.response.reason_phrase = "Bad Gateway";
             client_conn.response.headers.clear();  // Clear any residual headers from middleware
-                                                   // client_conn.response_body.clear();
+            client_conn.response.backend_headers.clear();
+            client_conn.response.middleware_headers.clear();
+            // client_conn.response_body.clear();
             send_response(client_conn, false);
             return;
         }
@@ -1340,7 +1365,9 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
             client_conn.response.status = http::StatusCode::BadGateway;
             client_conn.response.reason_phrase = "Bad Gateway";
             client_conn.response.headers.clear();  // Clear any residual headers from middleware
-                                                   // client_conn.response_body.clear();
+            client_conn.response.backend_headers.clear();
+            client_conn.response.middleware_headers.clear();
+            // client_conn.response_body.clear();
             send_response(client_conn, false);
         }
     }
@@ -1402,6 +1429,8 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
             client_conn.response.status = http::StatusCode::BadGateway;
             client_conn.response.reason_phrase = "Bad Gateway";
             client_conn.response.headers.clear();
+            client_conn.response.backend_headers.clear();
+            client_conn.response.middleware_headers.clear();
             client_conn.response.body = std::span<const uint8_t>();
             send_response(client_conn, false);  // Close connection after error
 
@@ -1430,6 +1459,8 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
 
             // Now create Headers with string_views pointing to our owned storage
             client_conn.response.headers.clear();
+            client_conn.response.backend_headers.clear();
+            client_conn.response.middleware_headers.clear();
             client_conn.response.headers.reserve(client_conn.response_header_storage.size());
             for (const auto& [name, value] : client_conn.response_header_storage) {
                 client_conn.response.headers.push_back({name, value});
@@ -1438,6 +1469,12 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
             // Copy body to owned buffer
             client_conn.response_body.assign(response.body.begin(), response.body.end());
             client_conn.response.body = client_conn.response_body;
+
+            // CRITICAL: Clear middleware_headers before response middleware runs
+            // (HTTP/2 reuses client_conn.response across streams, so middleware_headers
+            // accumulates)
+            client_conn.response.backend_headers.clear();
+            client_conn.response.middleware_headers.clear();
 
             // Execute response middleware
             gateway::ResponseContext resp_ctx;
@@ -1523,7 +1560,8 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
                         stream->response.reason_phrase = client_conn.response.reason_phrase;
 
                         // Store headers in persistent storage, then create views to them
-                        // IMPORTANT: Use all_headers iterator to include BOTH backend and middleware headers
+                        // IMPORTANT: Use all_headers iterator to include BOTH backend and
+                        // middleware headers
                         stream->response_header_storage.clear();
                         stream->response.headers.clear();
 
@@ -1585,29 +1623,31 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
                         }
 
                         // CRITICAL FIX for TLS HTTP/2 multiplexing:
-                        // After sending a response, check if there's more client data buffered in SSL.
-                        // This handles edge-triggered epoll + SSL buffering: when multiple HTTP/2 requests
-                        // arrive in the same TLS record, subsequent requests sit in SSL's internal buffer
-                        // and epoll won't fire again (data already decrypted, not at socket layer).
-                        // Without this, the second request on a multiplexed connection hangs forever.
+                        // After sending a response, check if there's more client data buffered in
+                        // SSL. This handles edge-triggered epoll + SSL buffering: when multiple
+                        // HTTP/2 requests arrive in the same TLS record, subsequent requests sit in
+                        // SSL's internal buffer and epoll won't fire again (data already decrypted,
+                        // not at socket layer). Without this, the second request on a multiplexed
+                        // connection hangs forever.
                         if (client_conn.tls_enabled) {
                             while (SSL_pending(client_conn.ssl) > 0) {
                                 // Drain SSL internal buffer
-                                size_t available =
-                                    client_conn.recv_buffer.capacity() - client_conn.recv_buffer.size();
+                                size_t available = client_conn.recv_buffer.capacity() -
+                                                   client_conn.recv_buffer.size();
                                 if (available == 0) {
-                                    client_conn.recv_buffer.reserve(client_conn.recv_buffer.capacity() +
-                                                                    8192);
-                                    available =
-                                        client_conn.recv_buffer.capacity() - client_conn.recv_buffer.size();
+                                    client_conn.recv_buffer.reserve(
+                                        client_conn.recv_buffer.capacity() + 8192);
+                                    available = client_conn.recv_buffer.capacity() -
+                                                client_conn.recv_buffer.size();
                                 }
 
-                                int n = SSL_read(client_conn.ssl,
-                                                 client_conn.recv_buffer.data() +
-                                                     client_conn.recv_buffer.size(),
-                                                 available);
+                                int n = SSL_read(
+                                    client_conn.ssl,
+                                    client_conn.recv_buffer.data() + client_conn.recv_buffer.size(),
+                                    available);
                                 if (n > 0) {
-                                    client_conn.recv_buffer.resize(client_conn.recv_buffer.size() + n);
+                                    client_conn.recv_buffer.resize(client_conn.recv_buffer.size() +
+                                                                   n);
                                 } else {
                                     break;  // No more data or would block
                                 }

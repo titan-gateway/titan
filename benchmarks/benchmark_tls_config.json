@@ -1,0 +1,32 @@
+{
+  "version": "1.0",
+  "server": {
+    "worker_threads": 4,
+    "listen_address": "127.0.0.1",
+    "listen_port": 8443,
+    "tls_enabled": true,
+    "tls_certificate_path": "server.crt",
+    "tls_private_key_path": "server.key"
+  },
+  "upstreams": [
+    {
+      "name": "backend",
+      "load_balancing": "round_robin",
+      "backends": [
+        {"host": "127.0.0.1", "port": 9001}
+      ]
+    }
+  ],
+  "routes": [
+    {
+      "path": "/",
+      "method": "GET",
+      "upstream": "backend"
+    },
+    {
+      "path": "/hello",
+      "method": "GET",
+      "upstream": "backend"
+    }
+  ]
+}
