@@ -338,14 +338,21 @@ struct Config {
     std::vector<UpstreamConfig> upstreams;
 
     // Middleware configurations
-    CorsConfig cors;
+    CorsConfig cors;  // Global CORS (backward compatibility)
+    titan::core::fast_map<std::string, CorsConfig> cors_configs;  // Named CORS instances
+
     RateLimitConfig rate_limit;  // Global rate limit (backward compatibility)
     titan::core::fast_map<std::string, RateLimitConfig> rate_limits;  // Named rate limiters
+
     AuthConfig auth;
     JwtConfig jwt;
     JwtAuthzConfig jwt_authz;
-    TransformConfig transform;      // Global transform config
-    CompressionConfig compression;  // Global compression config
+
+    TransformConfig transform;  // Global transform config (backward compatibility)
+    titan::core::fast_map<std::string, TransformConfig> transform_configs;  // Named transform instances
+
+    CompressionConfig compression;  // Global compression config (backward compatibility)
+    titan::core::fast_map<std::string, CompressionConfig> compression_configs;  // Named compression instances
 
     // Observability
     LogConfig logging;
@@ -693,6 +700,9 @@ inline void from_json(const nlohmann::json& j, Config& c) {
     if (j.contains("cors")) {
         j.at("cors").get_to(c.cors);
     }
+    if (j.contains("cors_configs")) {
+        j.at("cors_configs").get_to(c.cors_configs);
+    }
     if (j.contains("rate_limit")) {
         j.at("rate_limit").get_to(c.rate_limit);
     }
@@ -711,8 +721,14 @@ inline void from_json(const nlohmann::json& j, Config& c) {
     if (j.contains("transform")) {
         j.at("transform").get_to(c.transform);
     }
+    if (j.contains("transform_configs")) {
+        j.at("transform_configs").get_to(c.transform_configs);
+    }
     if (j.contains("compression")) {
         j.at("compression").get_to(c.compression);
+    }
+    if (j.contains("compression_configs")) {
+        j.at("compression_configs").get_to(c.compression_configs);
     }
     if (j.contains("logging")) {
         j.at("logging").get_to(c.logging);
@@ -859,13 +875,16 @@ inline void to_json(nlohmann::json& j, const Config& c) {
     j["routes"] = c.routes;
     j["upstreams"] = c.upstreams;
     j["cors"] = c.cors;
+    j["cors_configs"] = c.cors_configs;
     j["rate_limit"] = c.rate_limit;
     j["rate_limits"] = c.rate_limits;
     j["auth"] = c.auth;
     j["jwt"] = c.jwt;
     j["jwt_authz"] = c.jwt_authz;
     j["transform"] = c.transform;
+    j["transform_configs"] = c.transform_configs;
     j["compression"] = c.compression;
+    j["compression_configs"] = c.compression_configs;
     j["logging"] = c.logging;
     j["metrics"] = c.metrics;
     j["version"] = c.version;

@@ -47,6 +47,7 @@ public:
 
     /// Get middleware name
     [[nodiscard]] std::string_view name() const override { return "JwtAuthMiddleware"; }
+    [[nodiscard]] std::string_view type() const override { return "jwt_auth"; }
 
 private:
     /// Send 401 Unauthorized response

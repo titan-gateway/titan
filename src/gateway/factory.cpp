@@ -272,6 +272,33 @@ std::unique_ptr<Pipeline> build_pipeline(const control::Config& config,
         }
     }
 
+    // Named CORS middleware (for per-route CORS policies)
+    for (const auto& [name, cors_config] : config.cors_configs) {
+        CorsMiddleware::Config cors_cfg;
+        cors_cfg.allowed_origins = cors_config.allowed_origins;
+        cors_cfg.allowed_methods = cors_config.allowed_methods;
+        cors_cfg.allowed_headers = cors_config.allowed_headers;
+        cors_cfg.allow_credentials = cors_config.allow_credentials;
+        cors_cfg.max_age = cors_config.max_age;
+        pipeline->register_named_middleware(name, std::make_unique<CorsMiddleware>(cors_cfg));
+    }
+
+    // Named Transform middleware (for per-route transformations)
+    for (const auto& [name, transform_config] : config.transform_configs) {
+        if (transform_config.enabled) {
+            pipeline->register_named_middleware(name,
+                                                std::make_unique<TransformMiddleware>(transform_config));
+        }
+    }
+
+    // Named Compression middleware (for per-route compression)
+    for (const auto& [name, compression_config] : config.compression_configs) {
+        if (compression_config.enabled) {
+            pipeline->register_named_middleware(
+                name, std::make_unique<CompressionMiddleware>(compression_config));
+        }
+    }
+
     // Transform middleware (request/response transformations)
     // Runs after Auth, before Proxy (per-route can override global config)
     if (config.transform.enabled) {

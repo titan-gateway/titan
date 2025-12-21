@@ -197,6 +197,7 @@ public:
 
     MiddlewareResult process_request(RequestContext& ctx) override;
     std::string_view name() const override { return "CorsMiddleware"; }
+    std::string_view type() const override { return "cors"; }
 
 private:
     Config config_;

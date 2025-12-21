@@ -42,6 +42,7 @@ public:
     [[nodiscard]] MiddlewareResult process_response(ResponseContext& ctx) override;
 
     [[nodiscard]] std::string_view name() const override { return "transform"; }
+    [[nodiscard]] std::string_view type() const override { return "transform"; }
 
 private:
     // Configuration (global, can be overridden per-route)
