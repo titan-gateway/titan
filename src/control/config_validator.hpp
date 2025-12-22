@@ -49,7 +49,7 @@ private:
 
     /// Suggest similar middleware names for typos
     [[nodiscard]] static std::string suggest_similar_middleware(const Config& config,
-                                                                 const std::string& typo);
+                                                                const std::string& typo);
 };
 
 }  // namespace titan::control

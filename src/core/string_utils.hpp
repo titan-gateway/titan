@@ -57,10 +57,11 @@ namespace titan::core {
                 dp[i][j] = dp[i - 1][j - 1];
             } else {
                 // Take minimum of: insert, delete, substitute
-                dp[i][j] = 1 + std::min({dp[i - 1][j],      // delete
-                                         dp[i][j - 1],      // insert
-                                         dp[i - 1][j - 1]   // substitute
-                });
+                dp[i][j] = 1 + std::min({
+                                   dp[i - 1][j],     // delete
+                                   dp[i][j - 1],     // insert
+                                   dp[i - 1][j - 1]  // substitute
+                               });
             }
         }
     }

@@ -13,9 +13,11 @@ import time
 from pathlib import Path
 
 
-@pytest.fixture(scope="module")
-def per_route_config(tmp_path_factory, backend_server):
+@pytest.fixture
+def per_route_config(tmp_path, mock_backend_1):
     """Create config with per-route rate limiting."""
+    import json
+
     config = {
         "server": {
             "worker_threads": 4,
@@ -57,8 +59,8 @@ def per_route_config(tmp_path_factory, backend_server):
                 "name": "backend",
                 "backends": [
                     {
-                        "host": backend_server.host,
-                        "port": backend_server.port,
+                        "host": "127.0.0.1",
+                        "port": 3001,
                         "weight": 1,
                         "max_connections": 1000
                     }
@@ -89,30 +91,75 @@ def per_route_config(tmp_path_factory, backend_server):
         "logging": {
             "level": "info",
             "format": "json",
-            "output": str(tmp_path_factory.mktemp("logs") / "titan.log")
+            "output": str(tmp_path / "titan.log")
         },
         "metrics": {
             "enabled": False
         }
     }
 
-    return config
+    config_path = tmp_path / "per_route_test.json"
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=2)
+
+    return config_path
+
+
+@pytest.fixture
+def titan_server_with_config(process_manager, per_route_config, mock_backend_1):
+    """Start Titan server with per-route rate limiting config"""
+    import time
+
+    REPO_ROOT = Path(__file__).parent.parent.parent
+    TITAN_BINARY = REPO_ROOT / "build" / "dev" / "src" / "titan"
+
+    if not TITAN_BINARY.exists():
+        raise RuntimeError(f"Titan binary not found at {TITAN_BINARY}")
+
+    proc = process_manager.start_process(
+        "titan-per-route",
+        [str(TITAN_BINARY), "--config", str(per_route_config)],
+        cwd=REPO_ROOT,
+    )
+
+    if not process_manager.wait_for_port(8080, timeout=5):
+        stdout, stderr = proc.communicate(timeout=1)
+        print(f"Titan stdout: {stdout}")
+        print(f"Titan stderr: {stderr}")
+        raise RuntimeError("Titan failed to start on port 8080")
+
+    time.sleep(2.0)
+
+    yield "http://127.0.0.1:8080"
+
+    if proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=3)
+        except:
+            proc.kill()
+            proc.wait()
+    time.sleep(0.5)
 
 
 def test_public_api_rate_limit_enforced(titan_server_with_config, per_route_config):
-    """Test that public API enforces 10 req/s limit."""
-    # Burst of 25 requests (limit is 10 req/s, burst 20)
+    """Test that public API enforces 10 req/s limit.
+
+    Config specifies burst_size=20, which is divided among 4 workers (20/4=5 per worker).
+    SO_REUSEPORT distributes connections, so we need to exceed total capacity.
+    """
+    # Send 25 requests (exceeds configured burst_size=20)
     responses = []
     for i in range(25):
         resp = requests.get("http://localhost:8080/api/public/data")
         responses.append(resp.status_code)
 
-    # First 20 should succeed (burst), remaining should be rate limited (429)
+    # First ~20 should succeed (configured burst), remaining should be rate limited
     success_count = responses.count(200)
     rate_limited_count = responses.count(429)
 
     assert success_count <= 20, f"Expected <= 20 successful requests, got {success_count}"
-    assert rate_limited_count > 0, "Expected some requests to be rate limited"
+    assert rate_limited_count >= 3, f"Expected at least 3 rate limited requests, got {rate_limited_count}"
 
 
 def test_premium_api_higher_limit(titan_server_with_config, per_route_config):
@@ -173,8 +220,11 @@ def test_different_routes_independent_limits(titan_server_with_config, per_route
 
 
 def test_rate_limit_recovery(titan_server_with_config, per_route_config):
-    """Test that rate limit recovers over time (token bucket refill)."""
-    # Exhaust public API burst
+    """Test that rate limit recovers over time (token bucket refill).
+
+    Config specifies burst_size=20 (divided among workers), so exhaust that.
+    """
+    # Exhaust configured burst (20 + a few extra)
     for i in range(25):
         requests.get("http://localhost:8080/api/public/data")
 
@@ -182,8 +232,8 @@ def test_rate_limit_recovery(titan_server_with_config, per_route_config):
     resp = requests.get("http://localhost:8080/api/public/data")
     assert resp.status_code == 429, "Should be rate limited after burst"
 
-    # Wait for tokens to refill (10 req/s = 1 token per 100ms)
-    time.sleep(0.5)  # Wait 500ms = ~5 tokens
+    # Wait for tokens to refill (10 req/s total = 1 token per 100ms)
+    time.sleep(0.5)  # Wait 500ms = ~5 tokens refilled
 
     # Should be able to make a few requests again
     success = 0
