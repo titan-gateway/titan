@@ -405,7 +405,7 @@ The `ConfigValidator` is **stateless** (no member variables), enabling:
 
 ### Reporting Vulnerabilities
 
-**Contact:** [Create GitHub Issue](https://github.com/anthropics/titan/issues) (for public repo)
+**Contact:** [Create GitHub Issue](https://github.com/titan-gateway/titan/issues) (for public repo)
 
 **Expected Response:** 48 hours for critical vulnerabilities
 
