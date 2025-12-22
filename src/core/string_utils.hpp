@@ -38,35 +38,39 @@ namespace titan::core {
     if (len2 == 0)
         return len1;
 
-    // Create distance matrix (len1+1 x len2+1)
-    std::vector<std::vector<size_t>> dp(len1 + 1, std::vector<size_t>(len2 + 1));
+    // Space optimization: use only two rows instead of full matrix
+    // This reduces memory from O(m*n) to O(n) and improves cache locality
+    std::vector<size_t> prev_row(len2 + 1);
+    std::vector<size_t> curr_row(len2 + 1);
 
-    // Initialize first column and row
-    for (size_t i = 0; i <= len1; ++i) {
-        dp[i][0] = i;
-    }
+    // Initialize first row
     for (size_t j = 0; j <= len2; ++j) {
-        dp[0][j] = j;
+        prev_row[j] = j;
     }
 
-    // Fill the matrix
+    // Fill the matrix row by row
     for (size_t i = 1; i <= len1; ++i) {
+        curr_row[0] = i;  // First column value
+
         for (size_t j = 1; j <= len2; ++j) {
             if (s1[i - 1] == s2[j - 1]) {
                 // Characters match, no operation needed
-                dp[i][j] = dp[i - 1][j - 1];
+                curr_row[j] = prev_row[j - 1];
             } else {
                 // Take minimum of: insert, delete, substitute
-                dp[i][j] = 1 + std::min({
-                                   dp[i - 1][j],     // delete
-                                   dp[i][j - 1],     // insert
-                                   dp[i - 1][j - 1]  // substitute
-                               });
+                curr_row[j] = 1 + std::min({
+                                      prev_row[j],      // delete
+                                      curr_row[j - 1],  // insert
+                                      prev_row[j - 1]   // substitute
+                                  });
             }
         }
+
+        // Swap rows for next iteration
+        std::swap(prev_row, curr_row);
     }
 
-    return dp[len1][len2];
+    return prev_row[len2];
 }
 
 /// Find similar strings from a list based on Levenshtein distance
