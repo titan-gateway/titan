@@ -38,8 +38,8 @@ namespace {
     }
     if (name.length() > MAX_MIDDLEWARE_NAME_LENGTH) {
         std::ostringstream msg;
-        msg << "Middleware name too long (" << name.length() << " > "
-            << MAX_MIDDLEWARE_NAME_LENGTH << " chars)";
+        msg << "Middleware name too long (" << name.length() << " > " << MAX_MIDDLEWARE_NAME_LENGTH
+            << " chars)";
         return msg.str();
     }
 
@@ -97,7 +97,7 @@ ValidationResult ConfigValidator::validate(const Config& config) {
 }
 
 void ConfigValidator::validate_middleware_references(const Config& config,
-                                                      ValidationResult& result) {
+                                                     ValidationResult& result) {
     // Check middleware chain length limits (DoS prevention)
     for (size_t i = 0; i < config.routes.size(); ++i) {
         const auto& route = config.routes[i];
@@ -181,13 +181,13 @@ void ConfigValidator::validate_middleware_references(const Config& config,
 }
 
 void ConfigValidator::validate_security_policies(const Config& /* config */,
-                                                  ValidationResult& /* result */) {
+                                                 ValidationResult& /* result */) {
     // User rejected "Auth on Sensitive Paths" validation as "just stupid"
     // No security policy validation for now
 }
 
 void ConfigValidator::validate_middleware_duplicates(const Config& config,
-                                                      ValidationResult& result) {
+                                                     ValidationResult& result) {
     // Track middleware types seen in each route
     for (size_t i = 0; i < config.routes.size(); ++i) {
         const auto& route = config.routes[i];

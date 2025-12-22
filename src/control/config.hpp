@@ -33,12 +33,12 @@
 namespace titan::control {
 
 // Security limits for configuration validation (DoS prevention)
-constexpr size_t MAX_MIDDLEWARE_NAME_LENGTH = 64;       // Max middleware name length
-constexpr size_t MAX_MIDDLEWARE_CHAIN_LENGTH = 20;      // Max middleware per route
-constexpr size_t MAX_REGISTERED_MIDDLEWARE = 100;       // Max total named middleware
-constexpr size_t MAX_FUZZY_MATCH_CANDIDATES = 10;       // Max suggestions for typos
-constexpr size_t MAX_LEVENSHTEIN_DISTANCE = 2;          // Max edit distance for fuzzy match
-constexpr size_t FUZZY_MATCH_TIMEOUT_MS = 1;            // Max time for fuzzy match (ms)
+constexpr size_t MAX_MIDDLEWARE_NAME_LENGTH = 64;   // Max middleware name length
+constexpr size_t MAX_MIDDLEWARE_CHAIN_LENGTH = 20;  // Max middleware per route
+constexpr size_t MAX_REGISTERED_MIDDLEWARE = 100;   // Max total named middleware
+constexpr size_t MAX_FUZZY_MATCH_CANDIDATES = 10;   // Max suggestions for typos
+constexpr size_t MAX_LEVENSHTEIN_DISTANCE = 2;      // Max edit distance for fuzzy match
+constexpr size_t FUZZY_MATCH_TIMEOUT_MS = 1;        // Max time for fuzzy match (ms)
 
 /// Global server configuration
 struct ServerConfig {
@@ -357,10 +357,12 @@ struct Config {
     JwtAuthzConfig jwt_authz;
 
     TransformConfig transform;  // Global transform config (backward compatibility)
-    titan::core::fast_map<std::string, TransformConfig> transform_configs;  // Named transform instances
+    titan::core::fast_map<std::string, TransformConfig>
+        transform_configs;  // Named transform instances
 
     CompressionConfig compression;  // Global compression config (backward compatibility)
-    titan::core::fast_map<std::string, CompressionConfig> compression_configs;  // Named compression instances
+    titan::core::fast_map<std::string, CompressionConfig>
+        compression_configs;  // Named compression instances
 
     // Observability
     LogConfig logging;
