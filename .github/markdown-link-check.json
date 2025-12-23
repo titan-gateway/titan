@@ -23,6 +23,9 @@
     },
     {
       "pattern": "^http://backend1\\.example\\.com"
+    },
+    {
+      "pattern": "^https://www\\.brendangregg\\.com"
     }
   ],
   "timeout": "20s",
