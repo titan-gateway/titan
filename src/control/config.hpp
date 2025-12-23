@@ -26,10 +26,19 @@
 #include <string>
 #include <vector>
 
+#include "../core/containers.hpp"
 #include "../gateway/upstream.hpp"
 #include "../http/http.hpp"
 
 namespace titan::control {
+
+// Security limits for configuration validation (DoS prevention)
+constexpr size_t MAX_MIDDLEWARE_NAME_LENGTH = 64;   // Max middleware name length
+constexpr size_t MAX_MIDDLEWARE_CHAIN_LENGTH = 20;  // Max middleware per route
+constexpr size_t MAX_REGISTERED_MIDDLEWARE = 100;   // Max total named middleware
+constexpr size_t MAX_FUZZY_MATCH_CANDIDATES = 10;   // Max suggestions for typos
+constexpr size_t MAX_LEVENSHTEIN_DISTANCE = 2;      // Max edit distance for fuzzy match
+constexpr size_t FUZZY_MATCH_TIMEOUT_MS = 1;        // Max time for fuzzy match (ms)
 
 /// Global server configuration
 struct ServerConfig {
@@ -337,13 +346,23 @@ struct Config {
     std::vector<UpstreamConfig> upstreams;
 
     // Middleware configurations
-    CorsConfig cors;
-    RateLimitConfig rate_limit;
+    CorsConfig cors;  // Global CORS (backward compatibility)
+    titan::core::fast_map<std::string, CorsConfig> cors_configs;  // Named CORS instances
+
+    RateLimitConfig rate_limit;  // Global rate limit (backward compatibility)
+    titan::core::fast_map<std::string, RateLimitConfig> rate_limits;  // Named rate limiters
+
     AuthConfig auth;
     JwtConfig jwt;
     JwtAuthzConfig jwt_authz;
-    TransformConfig transform;      // Global transform config
-    CompressionConfig compression;  // Global compression config
+
+    TransformConfig transform;  // Global transform config (backward compatibility)
+    titan::core::fast_map<std::string, TransformConfig>
+        transform_configs;  // Named transform instances
+
+    CompressionConfig compression;  // Global compression config (backward compatibility)
+    titan::core::fast_map<std::string, CompressionConfig>
+        compression_configs;  // Named compression instances
 
     // Observability
     LogConfig logging;
@@ -691,8 +710,14 @@ inline void from_json(const nlohmann::json& j, Config& c) {
     if (j.contains("cors")) {
         j.at("cors").get_to(c.cors);
     }
+    if (j.contains("cors_configs")) {
+        j.at("cors_configs").get_to(c.cors_configs);
+    }
     if (j.contains("rate_limit")) {
         j.at("rate_limit").get_to(c.rate_limit);
+    }
+    if (j.contains("rate_limits")) {
+        j.at("rate_limits").get_to(c.rate_limits);
     }
     if (j.contains("auth")) {
         j.at("auth").get_to(c.auth);
@@ -706,8 +731,14 @@ inline void from_json(const nlohmann::json& j, Config& c) {
     if (j.contains("transform")) {
         j.at("transform").get_to(c.transform);
     }
+    if (j.contains("transform_configs")) {
+        j.at("transform_configs").get_to(c.transform_configs);
+    }
     if (j.contains("compression")) {
         j.at("compression").get_to(c.compression);
+    }
+    if (j.contains("compression_configs")) {
+        j.at("compression_configs").get_to(c.compression_configs);
     }
     if (j.contains("logging")) {
         j.at("logging").get_to(c.logging);
@@ -854,12 +885,16 @@ inline void to_json(nlohmann::json& j, const Config& c) {
     j["routes"] = c.routes;
     j["upstreams"] = c.upstreams;
     j["cors"] = c.cors;
+    j["cors_configs"] = c.cors_configs;
     j["rate_limit"] = c.rate_limit;
+    j["rate_limits"] = c.rate_limits;
     j["auth"] = c.auth;
     j["jwt"] = c.jwt;
     j["jwt_authz"] = c.jwt_authz;
     j["transform"] = c.transform;
+    j["transform_configs"] = c.transform_configs;
     j["compression"] = c.compression;
+    j["compression_configs"] = c.compression_configs;
     j["logging"] = c.logging;
     j["metrics"] = c.metrics;
     j["version"] = c.version;

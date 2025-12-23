@@ -47,6 +47,7 @@ public:
 
     /// Get middleware name
     [[nodiscard]] std::string_view name() const override { return "CompressionMiddleware"; }
+    [[nodiscard]] std::string_view type() const override { return "compression"; }
 
 private:
     control::CompressionConfig config_;

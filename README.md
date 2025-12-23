@@ -28,7 +28,7 @@
 
 > **Actively Developed – Production Pilots Welcome**
 >
-> Titan is under active development with core features functional and extensively tested (139 unit tests, full integration test suite). While approaching v1.0, breaking changes may still occur. We welcome early adopters and production pilots – join our [Discussions](https://github.com/titan-gateway/titan/discussions) to share your experience.
+> Titan is under active development with core features functional and extensively tested. While approaching v1.0, breaking changes may still occur. We welcome early adopters and production pilots – join our [Discussions](https://github.com/titan-gateway/titan/discussions) to share your experience.
 
 ---
 
@@ -40,20 +40,9 @@ Titan focuses on simplicity and performance—configure routes with a JSON file,
 
 ---
 
-## Performance Benchmarks
+## Performance
 
-Titan delivers industry-leading throughput and latency, competitive with the fastest API gateways available:
-
-| Gateway | HTTP/1.1 (req/s) | HTTP/2 (req/s) | P99 Latency | Memory/conn |
-|---------|------------------|----------------|-------------|-------------|
-| **Titan** | **190,423** | **118,932** | **<1ms** | **Low** |
-| Pingora | 120,000 | 95,000 | ~1ms | Very Low |
-| HAProxy | 2,000,000+ | N/A | <1ms | Very Low |
-| Nginx | 100,000 | 80,000 | ~2ms | Low |
-| Envoy | 80,000 | 70,000 | ~3ms | Medium |
-| Traefik | 50,000 | 45,000 | ~5ms | Medium |
-
-*Benchmark environment: ARM64 Linux (4 cores), 100 concurrent connections, wrk/h2load testing tools.*
+Titan is built for high-throughput, low-latency workloads with careful architectural choices:
 
 **Key Performance Features:**
 - **Thread-Per-Core Architecture**: Lock-free hot path, linear multi-core scaling
@@ -62,13 +51,14 @@ Titan delivers industry-leading throughput and latency, competitive with the fas
 - **Connection Pooling**: Automatic backend connection reuse, prevents CLOSE-WAIT leaks
 - **Efficient Event Loop**: epoll (Linux) / kqueue (macOS) for optimal I/O multiplexing
 
+Initial benchmarks show competitive performance with industry-leading gateways. Formal benchmark results coming soon.
+
 ---
 
 ## Core Features
 
 ### Production-Ready Features
 
-- **Exceptional Performance**: 190k req/s (HTTP/1.1) with <1ms P99 latency
 - **Modern Protocols**: HTTP/1.1, HTTP/2 with TLS 1.2/1.3 support (ALPN negotiation)
 - **Advanced Routing**: Path-based routing with parameters (`/users/:id`) and wildcards (`/static/*`)
 - **Load Balancing**: Round-robin with connection pooling, health checks drop dead backends automatically
@@ -79,6 +69,7 @@ Titan delivers industry-leading throughput and latency, competitive with the fas
 - **Connection Pooling**: Automatic backend connection reuse with health checks
 - **JWT Authentication & Authorization**: RS256/ES256/HS256 signature validation with thread-local caching (10k tokens/worker), per-route scope/role-based authorization (OAuth 2.0 scopes, RBAC)
 - **Hot Reload**: Zero-downtime configuration updates via `SIGHUP` (RCU pattern)
+- **Config Validation**: Comprehensive security hardening with fuzzy matching for typo detection, DoS protection, and detailed error reporting
 - **Observability**: Prometheus metrics endpoint (`/metrics`), request/response logging
 - **Request/Response Transformation**: Header manipulation, path rewriting with PCRE2 regex
 - **Response Compression**: gzip/brotli/zstd with BREACH attack mitigation
@@ -157,15 +148,6 @@ make test
 # See all available commands
 make help
 ```
-
-## Performance
-
-Tested on ARM64 Linux (4 cores), proxying to a local Nginx backend:
-
-- **HTTP/2 (TLS):** 118k req/s, 666μs mean latency
-- **HTTP/1.1:** 190k req/s, 642μs mean latency
-
-P99 stays under 1ms during sustained load. Connection pool prevents CLOSE-WAIT leaks (validated with 1M+ request tests). No locks in request path, no allocations after startup.
 
 ## Documentation
 

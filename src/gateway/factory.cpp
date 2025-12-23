@@ -18,6 +18,8 @@
 
 #include "factory.hpp"
 
+#include <thread>
+
 #include "../core/jwks_fetcher.hpp"
 #include "../core/jwt.hpp"
 #include "circuit_breaker.hpp"
@@ -77,6 +79,7 @@ std::unique_ptr<Router> build_router(const control::Config& config) {
         route.required_roles = route_config.required_roles;
         route.transform_config = route_config.transform;      // Per-route transform config
         route.compression_config = route_config.compression;  // Per-route compression config
+        route.middleware = route_config.middleware;           // Per-route middleware
 
         router->add_route(std::move(route));
     }
@@ -222,6 +225,17 @@ std::unique_ptr<Pipeline> build_pipeline(const control::Config& config,
                                          std::shared_ptr<core::JwtValidator> jwt_validator) {
     auto pipeline = std::make_unique<Pipeline>();
 
+    // Calculate worker count for per-worker rate limit division
+    // Titan uses per-worker rate limiting (lock-free, thread-local token buckets)
+    // To match user expectations, we divide configured limits by worker count
+    uint32_t worker_count = config.server.worker_threads;
+    if (worker_count == 0) {
+        worker_count = std::thread::hardware_concurrency();
+        if (worker_count == 0) {
+            worker_count = 1;  // Fallback
+        }
+    }
+
     // Build middleware pipeline (Two-Phase: Request → Response)
     // Order matters: middleware runs in order added
     pipeline->use(std::make_unique<LoggingMiddleware>());
@@ -252,12 +266,52 @@ std::unique_ptr<Pipeline> build_pipeline(const control::Config& config,
         pipeline->use(std::make_unique<JwtAuthzMiddleware>(authz_config));
     }
 
-    // Rate limiting (only if enabled in config)
+    // Global rate limiting (backward compatibility - only if enabled in config)
+    // Divide by worker_count to match user expectations (config specifies total limit)
     if (config.rate_limit.enabled && config.rate_limit.requests_per_second > 0) {
         RateLimitMiddleware::Config rl_config;
-        rl_config.requests_per_second = config.rate_limit.requests_per_second;
-        rl_config.burst_size = config.rate_limit.burst_size;
+        rl_config.requests_per_second = std::max(1u, config.rate_limit.requests_per_second / worker_count);
+        rl_config.burst_size = std::max(1u, config.rate_limit.burst_size / worker_count);
         pipeline->use(std::make_unique<RateLimitMiddleware>(rl_config));
+    }
+
+    // Named rate limiters (for per-route rate limiting)
+    // Divide by worker_count to match user expectations (config specifies total limit)
+    for (const auto& [name, rate_limit_config] : config.rate_limits) {
+        if (rate_limit_config.enabled && rate_limit_config.requests_per_second > 0) {
+            RateLimitMiddleware::Config rl_config;
+            rl_config.requests_per_second = std::max(1u, rate_limit_config.requests_per_second / worker_count);
+            rl_config.burst_size = std::max(1u, rate_limit_config.burst_size / worker_count);
+            pipeline->register_named_middleware(name,
+                                                std::make_unique<RateLimitMiddleware>(rl_config));
+        }
+    }
+
+    // Named CORS middleware (for per-route CORS policies)
+    for (const auto& [name, cors_config] : config.cors_configs) {
+        CorsMiddleware::Config cors_cfg;
+        cors_cfg.allowed_origins = cors_config.allowed_origins;
+        cors_cfg.allowed_methods = cors_config.allowed_methods;
+        cors_cfg.allowed_headers = cors_config.allowed_headers;
+        cors_cfg.allow_credentials = cors_config.allow_credentials;
+        cors_cfg.max_age = cors_config.max_age;
+        pipeline->register_named_middleware(name, std::make_unique<CorsMiddleware>(cors_cfg));
+    }
+
+    // Named Transform middleware (for per-route transformations)
+    for (const auto& [name, transform_config] : config.transform_configs) {
+        if (transform_config.enabled) {
+            pipeline->register_named_middleware(
+                name, std::make_unique<TransformMiddleware>(transform_config));
+        }
+    }
+
+    // Named Compression middleware (for per-route compression)
+    for (const auto& [name, compression_config] : config.compression_configs) {
+        if (compression_config.enabled) {
+            pipeline->register_named_middleware(
+                name, std::make_unique<CompressionMiddleware>(compression_config));
+        }
     }
 
     // Transform middleware (request/response transformations)

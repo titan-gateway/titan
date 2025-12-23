@@ -206,6 +206,7 @@ RouteMatch Router::search(RadixNode* node, std::string_view path, http::Method m
             match.required_roles = it->second.required_roles;
             match.transform_config = it->second.transform_config;
             match.compression_config = it->second.compression_config;
+            match.middleware = it->second.middleware;
             match.params = params;
             return match;
         }
@@ -221,6 +222,7 @@ RouteMatch Router::search(RadixNode* node, std::string_view path, http::Method m
             match.required_roles = any_it->second.required_roles;
             match.transform_config = any_it->second.transform_config;
             match.compression_config = any_it->second.compression_config;
+            match.middleware = any_it->second.middleware;
             match.params = params;
             return match;
         }
@@ -266,6 +268,7 @@ RouteMatch Router::search(RadixNode* node, std::string_view path, http::Method m
                 match.required_roles = it->second.required_roles;
                 match.transform_config = it->second.transform_config;
                 match.compression_config = it->second.compression_config;
+                match.middleware = it->second.middleware;
                 match.params = params;
                 match.wildcard = path;
                 return match;

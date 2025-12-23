@@ -10,6 +10,12 @@ add_executable(titan_tests
   test_keepalive.cpp
   test_middleware.cpp
   test_config.cpp
+  test_config_validation_security.cpp
+  test_fuzzy_matching_security.cpp
+  test_middleware_chain_security.cpp
+  test_replacement_model_security.cpp
+  test_injection_attacks.cpp
+  test_race_conditions.cpp
   test_health.cpp
   test_metrics.cpp
   test_prometheus.cpp

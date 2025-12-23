@@ -54,6 +54,8 @@ add_library(titan_lib
   gateway/factory.cpp
   control/config.hpp
   control/config.cpp
+  control/config_validator.hpp
+  control/config_validator.cpp
   control/health.hpp
   control/health.cpp
   control/metrics.hpp

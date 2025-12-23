@@ -1,7 +1,0 @@
-# Ignore all result files
-*.json
-*.txt
-*.csv
-
-# But keep this directory in git
-!.gitignore

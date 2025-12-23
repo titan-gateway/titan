@@ -160,6 +160,11 @@ public:
 
     /// Get middleware name (for debugging)
     [[nodiscard]] virtual std::string_view name() const = 0;
+
+    /// Get middleware type (for override detection)
+    /// Examples: "rate_limit", "jwt_auth", "cors", "compression"
+    /// Returns empty string for middleware that doesn't support overrides
+    [[nodiscard]] virtual std::string_view type() const { return ""; }
 };
 
 /// Logging middleware (logs in response phase with timing)
@@ -192,6 +197,7 @@ public:
 
     MiddlewareResult process_request(RequestContext& ctx) override;
     std::string_view name() const override { return "CorsMiddleware"; }
+    std::string_view type() const override { return "cors"; }
 
 private:
     Config config_;
@@ -212,6 +218,7 @@ public:
 
     MiddlewareResult process_request(RequestContext& ctx) override;
     std::string_view name() const override { return "RateLimitMiddleware"; }
+    std::string_view type() const override { return "rate_limit"; }
 
 private:
     Config config_;
@@ -266,10 +273,20 @@ public:
     [[nodiscard]] size_t size() const noexcept { return middleware_.size(); }
 
     /// Clear all middleware
-    void clear() { middleware_.clear(); }
+    void clear() {
+        middleware_.clear();
+        named_middleware_.clear();
+    }
+
+    /// Register named middleware (for per-route execution)
+    void register_named_middleware(std::string name, std::unique_ptr<Middleware> middleware);
+
+    /// Get named middleware by name (returns nullptr if not found)
+    [[nodiscard]] Middleware* get_named_middleware(const std::string& name) const;
 
 private:
     std::vector<std::unique_ptr<Middleware>> middleware_;
+    titan::core::fast_map<std::string, std::unique_ptr<Middleware>> named_middleware_;
 };
 
 /// Pipeline builder (fluent API)
