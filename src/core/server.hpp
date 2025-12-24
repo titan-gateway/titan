@@ -43,13 +43,19 @@
 // Forward declaration for test access
 class ProxyTestFixture;
 
+// Forward declarations
+namespace titan::http {
+struct WebSocketConnection;
+}
+
 namespace titan::core {
 
 /// Connection protocol type
 enum class Protocol : uint8_t {
-    Unknown,   // Not yet determined
-    HTTP_1_1,  // HTTP/1.1
-    HTTP_2,    // HTTP/2
+    Unknown,    // Not yet determined
+    HTTP_1_1,   // HTTP/1.1
+    HTTP_2,     // HTTP/2
+    WEBSOCKET,  // WebSocket (RFC 6455)
 };
 
 /// Backend connection state for async proxy operations
@@ -120,6 +126,9 @@ struct Connection {
 
     // Backend proxy state (for async operations - HTTP/1.1 only)
     std::unique_ptr<BackendConnection> backend_conn;
+
+    // WebSocket state (for upgraded connections)
+    std::unique_ptr<http::WebSocketConnection> ws_conn;
 };
 
 /// HTTP server managing connections
@@ -215,6 +224,10 @@ private:
     void handle_http1(Connection& conn);
     void handle_http2(Connection& conn);
     void process_http2_stream(Connection& conn, http::H2Stream& stream);
+
+    /// WebSocket handlers
+    void handle_websocket_upgrade(Connection& conn);
+    void handle_websocket_frame(Connection& conn, bool from_client = true);
 
     /// Proxy request to backend using context (for middleware integration)
     bool proxy_to_backend(Connection& conn, gateway::RequestContext& ctx);

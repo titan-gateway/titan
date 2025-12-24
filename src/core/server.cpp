@@ -30,6 +30,7 @@
 #include <iostream>
 #include <unordered_set>
 
+#include "../http/websocket.hpp"
 #include "logging.hpp"
 #include "socket.hpp"
 
@@ -210,6 +211,12 @@ void Server::handle_read(int client_fd) {
         }
     }
 
+    // WebSocket connections handle their own reading (avoid double-read bug)
+    if (conn.protocol == Protocol::WEBSOCKET) {
+        handle_websocket_frame(conn);
+        return;
+    }
+
     // Read data from socket (either SSL or raw)
     uint8_t buffer[8192];
     ssize_t n;
@@ -274,6 +281,8 @@ void Server::handle_read(int client_fd) {
     // Route to appropriate handler
     if (conn.protocol == Protocol::HTTP_2) {
         handle_http2(conn);
+    } else if (conn.protocol == Protocol::WEBSOCKET) {
+        handle_websocket_frame(conn);
     } else {
         handle_http1(conn);
     }
@@ -322,7 +331,24 @@ void Server::handle_http1(Connection& conn) {
                 conn.request.headers.push_back({name, value});
             }
 
-            // Process complete request
+            // Check for WebSocket upgrade request (RFC 6455)
+            if (http::WebSocketUtils::is_valid_upgrade_request(conn.request)) {
+                // WebSocket only works over HTTP/1.1, not HTTP/2
+                if (conn.protocol == Protocol::HTTP_2) {
+                    conn.response.status = http::StatusCode::BadRequest;
+                    std::string_view error_msg = "WebSocket not supported over HTTP/2";
+                    conn.response_body.assign(error_msg.begin(), error_msg.end());
+                    conn.response.body = conn.response_body;
+                    send_response(conn, false);  // Close connection
+                    return;
+                }
+
+                // Handle WebSocket upgrade and switch to frame-based forwarding
+                handle_websocket_upgrade(conn);
+                return;  // Upgraded to WebSocket, no longer HTTP/1.1
+            }
+
+            // Process complete HTTP request
             bool keep_alive = process_request(conn);
 
             if (!keep_alive) {
@@ -491,6 +517,27 @@ void Server::handle_close(int client_fd) {
     }
 
     Connection& conn = *it->second;
+
+    // Clean up WebSocket backend connection if exists
+    if (conn.ws_conn && conn.ws_conn->backend_fd >= 0) {
+        int backend_fd = conn.ws_conn->backend_fd;
+
+        // Remove from backend_connections map
+        backend_connections_.erase(backend_fd);
+
+        // Remove from backend epoll
+        if (!remove_backend_from_epoll(backend_fd)) {
+            LOG_WARNING(logger_, "Failed to remove backend_fd={} from epoll", backend_fd);
+        }
+
+        // Close backend socket
+        close_fd(backend_fd);
+
+        conn.ws_conn->backend_fd = -1;
+        conn.ws_conn->state = http::WebSocketState::CLOSED;
+
+        LOG_DEBUG(logger_, "Cleaned up WebSocket backend: backend_fd={}", backend_fd);
+    }
 
     // Clean up backend connection if exists (HTTP/1.1)
     if (conn.backend_conn) {
@@ -1169,8 +1216,12 @@ bool Server::receive_backend_response(int backend_fd, http::Response& response,
 
 // Backend event handling for dual epoll pattern
 void Server::handle_backend_event(int backend_fd, bool readable, bool writable, bool error) {
+    LOG_DEBUG(logger_, "Backend event: fd={} readable={} writable={} error={}", backend_fd,
+              readable, writable, error);
+
     auto it = backend_connections_.find(backend_fd);
     if (it == backend_connections_.end()) {
+        LOG_DEBUG(logger_, "Backend fd={} not found in connections map", backend_fd);
         return;
     }
 
@@ -1181,12 +1232,25 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
     auto conn_it = connections_.find(client_fd);
     if (conn_it == connections_.end()) {
         // Client connection closed, cleanup backend
+        LOG_DEBUG(logger_, "Client fd={} not found, cleaning up backend fd={}", client_fd,
+                  backend_fd);
         backend_connections_.erase(it);
         close_fd(backend_fd);
         return;
     }
 
     Connection& client_conn = *conn_it->second;
+
+    // Handle WebSocket backend events
+    if (client_conn.protocol == Protocol::WEBSOCKET && client_conn.ws_conn) {
+        LOG_DEBUG(logger_, "WebSocket backend→client forwarding (readable={} error={})", readable,
+                  error);
+        // WebSocket backend has data - trigger frame forwarding (backend → client)
+        if (readable || error) {
+            handle_websocket_frame(client_conn, false);  // false = from backend
+        }
+        return;
+    }
 
     // Get the actual BackendConnection pointer from the appropriate container
     BackendConnection* backend_conn = nullptr;
@@ -1721,6 +1785,549 @@ bool Server::remove_backend_from_epoll(int backend_fd) {
 #else
     return false;
 #endif
+}
+
+// ============================================================================
+// WebSocket Support (RFC 6455)
+// ============================================================================
+
+void Server::handle_websocket_upgrade(Connection& conn) {
+    // Phase 3: WebSocket upgrade and proxy establishment
+    // 1. Match route to find upstream backend
+    // 2. Extract Sec-WebSocket-Key header from client request
+    // 3. Connect to backend with WebSocket upgrade request
+    // 4. Wait for backend 101 Switching Protocols response
+    // 5. Send 101 response to client
+    // 6. Initialize WebSocketConnection state
+    // 7. Register both client and backend FDs in epoll for frame forwarding
+
+    // Match route to find backend upstream
+    auto route_match = router_->match(conn.request.method, conn.request.path);
+    if (route_match.handler_id.empty()) {
+        LOG_WARNING(logger_, "WebSocket upgrade failed: No route match for path={}",
+                    conn.request.path);
+        conn.response.status = http::StatusCode::NotFound;
+        std::string_view error_msg = "No route configured for this path";
+        conn.response_body.assign(error_msg.begin(), error_msg.end());
+        conn.response.body = conn.response_body;
+        send_response(conn, false);
+        return;
+    }
+
+    // Get upstream from route
+    auto upstream = upstream_manager_->get_upstream(route_match.upstream_name);
+    if (!upstream) {
+        LOG_ERROR(logger_, "WebSocket upgrade failed: Upstream '{}' not found",
+                  route_match.upstream_name);
+        conn.response.status = http::StatusCode::BadGateway;
+        std::string_view error_msg = "Upstream not found";
+        conn.response_body.assign(error_msg.begin(), error_msg.end());
+        conn.response.body = conn.response_body;
+        send_response(conn, false);
+        return;
+    }
+
+    // Extract Sec-WebSocket-Key header (required for upgrade)
+    std::string_view ws_key;
+    for (const auto& [name, value] : conn.request.headers) {
+        if (name == "Sec-WebSocket-Key") {
+            ws_key = value;
+            break;
+        }
+    }
+
+    if (ws_key.empty()) {
+        LOG_ERROR(logger_, "WebSocket upgrade failed: Missing Sec-WebSocket-Key header");
+        conn.response.status = http::StatusCode::BadRequest;
+        std::string_view error_msg = "Missing Sec-WebSocket-Key header";
+        conn.response_body.assign(error_msg.begin(), error_msg.end());
+        conn.response.body = conn.response_body;
+        send_response(conn, false);
+        return;
+    }
+
+    // Select backend using load balancer with circuit breaker check
+    const auto& backends = upstream->backends();
+    if (backends.empty()) {
+        LOG_ERROR(logger_, "WebSocket upgrade failed: No backends for upstream '{}'",
+                  route_match.upstream_name);
+        conn.response.status = http::StatusCode::ServiceUnavailable;
+        std::string_view error_msg = "No backends available";
+        conn.response_body.assign(error_msg.begin(), error_msg.end());
+        conn.response.body = conn.response_body;
+        send_response(conn, false);
+        return;
+    }
+
+    // Find first available backend (health + circuit breaker check)
+    const gateway::Backend* selected_backend = nullptr;
+    for (const auto& backend : backends) {
+        if (backend.can_accept_connection()) {
+            selected_backend = &backend;
+            break;
+        }
+    }
+
+    if (!selected_backend) {
+        LOG_ERROR(logger_, "WebSocket upgrade failed: No healthy backend for upstream '{}'",
+                  route_match.upstream_name);
+        conn.response.status = http::StatusCode::ServiceUnavailable;
+        std::string_view error_msg = "No healthy backend available";
+        conn.response_body.assign(error_msg.begin(), error_msg.end());
+        conn.response.body = conn.response_body;
+        send_response(conn, false);
+        return;
+    }
+
+    const auto& backend = *selected_backend;
+
+    // Connect to backend (blocking for Phase 3 - will be async in Phase 5)
+    int backend_fd = connect_to_backend(backend.host, backend.port);
+    if (backend_fd < 0) {
+        LOG_ERROR(logger_, "WebSocket upgrade failed: Cannot connect to backend {}:{}",
+                  backend.host, backend.port);
+        conn.response.status = http::StatusCode::BadGateway;
+        std::string_view error_msg = "Cannot connect to backend";
+        conn.response_body.assign(error_msg.begin(), error_msg.end());
+        conn.response.body = conn.response_body;
+        send_response(conn, false);
+        return;
+    }
+
+    // Build WebSocket upgrade request for backend
+    std::string backend_request = "GET ";
+    backend_request += conn.request.path;
+    backend_request += " HTTP/1.1\r\n";
+    backend_request += "Host: ";
+    backend_request += backend.host;
+    backend_request += "\r\n";
+    backend_request += "Upgrade: websocket\r\n";
+    backend_request += "Connection: Upgrade\r\n";
+    backend_request += "Sec-WebSocket-Key: ";
+    backend_request += ws_key;
+    backend_request += "\r\n";
+    backend_request += "Sec-WebSocket-Version: 13\r\n";
+
+    // Forward other headers from client (e.g., Sec-WebSocket-Protocol, Origin)
+    for (const auto& [name, value] : conn.request.headers) {
+        if (name != "Host" && name != "Upgrade" && name != "Connection" &&
+            name != "Sec-WebSocket-Key" && name != "Sec-WebSocket-Version") {
+            backend_request += name;
+            backend_request += ": ";
+            backend_request += value;
+            backend_request += "\r\n";
+        }
+    }
+    backend_request += "\r\n";
+
+    // Send WebSocket upgrade request to backend
+    ssize_t sent = write(backend_fd, backend_request.data(), backend_request.size());
+    if (sent < 0 || static_cast<size_t>(sent) != backend_request.size()) {
+        LOG_ERROR(logger_, "WebSocket upgrade failed: Cannot send upgrade request to backend");
+        ::close(backend_fd);
+        conn.response.status = http::StatusCode::BadGateway;
+        std::string_view error_msg = "Cannot send upgrade request to backend";
+        conn.response_body.assign(error_msg.begin(), error_msg.end());
+        conn.response.body = conn.response_body;
+        send_response(conn, false);
+        return;
+    }
+
+    // Receive 101 Switching Protocols response from backend
+    std::vector<uint8_t> backend_response_buffer(4096);
+    ssize_t received =
+        read(backend_fd, backend_response_buffer.data(), backend_response_buffer.size());
+    if (received <= 0) {
+        LOG_ERROR(logger_, "WebSocket upgrade failed: No response from backend");
+        ::close(backend_fd);
+        conn.response.status = http::StatusCode::BadGateway;
+        std::string_view error_msg = "No response from backend";
+        conn.response_body.assign(error_msg.begin(), error_msg.end());
+        conn.response.body = conn.response_body;
+        send_response(conn, false);
+        return;
+    }
+
+    // Parse backend response (simple check for "HTTP/1.1 101")
+    std::string_view backend_response_view(
+        reinterpret_cast<const char*>(backend_response_buffer.data()), received);
+    if (backend_response_view.find("HTTP/1.1 101") != 0 &&
+        backend_response_view.find("HTTP/1.0 101") != 0) {
+        LOG_ERROR(logger_, "WebSocket upgrade failed: Backend did not return 101 response");
+        ::close(backend_fd);
+        conn.response.status = http::StatusCode::BadGateway;
+        std::string_view error_msg = "Backend rejected WebSocket upgrade";
+        conn.response_body.assign(error_msg.begin(), error_msg.end());
+        conn.response.body = conn.response_body;
+        send_response(conn, false);
+        return;
+    }
+
+    // Compute Sec-WebSocket-Accept value for client response
+    std::string accept_key = http::WebSocketUtils::compute_accept_key(ws_key);
+
+    // Send 101 Switching Protocols to client
+    std::string client_response = http::WebSocketUtils::create_upgrade_response(accept_key);
+    ssize_t client_sent = write(conn.fd, client_response.data(), client_response.size());
+    if (client_sent < 0 || static_cast<size_t>(client_sent) != client_response.size()) {
+        LOG_ERROR(logger_, "WebSocket upgrade failed: Cannot send 101 response to client");
+        ::close(backend_fd);
+        handle_close(conn.fd);
+        return;
+    }
+
+    // Initialize WebSocketConnection state
+    conn.ws_conn = std::make_unique<http::WebSocketConnection>();
+    conn.ws_conn->client_fd = conn.fd;
+    conn.ws_conn->backend_fd = backend_fd;
+    conn.ws_conn->state = http::WebSocketState::OPEN;
+    conn.ws_conn->route_path = std::string(conn.request.path);
+    conn.ws_conn->upstream_name = std::string(route_match.upstream_name);
+    conn.ws_conn->connected_at = std::chrono::steady_clock::now();
+    conn.ws_conn->last_activity = std::chrono::steady_clock::now();
+
+    // Mark protocol as WebSocket
+    conn.protocol = Protocol::WEBSOCKET;
+
+    // CRITICAL: Set backend socket to non-blocking mode for edge-triggered epoll
+    // Do this AFTER the upgrade handshake completes
+    if (auto ec = core::set_nonblocking(backend_fd); ec) {
+        LOG_ERROR(logger_, "WebSocket upgrade failed: Cannot set backend socket non-blocking");
+        ::close(backend_fd);
+        handle_close(conn.fd);
+        return;
+    }
+
+    // Register backend FD in epoll for frame forwarding
+    backend_connections_[backend_fd] = {conn.fd, -1};  // -1 = not HTTP/2
+    if (!add_backend_to_epoll(backend_fd, EPOLLIN)) {
+        LOG_ERROR(logger_, "WebSocket upgrade failed: Cannot add backend_fd to epoll");
+        ::close(backend_fd);
+        handle_close(conn.fd);
+        return;
+    }
+
+    LOG_INFO(logger_, "WebSocket upgraded: client_fd={} backend_fd={} path={} upstream={}", conn.fd,
+             backend_fd, conn.request.path, route_match.upstream_name);
+}
+
+void Server::handle_websocket_frame(Connection& conn, bool from_client) {
+    // Phase 3: WebSocket frame forwarding (bidirectional proxy)
+    // This method is called when epoll reports data available on a WebSocket connection
+    // from_client = true: client socket has data (client → backend)
+    // from_client = false: backend socket has data (backend → client)
+
+    if (!conn.ws_conn) {
+        LOG_ERROR(logger_, "handle_websocket_frame called on non-WebSocket connection");
+        handle_close(conn.fd);
+        return;
+    }
+
+    auto& ws = *conn.ws_conn;
+
+    // Update last activity timestamp
+    ws.last_activity = std::chrono::steady_clock::now();
+
+    std::vector<uint8_t> read_buffer(16384);  // 16KB read buffer
+
+    // Only read from the socket that has data available
+    if (from_client) {
+        // Read and process frames from client → backend
+        // Edge-triggered mode: Must read until EAGAIN
+        while (true) {
+            ssize_t bytes_read = read(conn.fd, read_buffer.data(), read_buffer.size());
+
+            if (bytes_read > 0) {
+                // Append to client frame buffer for parsing
+                ws.client_frame_buffer.insert(ws.client_frame_buffer.end(), read_buffer.begin(),
+                                              read_buffer.begin() + bytes_read);
+                // Continue reading in case there's more data
+                continue;
+            } else if (bytes_read == 0) {
+                // Client closed connection
+                LOG_INFO(logger_, "Client closed WebSocket connection: client_fd={}", conn.fd);
+                ws.state = http::WebSocketState::CLOSED;
+                handle_close(conn.fd);
+                return;
+            } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                // No more data available - process what we have
+                break;
+            } else {
+                // Read error
+                LOG_ERROR(logger_, "Read error on client_fd={}: {}", conn.fd, strerror(errno));
+                handle_close(conn.fd);
+                return;
+            }
+        }
+
+        // Parse all complete frames from client buffer
+        size_t buffer_offset = 0;
+        while (buffer_offset < ws.client_frame_buffer.size()) {
+            http::WebSocketFrame frame;
+            size_t consumed = 0;
+
+            std::span<const uint8_t> remaining_data(ws.client_frame_buffer.data() + buffer_offset,
+                                                    ws.client_frame_buffer.size() - buffer_offset);
+
+            http::WebSocketFrameParser parser;
+            auto result = parser.parse(remaining_data, frame, consumed);
+
+            if (result == http::WebSocketFrameParser::ParseResult::Complete) {
+                // Frame fully parsed - handle it
+                buffer_offset += consumed;
+
+                // Unmask payload if masked (client→server frames must be masked per RFC 6455)
+                if (frame.masked && frame.payload_length > 0) {
+                    std::vector<uint8_t> payload_copy(frame.payload.begin(), frame.payload.end());
+                    http::WebSocketUtils::unmask_payload(payload_copy, frame.masking_key);
+
+                    // Handle control frames
+                    if (frame.is_control_frame()) {
+                        if (frame.opcode == http::WebSocketOpcode::CLOSE) {
+                            LOG_INFO(logger_, "WebSocket close frame from client_fd={}", conn.fd);
+
+                            // Send close frame to backend
+                            auto close_frame = http::WebSocketUtils::create_close_frame(
+                                http::WebSocketCloseCode::NORMAL_CLOSURE, "Client closed");
+                            write(ws.backend_fd, close_frame.data(), close_frame.size());
+
+                            // Send close frame to client
+                            write(conn.fd, close_frame.data(), close_frame.size());
+
+                            // Close both connections
+                            ws.state = http::WebSocketState::CLOSED;
+                            handle_close(conn.fd);
+                            return;
+                        } else if (frame.opcode == http::WebSocketOpcode::PING) {
+                            LOG_DEBUG(logger_, "WebSocket ping from client_fd={}", conn.fd);
+
+                            // Respond with pong to client
+                            auto pong_frame = http::WebSocketUtils::create_pong_frame(payload_copy);
+                            write(conn.fd, pong_frame.data(), pong_frame.size());
+
+                            // Also forward ping to backend (must be masked - RFC 6455)
+                            std::vector<uint8_t> forward_frame;
+                            uint32_t mask_key = static_cast<uint32_t>(std::rand());
+                            http::WebSocketUtils::encode_frame_header(
+                                forward_frame, frame.fin, frame.opcode, true,  // masked=true!
+                                payload_copy.size(), mask_key);
+
+                            // Apply masking to payload
+                            std::vector<uint8_t> masked_payload = payload_copy;
+                            for (size_t i = 0; i < masked_payload.size(); ++i) {
+                                masked_payload[i] ^= (mask_key >> (8 * (3 - (i % 4)))) & 0xFF;
+                            }
+                            forward_frame.insert(forward_frame.end(), masked_payload.begin(),
+                                                 masked_payload.end());
+                            write(ws.backend_fd, forward_frame.data(), forward_frame.size());
+                        } else if (frame.opcode == http::WebSocketOpcode::PONG) {
+                            LOG_DEBUG(logger_, "WebSocket pong from client_fd={}", conn.fd);
+                            ws.pong_pending = false;
+                        }
+                    } else {
+                        // Data frame - forward to backend (unmask before forwarding)
+                        LOG_DEBUG(logger_,
+                                  "Client data frame: opcode={} fin={} payload_length={} "
+                                  "unmasked_size={}",
+                                  static_cast<int>(frame.opcode), frame.fin, frame.payload_length,
+                                  payload_copy.size());
+
+                        // RFC 6455: Titan is a WebSocket CLIENT to the backend, so frames MUST be
+                        // masked
+                        std::vector<uint8_t> forward_frame;
+                        uint32_t mask_key =
+                            static_cast<uint32_t>(std::rand());  // Simple masking key
+                        http::WebSocketUtils::encode_frame_header(
+                            forward_frame, frame.fin, frame.opcode, true,  // masked=true!
+                            payload_copy.size(), mask_key);
+
+                        // Apply masking to payload
+                        std::vector<uint8_t> masked_payload = payload_copy;
+                        for (size_t i = 0; i < masked_payload.size(); ++i) {
+                            masked_payload[i] ^= (mask_key >> (8 * (3 - (i % 4)))) & 0xFF;
+                        }
+                        forward_frame.insert(forward_frame.end(), masked_payload.begin(),
+                                             masked_payload.end());
+
+                        LOG_DEBUG(logger_, "Forwarding to backend: frame_size={} bytes",
+                                  forward_frame.size());
+                        ssize_t sent =
+                            write(ws.backend_fd, forward_frame.data(), forward_frame.size());
+                        if (sent < 0 || static_cast<size_t>(sent) != forward_frame.size()) {
+                            LOG_ERROR(logger_, "Failed to forward frame to backend_fd={}",
+                                      ws.backend_fd);
+                            handle_close(conn.fd);
+                            return;
+                        }
+                        LOG_DEBUG(logger_, "Successfully sent {} bytes to backend", sent);
+
+                        ws.frames_sent++;
+                        ws.bytes_sent += forward_frame.size();
+                    }
+                } else {
+                    // Unmasked frame from client - protocol violation
+                    LOG_ERROR(logger_, "Unmasked frame from client_fd={} (protocol violation)",
+                              conn.fd);
+                    auto close_frame = http::WebSocketUtils::create_close_frame(
+                        http::WebSocketCloseCode::PROTOCOL_ERROR, "Unmasked client frame");
+                    write(conn.fd, close_frame.data(), close_frame.size());
+                    handle_close(conn.fd);
+                    return;
+                }
+            } else if (result == http::WebSocketFrameParser::ParseResult::Incomplete) {
+                // Need more data - keep remaining bytes in buffer
+                break;
+            } else {
+                // Parse error
+                LOG_ERROR(logger_, "WebSocket parse error from client_fd={}", conn.fd);
+                auto close_frame = http::WebSocketUtils::create_close_frame(
+                    http::WebSocketCloseCode::PROTOCOL_ERROR, "Parse error");
+                write(conn.fd, close_frame.data(), close_frame.size());
+                handle_close(conn.fd);
+                return;
+            }
+        }
+
+        // Remove consumed bytes from buffer
+        if (buffer_offset > 0) {
+            ws.client_frame_buffer.erase(ws.client_frame_buffer.begin(),
+                                         ws.client_frame_buffer.begin() + buffer_offset);
+        }
+    } else {
+        // Read and process frames from backend → client
+        // Edge-triggered mode: Must read until EAGAIN
+        while (true) {
+            ssize_t bytes_read = read(ws.backend_fd, read_buffer.data(), read_buffer.size());
+
+            LOG_DEBUG(logger_, "WebSocket backend read: fd={} bytes={} errno={}", ws.backend_fd,
+                      bytes_read, errno);
+
+            if (bytes_read > 0) {
+                // Append to backend frame buffer for parsing
+                ws.backend_frame_buffer.insert(ws.backend_frame_buffer.end(), read_buffer.begin(),
+                                               read_buffer.begin() + bytes_read);
+                LOG_DEBUG(logger_, "Appended {} bytes to backend buffer, total={}", bytes_read,
+                          ws.backend_frame_buffer.size());
+                // Continue reading in case there's more data
+                continue;
+            } else if (bytes_read == 0) {
+                // Backend closed connection
+                LOG_INFO(logger_, "Backend closed WebSocket connection: backend_fd={}",
+                         ws.backend_fd);
+                ws.state = http::WebSocketState::CLOSED;
+
+                // Send close frame to client
+                auto close_frame = http::WebSocketUtils::create_close_frame(
+                    http::WebSocketCloseCode::GOING_AWAY, "Backend closed");
+                write(conn.fd, close_frame.data(), close_frame.size());
+
+                handle_close(conn.fd);
+                return;
+            } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                // No more data available - process what we have
+                break;
+            } else {
+                // Read error from backend
+                LOG_ERROR(logger_, "Read error on backend_fd={}: {}", ws.backend_fd,
+                          strerror(errno));
+                handle_close(conn.fd);
+                return;
+            }
+        }
+
+        // Parse all complete frames from backend buffer
+        size_t buffer_offset = 0;
+        while (buffer_offset < ws.backend_frame_buffer.size()) {
+            http::WebSocketFrame frame;
+            size_t consumed = 0;
+
+            std::span<const uint8_t> remaining_data(ws.backend_frame_buffer.data() + buffer_offset,
+                                                    ws.backend_frame_buffer.size() - buffer_offset);
+
+            http::WebSocketFrameParser parser;
+            auto result = parser.parse(remaining_data, frame, consumed);
+
+            if (result == http::WebSocketFrameParser::ParseResult::Complete) {
+                // Frame fully parsed - forward to client
+                buffer_offset += consumed;
+
+                // Backend frames should NOT be masked (server→client frames are unmasked)
+                if (frame.masked) {
+                    LOG_ERROR(logger_, "Masked frame from backend_fd={} (protocol violation)",
+                              ws.backend_fd);
+                    auto close_frame = http::WebSocketUtils::create_close_frame(
+                        http::WebSocketCloseCode::PROTOCOL_ERROR, "Masked server frame");
+                    write(conn.fd, close_frame.data(), close_frame.size());
+                    handle_close(conn.fd);
+                    return;
+                }
+
+                // Handle control frames from backend
+                if (frame.is_control_frame()) {
+                    if (frame.opcode == http::WebSocketOpcode::CLOSE) {
+                        LOG_INFO(logger_, "WebSocket close frame from backend_fd={}",
+                                 ws.backend_fd);
+
+                        // Forward close frame to client
+                        std::vector<uint8_t> forward_frame;
+                        http::WebSocketUtils::encode_frame_header(
+                            forward_frame, frame.fin, frame.opcode, false, frame.payload_length, 0);
+                        forward_frame.insert(forward_frame.end(), frame.payload.begin(),
+                                             frame.payload.end());
+                        write(conn.fd, forward_frame.data(), forward_frame.size());
+
+                        // Close connection
+                        ws.state = http::WebSocketState::CLOSED;
+                        handle_close(conn.fd);
+                        return;
+                    }
+                }
+
+                // Forward frame to client (already unmasked)
+                LOG_DEBUG(
+                    logger_,
+                    "Forwarding backend frame: opcode={} fin={} payload_length={} payload_size={}",
+                    static_cast<int>(frame.opcode), frame.fin, frame.payload_length,
+                    frame.payload.size());
+
+                std::vector<uint8_t> forward_frame;
+                http::WebSocketUtils::encode_frame_header(forward_frame, frame.fin, frame.opcode,
+                                                          false, frame.payload_length, 0);
+                forward_frame.insert(forward_frame.end(), frame.payload.begin(),
+                                     frame.payload.end());
+
+                LOG_DEBUG(logger_, "Forward frame size: {} bytes (header + payload)",
+                          forward_frame.size());
+
+                ssize_t sent = write(conn.fd, forward_frame.data(), forward_frame.size());
+                if (sent < 0 || static_cast<size_t>(sent) != forward_frame.size()) {
+                    LOG_ERROR(logger_, "Failed to forward frame to client_fd={}", conn.fd);
+                    handle_close(conn.fd);
+                    return;
+                }
+
+                ws.frames_received++;
+                ws.bytes_received += forward_frame.size();
+            } else if (result == http::WebSocketFrameParser::ParseResult::Incomplete) {
+                // Need more data
+                break;
+            } else {
+                // Parse error
+                LOG_ERROR(logger_, "WebSocket parse error from backend_fd={}", ws.backend_fd);
+                auto close_frame = http::WebSocketUtils::create_close_frame(
+                    http::WebSocketCloseCode::PROTOCOL_ERROR, "Backend parse error");
+                write(conn.fd, close_frame.data(), close_frame.size());
+                handle_close(conn.fd);
+                return;
+            }
+        }
+
+        // Remove consumed bytes from buffer
+        if (buffer_offset > 0) {
+            ws.backend_frame_buffer.erase(ws.backend_frame_buffer.begin(),
+                                          ws.backend_frame_buffer.begin() + buffer_offset);
+        }
+    }  // end else (backend → client)
 }
 
 }  // namespace titan::core
