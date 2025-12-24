@@ -270,7 +270,8 @@ std::unique_ptr<Pipeline> build_pipeline(const control::Config& config,
     // Divide by worker_count to match user expectations (config specifies total limit)
     if (config.rate_limit.enabled && config.rate_limit.requests_per_second > 0) {
         RateLimitMiddleware::Config rl_config;
-        rl_config.requests_per_second = std::max(1u, config.rate_limit.requests_per_second / worker_count);
+        rl_config.requests_per_second =
+            std::max(1u, config.rate_limit.requests_per_second / worker_count);
         rl_config.burst_size = std::max(1u, config.rate_limit.burst_size / worker_count);
         pipeline->use(std::make_unique<RateLimitMiddleware>(rl_config));
     }
@@ -280,7 +281,8 @@ std::unique_ptr<Pipeline> build_pipeline(const control::Config& config,
     for (const auto& [name, rate_limit_config] : config.rate_limits) {
         if (rate_limit_config.enabled && rate_limit_config.requests_per_second > 0) {
             RateLimitMiddleware::Config rl_config;
-            rl_config.requests_per_second = std::max(1u, rate_limit_config.requests_per_second / worker_count);
+            rl_config.requests_per_second =
+                std::max(1u, rate_limit_config.requests_per_second / worker_count);
             rl_config.burst_size = std::max(1u, rate_limit_config.burst_size / worker_count);
             pipeline->register_named_middleware(name,
                                                 std::make_unique<RateLimitMiddleware>(rl_config));

@@ -4,7 +4,7 @@ Unified FastAPI server with circuit breaker control endpoints
 """
 import os
 import time
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 app = FastAPI(title="Titan Mock Backend")
@@ -161,10 +161,82 @@ async def control_reset():
     return JSONResponse({"status": "reset"})
 
 
+# WebSocket endpoints for WebSocket proxy testing
+@app.websocket("/ws/echo")
+async def websocket_echo(websocket: WebSocket):
+    """WebSocket echo endpoint - echoes back all messages"""
+    await websocket.accept()
+    try:
+        while True:
+            data = await websocket.receive_text()
+            await websocket.send_text(f"echo: {data}")
+    except WebSocketDisconnect:
+        pass
+
+
+@app.websocket("/ws/binary")
+async def websocket_binary(websocket: WebSocket):
+    """WebSocket binary echo endpoint"""
+    await websocket.accept()
+    try:
+        while True:
+            data = await websocket.receive_bytes()
+            await websocket.send_bytes(data)
+    except WebSocketDisconnect:
+        pass
+
+
+@app.websocket("/ws/broadcast")
+async def websocket_broadcast(websocket: WebSocket):
+    """WebSocket broadcast endpoint - sends 5 messages then closes"""
+    await websocket.accept()
+    try:
+        for i in range(5):
+            await websocket.send_text(f"message_{i}")
+            time.sleep(0.1)
+        await websocket.close()
+    except WebSocketDisconnect:
+        pass
+
+
+@app.websocket("/ws/ping-pong")
+async def websocket_ping_pong(websocket: WebSocket):
+    """WebSocket endpoint that tests ping/pong keep-alive"""
+    await websocket.accept()
+    try:
+        # Send a ping every second for 3 seconds
+        for i in range(3):
+            await websocket.send_text(f"ping_{i}")
+            data = await websocket.receive_text()
+            if data.startswith("pong"):
+                await websocket.send_text(f"received: {data}")
+        await websocket.close()
+    except WebSocketDisconnect:
+        pass
+
+
+@app.websocket("/ws/slow")
+async def websocket_slow(websocket: WebSocket):
+    """WebSocket endpoint with slow responses (for timeout testing)"""
+    await websocket.accept()
+    try:
+        while True:
+            data = await websocket.receive_text()
+            time.sleep(0.5)  # Simulate slow processing
+            await websocket.send_text(f"slow_echo: {data}")
+    except WebSocketDisconnect:
+        pass
+
+
 # Catch-all route for transform middleware tests
 from fastapi import Request
 
-@app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+@app.get("/{path:path}")
+@app.post("/{path:path}")
+@app.put("/{path:path}")
+@app.delete("/{path:path}")
+@app.patch("/{path:path}")
+@app.options("/{path:path}")
 async def catch_all(path: str, request: Request):
     """Catch-all route that echoes request details (for transform tests)"""
     # Build headers dict (exclude common headers for cleaner output)

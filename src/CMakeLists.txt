@@ -30,6 +30,8 @@ add_library(titan_lib
   http/h2.cpp
   http/regex.hpp
   http/regex.cpp
+  http/websocket.hpp
+  http/websocket.cpp
   gateway/router.hpp
   gateway/router.cpp
   gateway/upstream.hpp
