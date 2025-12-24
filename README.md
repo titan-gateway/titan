@@ -73,9 +73,9 @@ Initial benchmarks show competitive performance with industry-leading gateways. 
 - **Observability**: Prometheus metrics endpoint (`/metrics`), request/response logging
 - **Request/Response Transformation**: Header manipulation, path rewriting with PCRE2 regex
 - **Response Compression**: gzip/brotli/zstd with BREACH attack mitigation
+- **WebSocket Proxying**: HTTP to WebSocket upgrade, bidirectional streaming
 
 ### In Development
-- **WebSocket Proxying**: HTTP to WebSocket upgrade, bidirectional streaming
 - **gRPC Support**: Protocol detection, streaming support
 - **Docker Service Discovery**: Auto-register containers as backends
 - **Kubernetes Integration**: Ingress controller, Service/Endpoints API
