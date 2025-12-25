@@ -27,8 +27,7 @@ using namespace titan::gateway;
 using namespace titan::http;
 using namespace titan::core;
 
-TEST_CASE("JwtAuthMiddleware - WebSocket upgrade when disabled",
-          "[middleware][websocket][jwt]") {
+TEST_CASE("JwtAuthMiddleware - WebSocket upgrade when disabled", "[middleware][websocket][jwt]") {
     // Create validator with default config
     JwtValidatorConfig validator_config;
     auto validator = std::make_shared<JwtValidator>(validator_config);

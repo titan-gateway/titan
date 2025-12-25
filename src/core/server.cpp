@@ -1831,7 +1831,7 @@ void Server::handle_websocket_upgrade(Connection& conn) {
             result == gateway::MiddlewareResult::Error) {
             // Middleware rejected upgrade (auth failed, rate limited, CORS violation)
             LOG_WARNING(logger_, "WebSocket upgrade blocked by middleware: path={}, client_ip={}",
-                       conn.request.path, conn.remote_ip);
+                        conn.request.path, conn.remote_ip);
             send_response(conn, false);
             return;
         }

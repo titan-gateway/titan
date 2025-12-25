@@ -41,12 +41,12 @@ constexpr size_t MAX_LEVENSHTEIN_DISTANCE = 2;      // Max edit distance for fuz
 constexpr size_t FUZZY_MATCH_TIMEOUT_MS = 1;        // Max time for fuzzy match (ms)
 
 // WebSocket security limits (DoS prevention)
-constexpr uint64_t MAX_WEBSOCKET_FRAME_SIZE = 1048576;       // 1MB max frame size
-constexpr uint64_t MAX_WEBSOCKET_MESSAGE_SIZE = 10485760;    // 10MB max total message
-constexpr uint32_t MAX_WEBSOCKET_IDLE_TIMEOUT = 86400;       // 24 hours max idle timeout
-constexpr uint32_t MIN_WEBSOCKET_PING_INTERVAL = 1;          // 1 second min ping interval
-constexpr size_t MAX_WEBSOCKET_SUBPROTOCOLS = 10;            // Max subprotocols per route
-constexpr size_t MAX_SUBPROTOCOL_NAME_LENGTH = 64;           // Max subprotocol name length
+constexpr uint64_t MAX_WEBSOCKET_FRAME_SIZE = 1048576;             // 1MB max frame size
+constexpr uint64_t MAX_WEBSOCKET_MESSAGE_SIZE = 10485760;          // 10MB max total message
+constexpr uint32_t MAX_WEBSOCKET_IDLE_TIMEOUT = 86400;             // 24 hours max idle timeout
+constexpr uint32_t MIN_WEBSOCKET_PING_INTERVAL = 1;                // 1 second min ping interval
+constexpr size_t MAX_WEBSOCKET_SUBPROTOCOLS = 10;                  // Max subprotocols per route
+constexpr size_t MAX_SUBPROTOCOL_NAME_LENGTH = 64;                 // Max subprotocol name length
 constexpr uint32_t MAX_WEBSOCKET_CONNECTIONS_PER_WORKER = 100000;  // Max WebSocket connections
 
 /// WebSocket server-level configuration (must come before ServerConfig)
@@ -54,14 +54,14 @@ struct WebSocketServerConfig {
     bool enabled = false;
 
     // Frame/message limits (DoS protection)
-    uint64_t max_frame_size = 1048576;        // 1MB per frame (default)
-    uint64_t max_message_size = 10485760;     // 10MB total message (default)
+    uint64_t max_frame_size = 1048576;     // 1MB per frame (default)
+    uint64_t max_message_size = 10485760;  // 10MB total message (default)
 
     // Timeouts (seconds)
-    uint32_t idle_timeout = 300;              // 5 minutes idle timeout
-    uint32_t ping_interval = 30;              // Send Ping every 30 seconds
-    uint32_t pong_timeout = 10;               // Close if no Pong in 10 seconds
-    uint32_t close_timeout = 5;               // Wait 5 seconds for Close response
+    uint32_t idle_timeout = 300;  // 5 minutes idle timeout
+    uint32_t ping_interval = 30;  // Send Ping every 30 seconds
+    uint32_t pong_timeout = 10;   // Close if no Pong in 10 seconds
+    uint32_t close_timeout = 5;   // Wait 5 seconds for Close response
 
     // Connection limits
     uint32_t max_connections_per_worker = 10000;  // Max WebSocket connections per worker
@@ -73,14 +73,14 @@ struct WebSocketRouteConfig {
     bool enabled = false;
 
     // Protocol negotiation
-    std::vector<std::string> subprotocols;    // Sec-WebSocket-Protocol values
+    std::vector<std::string> subprotocols;  // Sec-WebSocket-Protocol values
 
     // Compression (permessage-deflate extension)
     bool compression = false;
 
     // Timeout overrides (override server defaults)
-    std::optional<uint32_t> idle_timeout;     // Per-route idle timeout
-    std::optional<uint32_t> ping_interval;    // Per-route ping interval
+    std::optional<uint32_t> idle_timeout;   // Per-route idle timeout
+    std::optional<uint32_t> ping_interval;  // Per-route ping interval
 
     // Connection limits
     std::optional<uint32_t> max_connections;  // Per-route connection limit
@@ -88,9 +88,9 @@ struct WebSocketRouteConfig {
 
 /// WebSocket upstream-level configuration (must come before UpstreamConfig)
 struct WebSocketUpstreamConfig {
-    uint32_t backend_ping_interval = 60;      // Ping backend every 60 seconds
-    bool reconnect_on_failure = false;        // Don't retry (WebSocket is stateful)
-    bool prefer_tls = false;                  // Use wss:// to backend if true
+    uint32_t backend_ping_interval = 60;  // Ping backend every 60 seconds
+    bool reconnect_on_failure = false;    // Don't retry (WebSocket is stateful)
+    bool prefer_tls = false;              // Use wss:// to backend if true
 };
 
 /// Global server configuration
@@ -457,7 +457,8 @@ inline void to_json(nlohmann::json& j, const JwtAuthzConfig& c) {
 
 // Custom from_json/to_json for all types defined below
 
-// WebSocket config deserialization (must come first - used by ServerConfig/UpstreamConfig/RouteConfig)
+// WebSocket config deserialization (must come first - used by
+// ServerConfig/UpstreamConfig/RouteConfig)
 inline void from_json(const nlohmann::json& j, WebSocketServerConfig& ws) {
     ws.enabled = j.value("enabled", false);
     ws.max_frame_size = j.value("max_frame_size", uint64_t(1048576));

@@ -213,8 +213,7 @@ ValidationResult ConfigLoader::validate(const Config& config) {
 
         // Message size must be >= frame size
         if (ws.max_message_size < ws.max_frame_size) {
-            result.add_error(
-                "WebSocket max_message_size must be >= max_frame_size");
+            result.add_error("WebSocket max_message_size must be >= max_frame_size");
         }
 
         if (ws.max_message_size > MAX_WEBSOCKET_MESSAGE_SIZE) {
@@ -230,8 +229,7 @@ ValidationResult ConfigLoader::validate(const Config& config) {
 
         // Ping interval must be < idle timeout
         if (ws.ping_interval >= ws.idle_timeout) {
-            result.add_error(
-                "WebSocket ping_interval must be < idle_timeout");
+            result.add_error("WebSocket ping_interval must be < idle_timeout");
         }
 
         // Ping interval minimum
@@ -242,14 +240,12 @@ ValidationResult ConfigLoader::validate(const Config& config) {
 
         // Pong timeout validation
         if (ws.pong_timeout >= ws.ping_interval) {
-            result.add_warning(
-                "WebSocket pong_timeout >= ping_interval may cause false positives");
+            result.add_warning("WebSocket pong_timeout >= ping_interval may cause false positives");
         }
 
         // Connection limits
         if (ws.max_connections_per_worker == 0) {
-            result.add_error(
-                "WebSocket max_connections_per_worker must be > 0");
+            result.add_error("WebSocket max_connections_per_worker must be > 0");
         }
 
         if (ws.max_connections_per_worker > MAX_WEBSOCKET_CONNECTIONS_PER_WORKER) {
@@ -291,10 +287,9 @@ ValidationResult ConfigLoader::validate(const Config& config) {
                 for (char c : subproto) {
                     if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_' && c != '-' &&
                         c != '.') {
-                        result.add_error(
-                            "Route '" + route.path +
-                            "': Subprotocol '" + subproto + "' contains invalid character '" + c +
-                            "' (only alphanumeric, '_', '-', '.' allowed)");
+                        result.add_error("Route '" + route.path + "': Subprotocol '" + subproto +
+                                         "' contains invalid character '" + c +
+                                         "' (only alphanumeric, '_', '-', '.' allowed)");
                         break;
                     }
                 }
@@ -302,10 +297,8 @@ ValidationResult ConfigLoader::validate(const Config& config) {
 
             // Timeout overrides must be reasonable
             if (ws.idle_timeout.has_value()) {
-                if (*ws.idle_timeout == 0 ||
-                    *ws.idle_timeout > MAX_WEBSOCKET_IDLE_TIMEOUT) {
-                    result.add_error("Route '" + route.path +
-                                     "': Invalid idle_timeout override");
+                if (*ws.idle_timeout == 0 || *ws.idle_timeout > MAX_WEBSOCKET_IDLE_TIMEOUT) {
+                    result.add_error("Route '" + route.path + "': Invalid idle_timeout override");
                 }
             }
 
@@ -316,16 +309,14 @@ ValidationResult ConfigLoader::validate(const Config& config) {
                 }
 
                 // Check ping < idle if both are set
-                if (ws.idle_timeout.has_value() &&
-                    *ws.ping_interval >= *ws.idle_timeout) {
+                if (ws.idle_timeout.has_value() && *ws.ping_interval >= *ws.idle_timeout) {
                     result.add_error("Route '" + route.path +
                                      "': ping_interval must be < idle_timeout");
                 }
             }
 
             if (ws.max_connections.has_value() && *ws.max_connections == 0) {
-                result.add_error("Route '" + route.path +
-                                 "': max_connections must be > 0");
+                result.add_error("Route '" + route.path + "': max_connections must be > 0");
             }
         }
     }

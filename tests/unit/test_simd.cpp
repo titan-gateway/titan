@@ -416,12 +416,8 @@ TEST_CASE("unmask_payload - SIMD vs scalar correctness", "[simd][websocket]") {
         unmask_payload(simd_result.data(), simd_result.size(), key);
 
         // Scalar path (simulate by unmasking byte-by-byte)
-        uint8_t key_bytes[4] = {
-            static_cast<uint8_t>(key >> 24),
-            static_cast<uint8_t>(key >> 16),
-            static_cast<uint8_t>(key >> 8),
-            static_cast<uint8_t>(key)
-        };
+        uint8_t key_bytes[4] = {static_cast<uint8_t>(key >> 24), static_cast<uint8_t>(key >> 16),
+                                static_cast<uint8_t>(key >> 8), static_cast<uint8_t>(key)};
         for (size_t i = 0; i < scalar_result.size(); ++i) {
             scalar_result[i] ^= key_bytes[i % 4];
         }
@@ -429,15 +425,33 @@ TEST_CASE("unmask_payload - SIMD vs scalar correctness", "[simd][websocket]") {
         REQUIRE(simd_result == scalar_result);
     };
 
-    SECTION("15 bytes (SSE2/NEON boundary - 1)") { test_size(15); }
-    SECTION("16 bytes (SSE2/NEON boundary)") { test_size(16); }
-    SECTION("17 bytes (SSE2/NEON boundary + 1)") { test_size(17); }
-    SECTION("31 bytes (AVX2 boundary - 1)") { test_size(31); }
-    SECTION("32 bytes (AVX2 boundary)") { test_size(32); }
-    SECTION("33 bytes (AVX2 boundary + 1)") { test_size(33); }
-    SECTION("100 bytes") { test_size(100); }
-    SECTION("1000 bytes") { test_size(1000); }
-    SECTION("1MB payload") { test_size(1024 * 1024); }
+    SECTION("15 bytes (SSE2/NEON boundary - 1)") {
+        test_size(15);
+    }
+    SECTION("16 bytes (SSE2/NEON boundary)") {
+        test_size(16);
+    }
+    SECTION("17 bytes (SSE2/NEON boundary + 1)") {
+        test_size(17);
+    }
+    SECTION("31 bytes (AVX2 boundary - 1)") {
+        test_size(31);
+    }
+    SECTION("32 bytes (AVX2 boundary)") {
+        test_size(32);
+    }
+    SECTION("33 bytes (AVX2 boundary + 1)") {
+        test_size(33);
+    }
+    SECTION("100 bytes") {
+        test_size(100);
+    }
+    SECTION("1000 bytes") {
+        test_size(1000);
+    }
+    SECTION("1MB payload") {
+        test_size(1024 * 1024);
+    }
 }
 
 TEST_CASE("unmask_payload - Edge cases", "[simd][websocket]") {

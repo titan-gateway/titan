@@ -213,9 +213,10 @@ MiddlewareResult JwtAuthMiddleware::process_websocket_upgrade(RequestContext& ct
     if (!result) {
         auto* logger = logging::get_current_logger();
         assert(logger && "Logger must be initialized");
-        LOG_WARNING(logger,
-                    "JWT validation failed for WebSocket: error={}, client_ip={}, correlation_id={}",
-                    result.error, ctx.client_ip, ctx.correlation_id);
+        LOG_WARNING(
+            logger,
+            "JWT validation failed for WebSocket: error={}, client_ip={}, correlation_id={}",
+            result.error, ctx.client_ip, ctx.correlation_id);
 
         return send_401(ctx, result.error);
     }
@@ -227,7 +228,8 @@ MiddlewareResult JwtAuthMiddleware::process_websocket_upgrade(RequestContext& ct
         if (!result.claims.jti.empty() && revocation_list_.is_revoked(result.claims.jti)) {
             auto* logger = logging::get_current_logger();
             assert(logger && "Logger must be initialized");
-            LOG_WARNING(logger, "JWT revoked for WebSocket: jti={}, client_ip={}, correlation_id={}",
+            LOG_WARNING(logger,
+                        "JWT revoked for WebSocket: jti={}, client_ip={}, correlation_id={}",
                         result.claims.jti, ctx.client_ip, ctx.correlation_id);
 
             return send_401(ctx, "Token has been revoked");
