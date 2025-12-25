@@ -11,11 +11,26 @@ def test_websocket_cors_blocks_bad_origin(tmp_path, process_manager, mock_backen
     """Dead simple test: CORS should block invalid origin"""
     from pathlib import Path
 
+    # Stop any existing Titan servers to avoid port conflicts
+    process_manager.stop_titan_servers()
+
     # 1. Create config with strict CORS
     config = {
-        "server": {"worker_threads": 1, "listen_address": "127.0.0.1", "listen_port": 8080},
+        "server": {
+            "worker_threads": 1,
+            "listen_address": "127.0.0.1",
+            "listen_port": 8080,
+            "websocket": {
+                "enabled": True,
+                "max_frame_size": 1048576,
+                "max_message_size": 10485760,
+                "idle_timeout": 300,
+                "ping_interval": 30,
+                "max_connections_per_worker": 10000
+            }
+        },
         "upstreams": [{"name": "backend", "backends": [{"host": "127.0.0.1", "port": 3001}]}],
-        "routes": [{"path": "/ws/echo", "method": "GET", "upstream": "backend", "middleware": ["strict_cors"]}],
+        "routes": [{"path": "/ws/echo", "method": "GET", "upstream": "backend", "middleware": ["strict_cors"], "websocket": {"enabled": True}}],
         "cors_configs": {
             "strict_cors": {
                 "enabled": True,

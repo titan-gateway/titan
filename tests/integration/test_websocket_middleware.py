@@ -18,6 +18,14 @@ def titan_config_websocket_cors(tmp_path, mock_backend_1):
             "listen_address": "127.0.0.1",
             "listen_port": 8080,
             "backlog": 128,
+            "websocket": {
+                "enabled": True,
+                "max_frame_size": 1048576,
+                "max_message_size": 10485760,
+                "idle_timeout": 300,
+                "ping_interval": 30,
+                "max_connections_per_worker": 10000
+            }
         },
         "upstreams": [
             {
@@ -29,7 +37,7 @@ def titan_config_websocket_cors(tmp_path, mock_backend_1):
             }
         ],
         "routes": [
-            {"path": "/ws/echo", "method": "GET", "handler_id": "ws_echo", "upstream": "ws_backend", "priority": 10, "middleware": ["strict_cors"]},
+            {"path": "/ws/echo", "method": "GET", "handler_id": "ws_echo", "upstream": "ws_backend", "priority": 10, "middleware": ["strict_cors"], "websocket": {"enabled": True}},
         ],
         "cors_configs": {
             "strict_cors": {
@@ -66,6 +74,14 @@ def titan_config_websocket_ratelimit(tmp_path, mock_backend_1):
             "listen_address": "127.0.0.1",
             "listen_port": 8080,
             "backlog": 128,
+            "websocket": {
+                "enabled": True,
+                "max_frame_size": 1048576,
+                "max_message_size": 10485760,
+                "idle_timeout": 300,
+                "ping_interval": 30,
+                "max_connections_per_worker": 10000
+            }
         },
         "upstreams": [
             {
@@ -77,7 +93,7 @@ def titan_config_websocket_ratelimit(tmp_path, mock_backend_1):
             }
         ],
         "routes": [
-            {"path": "/ws/echo", "method": "GET", "handler_id": "ws_echo", "upstream": "ws_backend", "priority": 10, "middleware": ["permissive_cors", "ws_rate_limit"]},
+            {"path": "/ws/echo", "method": "GET", "handler_id": "ws_echo", "upstream": "ws_backend", "priority": 10, "middleware": ["permissive_cors", "ws_rate_limit"], "websocket": {"enabled": True}},
         ],
         "cors_configs": {
             "permissive_cors": {
@@ -116,6 +132,9 @@ def test_websocket_cors_valid_origin(process_manager, titan_config_websocket_cor
     from pathlib import Path
     import sys
 
+    # Stop any existing Titan servers to avoid port conflicts
+    process_manager.stop_titan_servers()
+
     REPO_ROOT = Path(__file__).parent.parent.parent
     BUILD_DIR = REPO_ROOT / "build" / "dev"
     TITAN_BINARY = BUILD_DIR / "src" / "titan"
@@ -151,6 +170,9 @@ def test_websocket_cors_invalid_origin(process_manager, titan_config_websocket_c
     """Test WebSocket upgrade with invalid Origin header (CORS blocked - CSWSH prevention)"""
     from pathlib import Path
 
+    # Stop any existing Titan servers to avoid port conflicts
+    process_manager.stop_titan_servers()
+
     REPO_ROOT = Path(__file__).parent.parent.parent
     BUILD_DIR = REPO_ROOT / "build" / "dev"
     TITAN_BINARY = BUILD_DIR / "src" / "titan"
@@ -180,6 +202,9 @@ def test_websocket_cors_invalid_origin(process_manager, titan_config_websocket_c
 def test_websocket_cors_missing_origin(process_manager, titan_config_websocket_cors, mock_backend_1):
     """Test WebSocket upgrade without Origin header (CORS blocked)"""
     from pathlib import Path
+
+    # Stop any existing Titan servers to avoid port conflicts
+    process_manager.stop_titan_servers()
 
     REPO_ROOT = Path(__file__).parent.parent.parent
     BUILD_DIR = REPO_ROOT / "build" / "dev"
@@ -215,6 +240,9 @@ def test_websocket_rate_limiting(process_manager, titan_config_websocket_ratelim
     Integration test verifies the middleware pipeline integration.
     """
     from pathlib import Path
+
+    # Stop any existing Titan servers to avoid port conflicts
+    process_manager.stop_titan_servers()
 
     REPO_ROOT = Path(__file__).parent.parent.parent
     BUILD_DIR = REPO_ROOT / "build" / "dev"

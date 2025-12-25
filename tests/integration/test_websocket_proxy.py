@@ -19,6 +19,14 @@ def titan_config_websocket(tmp_path, mock_backend_1):
             "listen_address": "127.0.0.1",
             "listen_port": 8080,
             "backlog": 128,
+            "websocket": {
+                "enabled": True,
+                "max_frame_size": 1048576,
+                "max_message_size": 10485760,
+                "idle_timeout": 300,
+                "ping_interval": 30,
+                "max_connections_per_worker": 10000
+            }
         },
         "upstreams": [
             {
@@ -31,15 +39,24 @@ def titan_config_websocket(tmp_path, mock_backend_1):
         ],
         "routes": [
             # WebSocket routes
-            {"path": "/ws/echo", "method": "GET", "handler_id": "ws_echo", "upstream": "ws_backend", "priority": 10},
-            {"path": "/ws/binary", "method": "GET", "handler_id": "ws_binary", "upstream": "ws_backend", "priority": 10},
-            {"path": "/ws/broadcast", "method": "GET", "handler_id": "ws_broadcast", "upstream": "ws_backend", "priority": 10},
-            {"path": "/ws/ping-pong", "method": "GET", "handler_id": "ws_ping_pong", "upstream": "ws_backend", "priority": 10},
-            {"path": "/ws/slow", "method": "GET", "handler_id": "ws_slow", "upstream": "ws_backend", "priority": 10},
+            {"path": "/ws/echo", "method": "GET", "handler_id": "ws_echo", "upstream": "ws_backend", "priority": 10, "middleware": ["permissive_cors"], "websocket": {"enabled": True}},
+            {"path": "/ws/binary", "method": "GET", "handler_id": "ws_binary", "upstream": "ws_backend", "priority": 10, "middleware": ["permissive_cors"], "websocket": {"enabled": True}},
+            {"path": "/ws/broadcast", "method": "GET", "handler_id": "ws_broadcast", "upstream": "ws_backend", "priority": 10, "middleware": ["permissive_cors"], "websocket": {"enabled": True}},
+            {"path": "/ws/ping-pong", "method": "GET", "handler_id": "ws_ping_pong", "upstream": "ws_backend", "priority": 10, "middleware": ["permissive_cors"], "websocket": {"enabled": True}},
+            {"path": "/ws/slow", "method": "GET", "handler_id": "ws_slow", "upstream": "ws_backend", "priority": 10, "middleware": ["permissive_cors"], "websocket": {"enabled": True}},
             # Regular HTTP routes for testing
             {"path": "/health", "method": "GET", "handler_id": "health", "upstream": "ws_backend", "priority": 5},
         ],
-        "cors": {"enabled": False},
+        "cors_configs": {
+            "permissive_cors": {
+                "enabled": True,
+                "allowed_origins": ["*"],
+                "allowed_methods": ["GET"],
+                "allowed_headers": ["*"],
+                "allow_credentials": False,
+                "max_age": 3600
+            }
+        },
         "rate_limit": {"enabled": False},
         "auth": {"enabled": False},
         "transform": {"enabled": False, "path_rewrites": [], "request_headers": [], "response_headers": [], "query_params": []},
@@ -60,6 +77,9 @@ def titan_server_websocket(process_manager, titan_config_websocket, mock_backend
     """Start Titan server with WebSocket configuration"""
     import sys
     from pathlib import Path
+
+    # Stop any existing Titan servers to avoid port conflicts
+    process_manager.stop_titan_servers()
 
     REPO_ROOT = Path(__file__).parent.parent.parent
     BUILD_DIR = REPO_ROOT / "build" / "dev"

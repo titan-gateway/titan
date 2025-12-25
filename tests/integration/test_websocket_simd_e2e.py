@@ -12,6 +12,9 @@ def test_websocket_large_message_simd(tmp_path, process_manager, mock_backend_1)
     """Send large WebSocket message to trigger SIMD unmasking"""
     from pathlib import Path
 
+    # Stop any existing Titan servers to avoid port conflicts
+    process_manager.stop_titan_servers()
+
     # Detect platform for accurate SIMD labeling
     arch = platform.machine().lower()
     is_arm64 = arch in ['aarch64', 'arm64']
@@ -23,9 +26,31 @@ def test_websocket_large_message_simd(tmp_path, process_manager, mock_backend_1)
 
     # 1. Create config
     config = {
-        "server": {"worker_threads": 1, "listen_address": "127.0.0.1", "listen_port": 8080},
+        "server": {
+            "worker_threads": 1,
+            "listen_address": "127.0.0.1",
+            "listen_port": 8080,
+            "websocket": {
+                "enabled": True,
+                "max_frame_size": 1048576,
+                "max_message_size": 10485760,
+                "idle_timeout": 300,
+                "ping_interval": 30,
+                "max_connections_per_worker": 10000
+            }
+        },
         "upstreams": [{"name": "backend", "backends": [{"host": "127.0.0.1", "port": 3001}]}],
-        "routes": [{"path": "/ws/echo", "method": "GET", "upstream": "backend"}],
+        "routes": [{"path": "/ws/echo", "method": "GET", "upstream": "backend", "middleware": ["permissive_cors"], "websocket": {"enabled": True}}],
+        "cors_configs": {
+            "permissive_cors": {
+                "enabled": True,
+                "allowed_origins": ["*"],
+                "allowed_methods": ["GET"],
+                "allowed_headers": ["*"],
+                "allow_credentials": False,
+                "max_age": 3600
+            }
+        },
     }
 
     config_path = tmp_path / "config.json"
@@ -112,6 +137,9 @@ def test_websocket_simd_correctness_boundary(tmp_path, process_manager, mock_bac
     """Test SIMD correctness at exact boundaries (16, 32 bytes)"""
     from pathlib import Path
 
+    # Stop any existing Titan servers to avoid port conflicts
+    process_manager.stop_titan_servers()
+
     # Detect platform for accurate SIMD labeling
     arch = platform.machine().lower()
     is_arm64 = arch in ['aarch64', 'arm64']
@@ -122,9 +150,31 @@ def test_websocket_simd_correctness_boundary(tmp_path, process_manager, mock_bac
     simd_32byte = "NEON" if is_arm64 else "AVX2"
 
     config = {
-        "server": {"worker_threads": 1, "listen_address": "127.0.0.1", "listen_port": 8080},
+        "server": {
+            "worker_threads": 1,
+            "listen_address": "127.0.0.1",
+            "listen_port": 8080,
+            "websocket": {
+                "enabled": True,
+                "max_frame_size": 1048576,
+                "max_message_size": 10485760,
+                "idle_timeout": 300,
+                "ping_interval": 30,
+                "max_connections_per_worker": 10000
+            }
+        },
         "upstreams": [{"name": "backend", "backends": [{"host": "127.0.0.1", "port": 3001}]}],
-        "routes": [{"path": "/ws/echo", "method": "GET", "upstream": "backend"}],
+        "routes": [{"path": "/ws/echo", "method": "GET", "upstream": "backend", "middleware": ["permissive_cors"], "websocket": {"enabled": True}}],
+        "cors_configs": {
+            "permissive_cors": {
+                "enabled": True,
+                "allowed_origins": ["*"],
+                "allowed_methods": ["GET"],
+                "allowed_headers": ["*"],
+                "allow_credentials": False,
+                "max_age": 3600
+            }
+        },
     }
 
     config_path = tmp_path / "config.json"

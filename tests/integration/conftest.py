@@ -60,6 +60,32 @@ class ProcessManager:
             time.sleep(0.1)
         return False
 
+    def stop_titan_servers(self):
+        """Stop all Titan server processes to avoid port conflicts"""
+        import time
+
+        to_remove = []
+        for i, (name, proc) in enumerate(self.processes):
+            # Stop any process with 'titan' in the name (but not backends)
+            if 'titan' in name.lower() and 'backend' not in name.lower():
+                if proc.poll() is None:  # Still running
+                    print(f"Stopping {name} (PID {proc.pid}) to avoid port conflict")
+                    try:
+                        proc.terminate()
+                        proc.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait()
+                to_remove.append(i)
+
+        # Remove stopped processes from the list (reverse order to preserve indices)
+        for i in reversed(to_remove):
+            del self.processes[i]
+
+        # Give the OS time to release the port and clean up connections
+        if to_remove:
+            time.sleep(1.0)
+
     def stop_all(self):
         """Stop all managed processes"""
         for name, proc in self.processes:

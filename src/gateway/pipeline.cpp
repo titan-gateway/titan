@@ -99,6 +99,11 @@ MiddlewareResult CorsMiddleware::process_websocket_upgrade(RequestContext& ctx) 
         return MiddlewareResult::Error;
     }
 
+    // If CORS is disabled, skip Origin validation
+    if (!config_.enabled) {
+        return MiddlewareResult::Continue;
+    }
+
     // Extract Origin header from request
     std::string_view origin;
     for (const auto& [name, value] : ctx.request->headers) {
