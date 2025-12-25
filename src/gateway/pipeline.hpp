@@ -191,6 +191,7 @@ public:
 class CorsMiddleware : public Middleware {
 public:
     struct Config {
+        bool enabled;
         std::vector<std::string> allowed_origins;
         std::vector<std::string> allowed_methods;
         std::vector<std::string> allowed_headers;
@@ -198,7 +199,8 @@ public:
         int max_age;
 
         Config()
-            : allowed_origins{"*"},
+            : enabled(true),
+              allowed_origins{"*"},
               allowed_methods{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
               allowed_headers{"*"},
               allow_credentials(false),
