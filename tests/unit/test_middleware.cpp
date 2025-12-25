@@ -617,3 +617,305 @@ TEST_CASE("Integration - Middleware ordering matters", "[middleware][integration
     REQUIRE(mw2->request_count == 1);
     REQUIRE(mw3->request_count == 1);
 }
+
+// ============================================================================
+// WebSocket Middleware Tests
+// ============================================================================
+
+TEST_CASE("CorsMiddleware - WebSocket upgrade with valid Origin", "[middleware][websocket][cors]") {
+    CorsMiddleware::Config config;
+    config.allowed_origins = {"https://example.com", "https://app.example.com"};
+    CorsMiddleware middleware(config);
+
+    Request req;
+    req.method = Method::GET;
+    req.headers = {{"Origin", "https://example.com"}};
+
+    Response res;
+    RouteMatch match;
+
+    RequestContext ctx;
+    ctx.request = &req;
+    ctx.response = &res;
+    ctx.route_match = match;
+
+    auto result = middleware.process_websocket_upgrade(ctx);
+
+    REQUIRE(result == MiddlewareResult::Continue);
+    REQUIRE(res.status != StatusCode::Forbidden);
+}
+
+TEST_CASE("CorsMiddleware - WebSocket upgrade with invalid Origin (CSWSH prevention)",
+          "[middleware][websocket][cors][security]") {
+    CorsMiddleware::Config config;
+    config.allowed_origins = {"https://example.com"};
+    CorsMiddleware middleware(config);
+
+    Request req;
+    req.method = Method::GET;
+    req.headers = {{"Origin", "https://evil.com"}};
+
+    Response res;
+    RouteMatch match;
+
+    RequestContext ctx;
+    ctx.request = &req;
+    ctx.response = &res;
+    ctx.route_match = match;
+    ctx.client_ip = "192.168.1.100";
+
+    auto result = middleware.process_websocket_upgrade(ctx);
+
+    REQUIRE(result == MiddlewareResult::Stop);
+    REQUIRE(res.status == StatusCode::Forbidden);
+    REQUIRE(ctx.has_error == true);
+}
+
+TEST_CASE("CorsMiddleware - WebSocket upgrade with missing Origin",
+          "[middleware][websocket][cors][security]") {
+    CorsMiddleware::Config config;
+    config.allowed_origins = {"https://example.com"};
+    CorsMiddleware middleware(config);
+
+    Request req;
+    req.method = Method::GET;
+    // No Origin header
+
+    Response res;
+    RouteMatch match;
+
+    RequestContext ctx;
+    ctx.request = &req;
+    ctx.response = &res;
+    ctx.route_match = match;
+    ctx.client_ip = "192.168.1.100";
+
+    auto result = middleware.process_websocket_upgrade(ctx);
+
+    REQUIRE(result == MiddlewareResult::Stop);
+    REQUIRE(res.status == StatusCode::Forbidden);
+}
+
+TEST_CASE("CorsMiddleware - WebSocket upgrade with wildcard Origin",
+          "[middleware][websocket][cors]") {
+    CorsMiddleware::Config config;
+    config.allowed_origins = {"*"};
+    CorsMiddleware middleware(config);
+
+    Request req;
+    req.method = Method::GET;
+    req.headers = {{"Origin", "https://any-domain.com"}};
+
+    Response res;
+    RouteMatch match;
+
+    RequestContext ctx;
+    ctx.request = &req;
+    ctx.response = &res;
+    ctx.route_match = match;
+
+    auto result = middleware.process_websocket_upgrade(ctx);
+
+    REQUIRE(result == MiddlewareResult::Continue);
+}
+
+TEST_CASE("RateLimitMiddleware - WebSocket upgrade rate limiting",
+          "[middleware][websocket][ratelimit]") {
+    RateLimitMiddleware::Config config;
+    config.requests_per_second = 2;
+    config.burst_size = 2;
+    RateLimitMiddleware middleware(config);
+
+    Request req;
+    req.method = Method::GET;
+
+    Response res1, res2, res3;
+    RouteMatch match;
+
+    // First request - should succeed
+    {
+        RequestContext ctx;
+        ctx.request = &req;
+        ctx.response = &res1;
+        ctx.route_match = match;
+        ctx.client_ip = "192.168.1.100";
+
+        auto result = middleware.process_websocket_upgrade(ctx);
+        REQUIRE(result == MiddlewareResult::Continue);
+    }
+
+    // Second request - should succeed (within burst)
+    {
+        RequestContext ctx;
+        ctx.request = &req;
+        ctx.response = &res2;
+        ctx.route_match = match;
+        ctx.client_ip = "192.168.1.100";
+
+        auto result = middleware.process_websocket_upgrade(ctx);
+        REQUIRE(result == MiddlewareResult::Continue);
+    }
+
+    // Third request - should be rate limited
+    {
+        RequestContext ctx;
+        ctx.request = &req;
+        ctx.response = &res3;
+        ctx.route_match = match;
+        ctx.client_ip = "192.168.1.100";
+
+        auto result = middleware.process_websocket_upgrade(ctx);
+        REQUIRE(result == MiddlewareResult::Stop);
+        REQUIRE(res3.status == StatusCode::TooManyRequests);
+    }
+}
+
+TEST_CASE("RateLimitMiddleware - WebSocket upgrade different IPs",
+          "[middleware][websocket][ratelimit]") {
+    RateLimitMiddleware::Config config;
+    config.requests_per_second = 1;
+    config.burst_size = 1;
+    RateLimitMiddleware middleware(config);
+
+    Request req;
+    req.method = Method::GET;
+
+    Response res1, res2;
+    RouteMatch match;
+
+    // Request from IP1 - should succeed
+    {
+        RequestContext ctx;
+        ctx.request = &req;
+        ctx.response = &res1;
+        ctx.route_match = match;
+        ctx.client_ip = "192.168.1.100";
+
+        auto result = middleware.process_websocket_upgrade(ctx);
+        REQUIRE(result == MiddlewareResult::Continue);
+    }
+
+    // Request from IP2 - should succeed (different bucket)
+    {
+        RequestContext ctx;
+        ctx.request = &req;
+        ctx.response = &res2;
+        ctx.route_match = match;
+        ctx.client_ip = "192.168.1.101";
+
+        auto result = middleware.process_websocket_upgrade(ctx);
+        REQUIRE(result == MiddlewareResult::Continue);
+    }
+}
+
+TEST_CASE("Pipeline - WebSocket upgrade execution order", "[middleware][websocket][pipeline]") {
+    Pipeline pipeline;
+
+    // Create test middleware that tracks WebSocket execution
+    class WebSocketTrackingMiddleware : public Middleware {
+    public:
+        mutable int websocket_count = 0;
+        std::string name_;
+
+        explicit WebSocketTrackingMiddleware(std::string name) : name_(std::move(name)) {}
+
+        bool applies_to_websocket() const override { return true; }
+
+        MiddlewareResult process_websocket_upgrade(RequestContext& ctx) override {
+            (void)ctx;
+            websocket_count++;
+            return MiddlewareResult::Continue;
+        }
+
+        std::string_view name() const override { return name_; }
+    };
+
+    auto* mw1 = new WebSocketTrackingMiddleware("ws1");
+    auto* mw2 = new WebSocketTrackingMiddleware("ws2");
+
+    pipeline.use(std::unique_ptr<Middleware>(mw1));
+    pipeline.use(std::unique_ptr<Middleware>(mw2));
+
+    Request req;
+    Response res;
+    RouteMatch match;
+
+    RequestContext ctx;
+    ctx.request = &req;
+    ctx.response = &res;
+    ctx.route_match = match;
+
+    auto result = pipeline.execute_websocket_upgrade(ctx);
+
+    REQUIRE(result == MiddlewareResult::Continue);
+    REQUIRE(mw1->websocket_count == 1);
+    REQUIRE(mw2->websocket_count == 1);
+}
+
+TEST_CASE("Pipeline - WebSocket upgrade stops on error", "[middleware][websocket][pipeline]") {
+    Pipeline pipeline;
+
+    class WebSocketStoppingMiddleware : public Middleware {
+    public:
+        mutable int websocket_count = 0;
+        bool should_stop = false;
+
+        bool applies_to_websocket() const override { return true; }
+
+        MiddlewareResult process_websocket_upgrade(RequestContext& ctx) override {
+            websocket_count++;
+            if (should_stop) {
+                ctx.response->status = StatusCode::Forbidden;
+                return MiddlewareResult::Stop;
+            }
+            return MiddlewareResult::Continue;
+        }
+
+        std::string_view name() const override { return "WebSocketStopper"; }
+    };
+
+    auto* mw1 = new WebSocketStoppingMiddleware();
+    auto* mw2 = new WebSocketStoppingMiddleware();
+
+    mw1->should_stop = true;
+
+    pipeline.use(std::unique_ptr<Middleware>(mw1));
+    pipeline.use(std::unique_ptr<Middleware>(mw2));
+
+    Request req;
+    Response res;
+    RouteMatch match;
+
+    RequestContext ctx;
+    ctx.request = &req;
+    ctx.response = &res;
+    ctx.route_match = match;
+
+    auto result = pipeline.execute_websocket_upgrade(ctx);
+
+    REQUIRE(result == MiddlewareResult::Stop);
+    REQUIRE(mw1->websocket_count == 1);
+    REQUIRE(mw2->websocket_count == 0);  // Should not execute
+}
+
+TEST_CASE("Pipeline - Non-WebSocket middleware skipped", "[middleware][websocket][pipeline]") {
+    Pipeline pipeline;
+
+    // Regular middleware (applies_to_websocket returns false by default)
+    auto* regular_mw = new TrackingMiddleware();
+    pipeline.use(std::unique_ptr<Middleware>(regular_mw));
+
+    Request req;
+    Response res;
+    RouteMatch match;
+
+    RequestContext ctx;
+    ctx.request = &req;
+    ctx.response = &res;
+    ctx.route_match = match;
+
+    auto result = pipeline.execute_websocket_upgrade(ctx);
+
+    REQUIRE(result == MiddlewareResult::Continue);
+    REQUIRE(regular_mw->request_count == 0);  // Should not be called
+}

@@ -49,6 +49,10 @@ public:
     [[nodiscard]] std::string_view name() const override { return "JwtAuthMiddleware"; }
     [[nodiscard]] std::string_view type() const override { return "jwt_auth"; }
 
+    // WebSocket support (validate JWT before upgrade)
+    [[nodiscard]] bool applies_to_websocket() const override { return config_.enabled; }
+    [[nodiscard]] MiddlewareResult process_websocket_upgrade(RequestContext& ctx) override;
+
 private:
     /// Send 401 Unauthorized response
     [[nodiscard]] MiddlewareResult send_401(RequestContext& ctx, std::string_view error) const;

@@ -201,6 +201,149 @@ ValidationResult ConfigLoader::validate(const Config& config) {
         result.add_error("Unknown logging format '" + config.logging.format + "'");
     }
 
+    // Validate WebSocket server configuration
+    if (config.server.websocket.has_value()) {
+        const auto& ws = *config.server.websocket;
+
+        // Frame size limits (DoS prevention)
+        if (ws.max_frame_size == 0 || ws.max_frame_size > MAX_WEBSOCKET_FRAME_SIZE) {
+            result.add_error("WebSocket max_frame_size must be 1-" +
+                             std::to_string(MAX_WEBSOCKET_FRAME_SIZE) + " bytes");
+        }
+
+        // Message size must be >= frame size
+        if (ws.max_message_size < ws.max_frame_size) {
+            result.add_error(
+                "WebSocket max_message_size must be >= max_frame_size");
+        }
+
+        if (ws.max_message_size > MAX_WEBSOCKET_MESSAGE_SIZE) {
+            result.add_error("WebSocket max_message_size exceeds limit (" +
+                             std::to_string(MAX_WEBSOCKET_MESSAGE_SIZE) + " bytes)");
+        }
+
+        // Timeout validation
+        if (ws.idle_timeout == 0 || ws.idle_timeout > MAX_WEBSOCKET_IDLE_TIMEOUT) {
+            result.add_error("WebSocket idle_timeout must be 1-" +
+                             std::to_string(MAX_WEBSOCKET_IDLE_TIMEOUT) + " seconds");
+        }
+
+        // Ping interval must be < idle timeout
+        if (ws.ping_interval >= ws.idle_timeout) {
+            result.add_error(
+                "WebSocket ping_interval must be < idle_timeout");
+        }
+
+        // Ping interval minimum
+        if (ws.ping_interval < MIN_WEBSOCKET_PING_INTERVAL) {
+            result.add_error("WebSocket ping_interval must be >= " +
+                             std::to_string(MIN_WEBSOCKET_PING_INTERVAL) + " second");
+        }
+
+        // Pong timeout validation
+        if (ws.pong_timeout >= ws.ping_interval) {
+            result.add_warning(
+                "WebSocket pong_timeout >= ping_interval may cause false positives");
+        }
+
+        // Connection limits
+        if (ws.max_connections_per_worker == 0) {
+            result.add_error(
+                "WebSocket max_connections_per_worker must be > 0");
+        }
+
+        if (ws.max_connections_per_worker > MAX_WEBSOCKET_CONNECTIONS_PER_WORKER) {
+            result.add_warning("WebSocket max_connections_per_worker exceeds recommended limit (" +
+                               std::to_string(MAX_WEBSOCKET_CONNECTIONS_PER_WORKER) + ")");
+        }
+
+        // Frame rate limit
+        if (ws.max_frames_per_second == 0) {
+            result.add_error("WebSocket max_frames_per_second must be > 0");
+        }
+    }
+
+    // Validate WebSocket route configuration
+    for (const auto& route : config.routes) {
+        if (route.websocket.has_value()) {
+            const auto& ws = *route.websocket;
+
+            // WebSocket only works with GET method
+            if (!route.method.empty() && route.method != "GET") {
+                result.add_error("Route '" + route.path +
+                                 "': WebSocket requires method=GET, got '" + route.method + "'");
+            }
+
+            // Subprotocols validation (security)
+            if (ws.subprotocols.size() > MAX_WEBSOCKET_SUBPROTOCOLS) {
+                result.add_error("Route '" + route.path + "': Too many subprotocols (max " +
+                                 std::to_string(MAX_WEBSOCKET_SUBPROTOCOLS) + ")");
+            }
+
+            for (const auto& subproto : ws.subprotocols) {
+                if (subproto.empty() || subproto.length() > MAX_SUBPROTOCOL_NAME_LENGTH) {
+                    result.add_error("Route '" + route.path +
+                                     "': Invalid subprotocol name (empty or too long)");
+                    break;
+                }
+
+                // Character whitelist (RFC 6455: token characters)
+                for (char c : subproto) {
+                    if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_' && c != '-' &&
+                        c != '.') {
+                        result.add_error(
+                            "Route '" + route.path +
+                            "': Subprotocol '" + subproto + "' contains invalid character '" + c +
+                            "' (only alphanumeric, '_', '-', '.' allowed)");
+                        break;
+                    }
+                }
+            }
+
+            // Timeout overrides must be reasonable
+            if (ws.idle_timeout.has_value()) {
+                if (*ws.idle_timeout == 0 ||
+                    *ws.idle_timeout > MAX_WEBSOCKET_IDLE_TIMEOUT) {
+                    result.add_error("Route '" + route.path +
+                                     "': Invalid idle_timeout override");
+                }
+            }
+
+            if (ws.ping_interval.has_value()) {
+                if (*ws.ping_interval < MIN_WEBSOCKET_PING_INTERVAL) {
+                    result.add_error("Route '" + route.path +
+                                     "': Invalid ping_interval override (too small)");
+                }
+
+                // Check ping < idle if both are set
+                if (ws.idle_timeout.has_value() &&
+                    *ws.ping_interval >= *ws.idle_timeout) {
+                    result.add_error("Route '" + route.path +
+                                     "': ping_interval must be < idle_timeout");
+                }
+            }
+
+            if (ws.max_connections.has_value() && *ws.max_connections == 0) {
+                result.add_error("Route '" + route.path +
+                                 "': max_connections must be > 0");
+            }
+        }
+    }
+
+    // Validate WebSocket upstream configuration
+    for (const auto& upstream : config.upstreams) {
+        if (upstream.websocket.has_value()) {
+            const auto& ws = *upstream.websocket;
+
+            // Backend ping interval validation
+            if (ws.backend_ping_interval < MIN_WEBSOCKET_PING_INTERVAL) {
+                result.add_error("Upstream '" + upstream.name +
+                                 "': backend_ping_interval too small (min " +
+                                 std::to_string(MIN_WEBSOCKET_PING_INTERVAL) + " second)");
+            }
+        }
+    }
+
     return result;
 }
 

@@ -91,6 +91,62 @@ MiddlewareResult CorsMiddleware::process_request(RequestContext& ctx) {
     return MiddlewareResult::Continue;
 }
 
+MiddlewareResult CorsMiddleware::process_websocket_upgrade(RequestContext& ctx) {
+    // CRITICAL: Validate Origin header to prevent CSWSH attacks
+    // (Cross-Site WebSocket Hijacking)
+
+    if (!ctx.request || !ctx.response) {
+        return MiddlewareResult::Error;
+    }
+
+    // Extract Origin header from request
+    std::string_view origin;
+    for (const auto& [name, value] : ctx.request->headers) {
+        if (name == "Origin") {
+            origin = value;
+            break;
+        }
+    }
+
+    // Validate Origin against allowed_origins
+    bool origin_allowed = false;
+
+    for (const auto& allowed_origin : config_.allowed_origins) {
+        // Check for wildcard (DANGEROUS for WebSocket - should only allow in dev)
+        if (allowed_origin == "*") {
+            origin_allowed = true;
+            break;
+        }
+
+        // Exact match (case-sensitive per RFC 6454)
+        if (origin == allowed_origin) {
+            origin_allowed = true;
+            break;
+        }
+    }
+
+    if (!origin_allowed) {
+        // Origin not in allowed list - REJECT upgrade (CSWSH prevention)
+        ctx.response->status = http::StatusCode::Forbidden;
+        static constexpr const char* error_msg = "Origin not allowed for WebSocket upgrade";
+        ctx.response->body = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(error_msg),
+                                                      std::char_traits<char>::length(error_msg));
+        ctx.set_error(error_msg);
+
+        // Log security violation
+        auto* logger = logging::get_current_logger();
+        assert(logger && "Logger must be initialized");
+        LOG_WARNING(logger,
+                    "WebSocket upgrade blocked - Origin '{}' not in allowed_origins, client_ip={}",
+                    origin.empty() ? "(missing)" : std::string(origin), ctx.client_ip);
+
+        return MiddlewareResult::Stop;  // Block upgrade
+    }
+
+    // Origin is valid - allow upgrade to continue
+    return MiddlewareResult::Continue;
+}
+
 // RateLimitMiddleware implementation (Request phase - checks rate limits)
 
 RateLimitMiddleware::RateLimitMiddleware()
@@ -124,6 +180,37 @@ MiddlewareResult RateLimitMiddleware::process_request(RequestContext& ctx) {
         assert(logger && "Logger must be initialized");
         LOG_ERROR(logger, "Rate limit exceeded: client_ip={}, correlation_id={}", ctx.client_ip,
                   ctx.correlation_id);
+
+        return MiddlewareResult::Stop;
+    }
+
+    return MiddlewareResult::Continue;
+}
+
+MiddlewareResult RateLimitMiddleware::process_websocket_upgrade(RequestContext& ctx) {
+    // Rate limit WebSocket connection attempts (per client IP)
+    // NOTE: This limits upgrade requests, not individual messages
+
+    std::string_view key = ctx.client_ip;
+    if (key.empty()) {
+        // No client IP, allow upgrade
+        return MiddlewareResult::Continue;
+    }
+
+    // Check rate limit using same limiter as HTTP requests
+    if (!limiter_->allow(key)) {
+        // Rate limit exceeded - block WebSocket upgrade
+        if (ctx.response) {
+            ctx.response->status = http::StatusCode::TooManyRequests;
+            ctx.response->add_middleware_header("Retry-After", "60");
+        }
+        ctx.set_error("WebSocket connection rate limit exceeded");
+
+        // Log rate limit violation
+        auto* logger = logging::get_current_logger();
+        assert(logger && "Logger must be initialized");
+        LOG_ERROR(logger, "WebSocket upgrade rate limit exceeded: client_ip={}, correlation_id={}",
+                  ctx.client_ip, ctx.correlation_id);
 
         return MiddlewareResult::Stop;
     }
@@ -337,6 +424,55 @@ MiddlewareResult Pipeline::execute_response(ResponseContext& ctx) {
 
             if (result == MiddlewareResult::Error) {
                 return MiddlewareResult::Error;
+            }
+        }
+    }
+
+    return MiddlewareResult::Continue;
+}
+
+MiddlewareResult Pipeline::execute_websocket_upgrade(RequestContext& ctx) {
+    // Execute WebSocket-compatible middleware (before 101 Switching Protocols)
+    // Similar to execute_request but only runs middleware that support WebSocket
+
+    // Collect types of per-route middleware for override detection
+    titan::core::fast_set<std::string_view> route_middleware_types;
+    for (const auto& middleware_name : ctx.route_match.middleware) {
+        Middleware* middleware = get_named_middleware(middleware_name);
+        if (middleware && middleware->applies_to_websocket()) {
+            auto type = middleware->type();
+            if (!type.empty()) {
+                route_middleware_types.insert(type);
+            }
+        }
+    }
+
+    // Execute global middleware (skip if route provides same type)
+    for (auto& middleware : middleware_) {
+        if (!middleware->applies_to_websocket()) {
+            continue;  // Skip middleware that doesn't support WebSocket
+        }
+
+        auto type = middleware->type();
+        if (!type.empty() && route_middleware_types.contains(type)) {
+            continue;  // Route middleware overrides global
+        }
+
+        MiddlewareResult result = middleware->process_websocket_upgrade(ctx);
+
+        if (result == MiddlewareResult::Stop || result == MiddlewareResult::Error) {
+            return result;
+        }
+    }
+
+    // Execute per-route middleware
+    for (const auto& middleware_name : ctx.route_match.middleware) {
+        Middleware* middleware = get_named_middleware(middleware_name);
+        if (middleware && middleware->applies_to_websocket()) {
+            MiddlewareResult result = middleware->process_websocket_upgrade(ctx);
+
+            if (result == MiddlewareResult::Stop || result == MiddlewareResult::Error) {
+                return result;
             }
         }
     }

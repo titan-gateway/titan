@@ -1814,6 +1814,29 @@ void Server::handle_websocket_upgrade(Connection& conn) {
         return;
     }
 
+    // MIDDLEWARE PROCESSING: Run WebSocket-compatible middleware BEFORE upgrade
+    // This includes JWT auth, rate limiting, CORS (CSWSH prevention)
+    {
+        // Create request context for middleware
+        gateway::RequestContext middleware_ctx;
+        middleware_ctx.request = &conn.request;
+        middleware_ctx.response = &conn.response;
+        middleware_ctx.route_match = route_match;
+        middleware_ctx.client_ip = conn.remote_ip;
+        middleware_ctx.correlation_id = std::to_string(conn.fd);  // Use FD as correlation ID
+
+        // Execute WebSocket-compatible middleware via pipeline
+        auto result = pipeline_->execute_websocket_upgrade(middleware_ctx);
+        if (result == gateway::MiddlewareResult::Stop ||
+            result == gateway::MiddlewareResult::Error) {
+            // Middleware rejected upgrade (auth failed, rate limited, CORS violation)
+            LOG_WARNING(logger_, "WebSocket upgrade blocked by middleware: path={}, client_ip={}",
+                       conn.request.path, conn.remote_ip);
+            send_response(conn, false);
+            return;
+        }
+    }
+
     // Get upstream from route
     auto upstream = upstream_manager_->get_upstream(route_match.upstream_name);
     if (!upstream) {

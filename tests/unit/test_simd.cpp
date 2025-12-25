@@ -350,3 +350,140 @@ TEST_CASE("SIMD operations - Edge cases", "[simd][edge]") {
         REQUIRE(find_crlf(data, 6) == nullptr);
     }
 }
+
+// ============================
+// unmask_payload() - WebSocket Frame Unmasking
+// ============================
+
+TEST_CASE("unmask_payload - Basic unmasking", "[simd][websocket]") {
+    SECTION("Small payload (5 bytes)") {
+        // Masked "Hello" with key 0x12345678
+        std::vector<uint8_t> payload = {0x5a, 0x51, 0x3a, 0x14, 0x7d};
+        uint32_t masking_key = 0x12345678;
+
+        unmask_payload(payload.data(), payload.size(), masking_key);
+
+        // Should be "Hello"
+        REQUIRE(payload[0] == 'H');
+        REQUIRE(payload[1] == 'e');
+        REQUIRE(payload[2] == 'l');
+        REQUIRE(payload[3] == 'l');
+        REQUIRE(payload[4] == 'o');
+    }
+
+    SECTION("Empty payload") {
+        std::vector<uint8_t> payload;
+        unmask_payload(payload.data(), 0, 0x12345678);
+        // Should not crash
+    }
+
+    SECTION("Single byte") {
+        std::vector<uint8_t> payload = {0xFF};
+        unmask_payload(payload.data(), 1, 0x12000000);
+        REQUIRE(payload[0] == (0xFF ^ 0x12));
+    }
+
+    SECTION("Unmasking is reversible") {
+        std::vector<uint8_t> original = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+        std::vector<uint8_t> payload = original;
+        uint32_t key = 0xDEADBEEF;
+
+        // Mask
+        unmask_payload(payload.data(), payload.size(), key);
+        REQUIRE(payload != original);  // Should be different
+
+        // Unmask (XOR is self-inverse)
+        unmask_payload(payload.data(), payload.size(), key);
+        REQUIRE(payload == original);  // Should be back to original
+    }
+}
+
+TEST_CASE("unmask_payload - SIMD vs scalar correctness", "[simd][websocket]") {
+    // Test that SIMD and scalar produce identical results for various sizes
+
+    auto test_size = [](size_t size) {
+        std::vector<uint8_t> data(size);
+        for (size_t i = 0; i < size; ++i) {
+            data[i] = static_cast<uint8_t>(i & 0xFF);
+        }
+
+        std::vector<uint8_t> simd_result = data;
+        std::vector<uint8_t> scalar_result = data;
+
+        uint32_t key = 0xCAFEBABE;
+
+        // SIMD path
+        unmask_payload(simd_result.data(), simd_result.size(), key);
+
+        // Scalar path (simulate by unmasking byte-by-byte)
+        uint8_t key_bytes[4] = {
+            static_cast<uint8_t>(key >> 24),
+            static_cast<uint8_t>(key >> 16),
+            static_cast<uint8_t>(key >> 8),
+            static_cast<uint8_t>(key)
+        };
+        for (size_t i = 0; i < scalar_result.size(); ++i) {
+            scalar_result[i] ^= key_bytes[i % 4];
+        }
+
+        REQUIRE(simd_result == scalar_result);
+    };
+
+    SECTION("15 bytes (SSE2/NEON boundary - 1)") { test_size(15); }
+    SECTION("16 bytes (SSE2/NEON boundary)") { test_size(16); }
+    SECTION("17 bytes (SSE2/NEON boundary + 1)") { test_size(17); }
+    SECTION("31 bytes (AVX2 boundary - 1)") { test_size(31); }
+    SECTION("32 bytes (AVX2 boundary)") { test_size(32); }
+    SECTION("33 bytes (AVX2 boundary + 1)") { test_size(33); }
+    SECTION("100 bytes") { test_size(100); }
+    SECTION("1000 bytes") { test_size(1000); }
+    SECTION("1MB payload") { test_size(1024 * 1024); }
+}
+
+TEST_CASE("unmask_payload - Edge cases", "[simd][websocket]") {
+    SECTION("All zeros") {
+        std::vector<uint8_t> payload(100, 0x00);
+        unmask_payload(payload.data(), payload.size(), 0xFFFFFFFF);
+
+        // All zeros XOR 0xFF = 0xFF pattern
+        for (size_t i = 0; i < payload.size(); ++i) {
+            REQUIRE(payload[i] == 0xFF);
+        }
+    }
+
+    SECTION("All ones") {
+        std::vector<uint8_t> payload(100, 0xFF);
+        unmask_payload(payload.data(), payload.size(), 0x00000000);
+
+        // All ones XOR 0x00 = 0xFF unchanged
+        for (size_t i = 0; i < payload.size(); ++i) {
+            REQUIRE(payload[i] == 0xFF);
+        }
+    }
+
+    SECTION("Masking key with all zeros") {
+        std::vector<uint8_t> payload = {0x12, 0x34, 0x56, 0x78, 0x9A};
+        std::vector<uint8_t> original = payload;
+
+        unmask_payload(payload.data(), payload.size(), 0x00000000);
+
+        // XOR with zero = no change
+        REQUIRE(payload == original);
+    }
+}
+
+TEST_CASE("unmask_payload - Performance validation", "[simd][websocket][!benchmark]") {
+    const size_t PAYLOAD_SIZE = 1024 * 1024;  // 1MB
+    std::vector<uint8_t> payload(PAYLOAD_SIZE);
+
+    for (size_t i = 0; i < PAYLOAD_SIZE; ++i) {
+        payload[i] = static_cast<uint8_t>(i & 0xFF);
+    }
+
+    uint32_t key = 0x12345678;
+
+    BENCHMARK("SIMD unmask 1MB") {
+        unmask_payload(payload.data(), payload.size(), key);
+        return payload[0];  // Prevent optimization
+    };
+}

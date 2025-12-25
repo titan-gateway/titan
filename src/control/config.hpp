@@ -40,6 +40,59 @@ constexpr size_t MAX_FUZZY_MATCH_CANDIDATES = 10;   // Max suggestions for typos
 constexpr size_t MAX_LEVENSHTEIN_DISTANCE = 2;      // Max edit distance for fuzzy match
 constexpr size_t FUZZY_MATCH_TIMEOUT_MS = 1;        // Max time for fuzzy match (ms)
 
+// WebSocket security limits (DoS prevention)
+constexpr uint64_t MAX_WEBSOCKET_FRAME_SIZE = 1048576;       // 1MB max frame size
+constexpr uint64_t MAX_WEBSOCKET_MESSAGE_SIZE = 10485760;    // 10MB max total message
+constexpr uint32_t MAX_WEBSOCKET_IDLE_TIMEOUT = 86400;       // 24 hours max idle timeout
+constexpr uint32_t MIN_WEBSOCKET_PING_INTERVAL = 1;          // 1 second min ping interval
+constexpr size_t MAX_WEBSOCKET_SUBPROTOCOLS = 10;            // Max subprotocols per route
+constexpr size_t MAX_SUBPROTOCOL_NAME_LENGTH = 64;           // Max subprotocol name length
+constexpr uint32_t MAX_WEBSOCKET_CONNECTIONS_PER_WORKER = 100000;  // Max WebSocket connections
+
+/// WebSocket server-level configuration (must come before ServerConfig)
+struct WebSocketServerConfig {
+    bool enabled = false;
+
+    // Frame/message limits (DoS protection)
+    uint64_t max_frame_size = 1048576;        // 1MB per frame (default)
+    uint64_t max_message_size = 10485760;     // 10MB total message (default)
+
+    // Timeouts (seconds)
+    uint32_t idle_timeout = 300;              // 5 minutes idle timeout
+    uint32_t ping_interval = 30;              // Send Ping every 30 seconds
+    uint32_t pong_timeout = 10;               // Close if no Pong in 10 seconds
+    uint32_t close_timeout = 5;               // Wait 5 seconds for Close response
+
+    // Connection limits
+    uint32_t max_connections_per_worker = 10000;  // Max WebSocket connections per worker
+    uint32_t max_frames_per_second = 1000;        // Frame rate limit (DoS prevention)
+};
+
+/// WebSocket route-level configuration (must come before RouteConfig)
+struct WebSocketRouteConfig {
+    bool enabled = false;
+
+    // Protocol negotiation
+    std::vector<std::string> subprotocols;    // Sec-WebSocket-Protocol values
+
+    // Compression (permessage-deflate extension)
+    bool compression = false;
+
+    // Timeout overrides (override server defaults)
+    std::optional<uint32_t> idle_timeout;     // Per-route idle timeout
+    std::optional<uint32_t> ping_interval;    // Per-route ping interval
+
+    // Connection limits
+    std::optional<uint32_t> max_connections;  // Per-route connection limit
+};
+
+/// WebSocket upstream-level configuration (must come before UpstreamConfig)
+struct WebSocketUpstreamConfig {
+    uint32_t backend_ping_interval = 60;      // Ping backend every 60 seconds
+    bool reconnect_on_failure = false;        // Don't retry (WebSocket is stateful)
+    bool prefer_tls = false;                  // Use wss:// to backend if true
+};
+
 /// Global server configuration
 struct ServerConfig {
     uint32_t worker_threads = 0;  // 0 = auto-detect CPU count
@@ -66,6 +119,9 @@ struct ServerConfig {
     std::string tls_private_key_path;  // Path to private key file (PEM format)
     std::vector<std::string> tls_alpn_protocols = {"h2", "http/1.1"};  // ALPN protocol list
     bool route_cache_enabled = true;  // Thread-local LRU route cache
+
+    // WebSocket settings (optional)
+    std::optional<WebSocketServerConfig> websocket;
 };
 
 /// Backend server configuration
@@ -109,6 +165,9 @@ struct UpstreamConfig {
 
     // Circuit breaker settings
     CircuitBreakerConfigSchema circuit_breaker;
+
+    // WebSocket settings (optional)
+    std::optional<WebSocketUpstreamConfig> websocket;
 };
 
 /// Path rewrite rule
@@ -233,6 +292,9 @@ struct RouteConfig {
     bool auth_required = false;                // Require JWT authentication
     std::vector<std::string> required_scopes;  // OAuth 2.0 scopes (e.g., "read:users")
     std::vector<std::string> required_roles;   // Simple role strings (e.g., "admin")
+
+    // WebSocket settings (per-route, optional)
+    std::optional<WebSocketRouteConfig> websocket;
 };
 
 /// CORS middleware configuration
@@ -395,6 +457,40 @@ inline void to_json(nlohmann::json& j, const JwtAuthzConfig& c) {
 
 // Custom from_json/to_json for all types defined below
 
+// WebSocket config deserialization (must come first - used by ServerConfig/UpstreamConfig/RouteConfig)
+inline void from_json(const nlohmann::json& j, WebSocketServerConfig& ws) {
+    ws.enabled = j.value("enabled", false);
+    ws.max_frame_size = j.value("max_frame_size", uint64_t(1048576));
+    ws.max_message_size = j.value("max_message_size", uint64_t(10485760));
+    ws.idle_timeout = j.value("idle_timeout", 300u);
+    ws.ping_interval = j.value("ping_interval", 30u);
+    ws.pong_timeout = j.value("pong_timeout", 10u);
+    ws.close_timeout = j.value("close_timeout", 5u);
+    ws.max_connections_per_worker = j.value("max_connections_per_worker", 10000u);
+    ws.max_frames_per_second = j.value("max_frames_per_second", 1000u);
+}
+
+inline void from_json(const nlohmann::json& j, WebSocketRouteConfig& ws) {
+    ws.enabled = j.value("enabled", false);
+    ws.subprotocols = j.value("subprotocols", std::vector<std::string>{});
+    ws.compression = j.value("compression", false);
+    if (j.contains("idle_timeout")) {
+        ws.idle_timeout = j.at("idle_timeout").get<uint32_t>();
+    }
+    if (j.contains("ping_interval")) {
+        ws.ping_interval = j.at("ping_interval").get<uint32_t>();
+    }
+    if (j.contains("max_connections")) {
+        ws.max_connections = j.at("max_connections").get<uint32_t>();
+    }
+}
+
+inline void from_json(const nlohmann::json& j, WebSocketUpstreamConfig& ws) {
+    ws.backend_ping_interval = j.value("backend_ping_interval", 60u);
+    ws.reconnect_on_failure = j.value("reconnect_on_failure", false);
+    ws.prefer_tls = j.value("prefer_tls", false);
+}
+
 // Custom from_json functions to handle missing fields with defaults
 inline void from_json(const nlohmann::json& j, ServerConfig& s) {
     s.worker_threads = j.value("worker_threads", 0u);
@@ -413,6 +509,9 @@ inline void from_json(const nlohmann::json& j, ServerConfig& s) {
     s.tls_private_key_path = j.value("tls_private_key_path", std::string());
     s.tls_alpn_protocols =
         j.value("tls_alpn_protocols", std::vector<std::string>{"h2", "http/1.1"});
+    if (j.contains("websocket")) {
+        s.websocket = j.at("websocket").get<WebSocketServerConfig>();
+    }
 }
 
 inline void from_json(const nlohmann::json& j, BackendConfig& b) {
@@ -445,6 +544,9 @@ inline void from_json(const nlohmann::json& j, UpstreamConfig& u) {
     u.pool_size = j.value("pool_size", 100u);
     u.pool_idle_timeout = j.value("pool_idle_timeout", 60u);
     u.circuit_breaker = j.value("circuit_breaker", CircuitBreakerConfigSchema{});
+    if (j.contains("websocket")) {
+        u.websocket = j.at("websocket").get<WebSocketUpstreamConfig>();
+    }
 }
 
 inline void from_json(const nlohmann::json& j, PathRewriteRule& p) {
@@ -592,6 +694,9 @@ inline void from_json(const nlohmann::json& j, RouteConfig& r) {
     }
     if (j.contains("required_roles")) {
         j.at("required_roles").get_to(r.required_roles);
+    }
+    if (j.contains("websocket")) {
+        r.websocket = j.at("websocket").get<WebSocketRouteConfig>();
     }
 }
 
