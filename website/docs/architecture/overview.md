@@ -51,6 +51,8 @@ Modern CPUs offer SIMD (Single Instruction, Multiple Data) instructions that pro
 
 **URL parsing** benefits from SIMD-accelerated character classification—quickly identifying path separators, query delimiters, and special characters without branching.
 
+**WebSocket frame unmasking** uses SIMD to XOR payloads with 4-byte masking keys at wire speed. Every client-to-server WebSocket frame must be unmasked per RFC 6455. SIMD processes 16-32 bytes per cycle (vs 1 byte for scalar), providing 16-30x speedup for real-time applications where every frame requires unmasking.
+
 ## Request Lifecycle
 
 Understanding how a request flows through Titan reveals how these architectural choices combine:

@@ -49,54 +49,54 @@ def test_websocket_large_message_simd(tmp_path, process_manager, mock_backend_1)
     ws.send(small_msg)
     response = ws.recv()
     assert small_msg in response
-    print(f"✅ Small message (10 bytes, scalar): PASS")
+    print(f"Small message (10 bytes, scalar): PASS")
 
     # Test medium message (16-byte SIMD)
     medium_msg = "y" * 64
     ws.send(medium_msg)
     response = ws.recv()
     assert medium_msg in response
-    print(f"✅ Medium message (64 bytes, {simd_16byte}): PASS")
+    print(f"Medium message (64 bytes, {simd_16byte}): PASS")
 
     # Test large message (32-byte SIMD on x86_64, 16-byte on ARM64)
     large_msg = "z" * 1024
     ws.send(large_msg)
     response = ws.recv()
     assert large_msg in response
-    print(f"✅ Large message (1KB, {simd_32byte}): PASS")
+    print(f"Large message (1KB, {simd_32byte}): PASS")
 
     # Test very large message (100KB stress)
     very_large_msg = "a" * (100 * 1024)  # 100KB
     ws.send(very_large_msg)
     response = ws.recv()
     assert very_large_msg in response
-    print(f"✅ Very large message (100KB, {simd_32byte} stress): PASS")
+    print(f"Very large message (100KB, {simd_32byte} stress): PASS")
 
     # Test message with repeating pattern (validates SIMD correctness)
     pattern_msg = "ABC123" * 100  # 600 bytes with repeating pattern
     ws.send(pattern_msg)
     response = ws.recv()
     assert pattern_msg in response
-    print(f"✅ Pattern message (600 bytes, repeating pattern): PASS")
+    print(f"Pattern message (600 bytes, repeating pattern): PASS")
 
     # Test 1MB message (SIMD ultra-stress)
-    print(f"⏳ Sending 1MB message...")
+    print(f"Sending 1MB message...")
     mb1_msg = "M" * (1024 * 1024)  # 1MB
     ws.send(mb1_msg)
     response = ws.recv()
     assert mb1_msg in response
-    print(f"✅ 1MB message ({simd_32byte} ultra-stress): PASS")
+    print(f"1MB message ({simd_32byte} ultra-stress): PASS")
 
     # Test 2MB message (multi-megabyte stress test - 2,097,152 bytes!)
-    print(f"⏳ Sending 2MB message (2,097,152 bytes)...")
+    print(f"Sending 2MB message (2,097,152 bytes)...")
     mb2_msg = "B" * (2 * 1024 * 1024 + 4096)  # 2MB + 4KB (unaligned)
     ws.send(mb2_msg)
     response = ws.recv()
     assert mb2_msg in response
-    print(f"✅ 2MB message ({simd_32byte} mega-stress): PASS")
+    print(f"2MB message ({simd_32byte} mega-stress): PASS")
 
     ws.close()
-    print(f"\n🎉 All WebSocket SIMD unmasking tests PASSED! [{arch.upper()}]")
+    print(f"\nAll WebSocket SIMD unmasking tests PASSED! [{arch.upper()}]")
     print(f"   - Small (10 bytes, scalar fallback)")
     print(f"   - Medium (64 bytes, {simd_16byte})")
     print(f"   - Large (1KB, {simd_32byte})")
@@ -104,7 +104,7 @@ def test_websocket_large_message_simd(tmp_path, process_manager, mock_backend_1)
     print(f"   - Pattern (600 bytes, correctness)")
     print(f"   - 1MB (ultra-stress)")
     print(f"   - 2MB (mega-stress, 2M bytes!)")
-    print(f"\n💡 Note: Titan supports up to 10MB WebSocket messages (MAX_WEBSOCKET_MESSAGE_SIZE)")
+    print(f"\nNote: Titan supports up to 10MB WebSocket messages (MAX_WEBSOCKET_MESSAGE_SIZE)")
     print(f"   Test limited to 2MB due to backend (FastAPI/Uvicorn) constraints.")
 
 
@@ -158,7 +158,7 @@ def test_websocket_simd_correctness_boundary(tmp_path, process_manager, mock_bac
         ws.send(msg)
         response = ws.recv()
         assert msg in response, f"Failed for {description}"
-        print(f"✅ {size} bytes ({description}): PASS")
+        print(f"{size} bytes ({description}): PASS")
 
     ws.close()
-    print(f"\n🎉 All SIMD boundary tests PASSED! [{arch.upper()}]")
+    print(f"\nAll SIMD boundary tests PASSED! [{arch.upper()}]")

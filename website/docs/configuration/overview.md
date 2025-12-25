@@ -217,6 +217,64 @@ Chain middleware for cross-origin requests with JWT authentication:
 
 **Use case**: SPA frontend calling backend API—CORS headers allow browser requests, JWT validates tokens, rate limiting prevents abuse.
 
+### Example 6: WebSocket Proxying with Security
+
+Enable WebSocket support with CORS protection and rate limiting for real-time applications:
+
+```json
+{
+  "server": {
+    "port": 8080,
+    "workers": 4,
+    "websocket": {
+      "enabled": true,
+      "max_frame_size": 1048576,
+      "max_message_size": 10485760,
+      "idle_timeout": 300,
+      "ping_interval": 30,
+      "max_connections_per_worker": 10000
+    }
+  },
+  "upstreams": [
+    {
+      "name": "chat_backend",
+      "backends": [{ "host": "chat-server", "port": 8081 }]
+    }
+  ],
+  "routes": [
+    {
+      "path": "/ws/chat",
+      "upstream": "chat_backend",
+      "websocket": {
+        "enabled": true,
+        "idle_timeout": 600
+      },
+      "middleware": ["cors", "rate_limit"]
+    }
+  ],
+  "cors": {
+    "allowed_origins": ["https://app.example.com"],
+    "allowed_methods": ["GET"],
+    "max_age": 3600
+  },
+  "rate_limit": {
+    "enabled": true,
+    "requests_per_second": 100,
+    "burst": 200
+  }
+}
+```
+
+**Use case**: Real-time chat, live dashboards, collaborative editing. WebSocket frames are automatically unmasked using SIMD instructions for high performance on supported CPUs.
+
+:::tip SIMD Performance
+Titan uses SIMD acceleration (AVX2/SSE2/NEON) to unmask WebSocket frames at wire speed—no configuration required. This provides significant performance improvements for real-time applications with high message throughput.
+:::
+
+:::warning CORS Protection
+Always configure `allowed_origins` for WebSocket routes to prevent Cross-Site WebSocket Hijacking (CSWSH) attacks. Never use `"*"` for production WebSocket endpoints.
+:::
+
 ## Configuration Field Reference
 
 ### Server

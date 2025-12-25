@@ -14,7 +14,15 @@
     "shutdown_timeout": 30000,
     "max_connections": 10000,
     "max_request_size": 1048576,
-    "max_header_size": 8192
+    "max_header_size": 8192,
+    "websocket": {
+      "enabled": true,
+      "max_frame_size": 1048576,
+      "max_message_size": 10485760,
+      "idle_timeout": 300,
+      "ping_interval": 30,
+      "max_connections_per_worker": 10000
+    }
   },
   "upstreams": [
     {
@@ -117,6 +125,17 @@
       "upstream": "web_backend",
       "handler_id": "static_files",
       "priority": 5
+    },
+    {
+      "path": "/ws/chat",
+      "method": "GET",
+      "upstream": "api_backend",
+      "handler_id": "websocket_chat",
+      "priority": 10,
+      "websocket": {
+        "enabled": true,
+        "idle_timeout": 600
+      }
     }
   ],
   "cors": {
