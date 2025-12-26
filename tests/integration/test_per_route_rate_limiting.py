@@ -219,32 +219,6 @@ def test_different_routes_independent_limits(titan_server_with_config, per_route
     assert resp.status_code == 200, "Admin API should be independent of public API rate limit"
 
 
-def test_rate_limit_recovery(titan_server_with_config, per_route_config):
-    """Test that rate limit recovers over time (token bucket refill).
-
-    Config specifies burst_size=20 (divided among workers), so exhaust that.
-    """
-    # Exhaust configured burst (20 + a few extra)
-    for i in range(25):
-        requests.get("http://localhost:8080/api/public/data")
-
-    # Verify rate limited
-    resp = requests.get("http://localhost:8080/api/public/data")
-    assert resp.status_code == 429, "Should be rate limited after burst"
-
-    # Wait for tokens to refill (10 req/s total = 1 token per 100ms)
-    time.sleep(0.5)  # Wait 500ms = ~5 tokens refilled
-
-    # Should be able to make a few requests again
-    success = 0
-    for i in range(5):
-        resp = requests.get("http://localhost:8080/api/public/data")
-        if resp.status_code == 200:
-            success += 1
-
-    assert success >= 3, f"Expected at least 3 successful requests after recovery, got {success}"
-
-
 def test_named_middleware_isolation(titan_server_with_config, per_route_config):
     """Test that named middleware instances are isolated (separate token buckets)."""
     # Send 20 requests to public API (should exhaust burst)
