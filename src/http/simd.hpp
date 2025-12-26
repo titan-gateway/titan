@@ -447,4 +447,96 @@ inline size_t common_prefix_length(const char* a, const char* b, size_t len) noe
     return i;
 }
 
+// ============================================================================
+// WebSocket Frame Unmasking (XOR with 4-byte key)
+// ============================================================================
+
+/// Unmask WebSocket payload using SIMD (RFC 6455 §5.3)
+/// Applies XOR masking: transformed-octet-i = original-octet-i XOR masking-key-octet-(i % 4)
+///
+/// Performance:
+/// - Scalar: ~1 byte/cycle
+/// - SSE2: ~16 bytes/cycle (16x speedup)
+/// - AVX2: ~32 bytes/cycle (32x speedup)
+/// - NEON: ~16 bytes/cycle (16x speedup)
+inline void unmask_payload(uint8_t* payload, size_t length, uint32_t masking_key) noexcept {
+    if (length == 0) {
+        return;
+    }
+
+    // Extract key bytes
+    uint8_t key_bytes[4] = {
+        static_cast<uint8_t>(masking_key >> 24), static_cast<uint8_t>(masking_key >> 16),
+        static_cast<uint8_t>(masking_key >> 8), static_cast<uint8_t>(masking_key)};
+
+    uint8_t* ptr = payload;
+    uint8_t* end = payload + length;
+
+#if defined(__AVX2__)
+    if (CPUFeatures::instance().has_avx2() && length >= 32) {
+        // Create 256-bit mask: repeat 4-byte pattern 8 times
+        // Note: Set bytes in order (key_bytes[0], key_bytes[1], key_bytes[2], key_bytes[3], ...)
+        __m256i mask_vec =
+            _mm256_set_epi8(key_bytes[3], key_bytes[2], key_bytes[1], key_bytes[0],  // Bytes 28-31
+                            key_bytes[3], key_bytes[2], key_bytes[1], key_bytes[0],  // Bytes 24-27
+                            key_bytes[3], key_bytes[2], key_bytes[1], key_bytes[0],  // Bytes 20-23
+                            key_bytes[3], key_bytes[2], key_bytes[1], key_bytes[0],  // Bytes 16-19
+                            key_bytes[3], key_bytes[2], key_bytes[1], key_bytes[0],  // Bytes 12-15
+                            key_bytes[3], key_bytes[2], key_bytes[1], key_bytes[0],  // Bytes 8-11
+                            key_bytes[3], key_bytes[2], key_bytes[1], key_bytes[0],  // Bytes 4-7
+                            key_bytes[3], key_bytes[2], key_bytes[1], key_bytes[0]   // Bytes 0-3
+            );
+
+        // Process 32 bytes at a time
+        while (ptr + 32 <= end) {
+            __m256i data = _mm256_loadu_si256(reinterpret_cast<__m256i*>(ptr));
+            data = _mm256_xor_si256(data, mask_vec);
+            _mm256_storeu_si256(reinterpret_cast<__m256i*>(ptr), data);
+            ptr += 32;
+        }
+    }
+#elif defined(__SSE2__)
+    if (CPUFeatures::instance().has_sse2() && length >= 16) {
+        // Create 128-bit mask: repeat 4-byte pattern 4 times
+        __m128i mask_vec =
+            _mm_set_epi8(key_bytes[3], key_bytes[2], key_bytes[1], key_bytes[0],  // Bytes 12-15
+                         key_bytes[3], key_bytes[2], key_bytes[1], key_bytes[0],  // Bytes 8-11
+                         key_bytes[3], key_bytes[2], key_bytes[1], key_bytes[0],  // Bytes 4-7
+                         key_bytes[3], key_bytes[2], key_bytes[1], key_bytes[0]   // Bytes 0-3
+            );
+
+        // Process 16 bytes at a time
+        while (ptr + 16 <= end) {
+            __m128i data = _mm_loadu_si128(reinterpret_cast<__m128i*>(ptr));
+            data = _mm_xor_si128(data, mask_vec);
+            _mm_storeu_si128(reinterpret_cast<__m128i*>(ptr), data);
+            ptr += 16;
+        }
+    }
+#elif defined(__aarch64__)
+    if (CPUFeatures::instance().has_neon() && length >= 16) {
+        // Create NEON mask: repeat 4-byte pattern 4 times
+        uint8_t mask_bytes[16] = {key_bytes[0], key_bytes[1], key_bytes[2], key_bytes[3],
+                                  key_bytes[0], key_bytes[1], key_bytes[2], key_bytes[3],
+                                  key_bytes[0], key_bytes[1], key_bytes[2], key_bytes[3],
+                                  key_bytes[0], key_bytes[1], key_bytes[2], key_bytes[3]};
+        uint8x16_t mask_vec = vld1q_u8(mask_bytes);
+
+        // Process 16 bytes at a time
+        while (ptr + 16 <= end) {
+            uint8x16_t data = vld1q_u8(ptr);
+            data = veorq_u8(data, mask_vec);
+            vst1q_u8(ptr, data);
+            ptr += 16;
+        }
+    }
+#endif
+
+    // Scalar fallback for remaining bytes
+    while (ptr < end) {
+        *ptr ^= key_bytes[(ptr - payload) % 4];
+        ptr++;
+    }
+}
+
 }  // namespace titan::http::simd

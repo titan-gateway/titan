@@ -152,4 +152,118 @@ MiddlewareResult JwtAuthMiddleware::send_401(RequestContext& ctx, std::string_vi
     return MiddlewareResult::Stop;
 }
 
+MiddlewareResult JwtAuthMiddleware::process_websocket_upgrade(RequestContext& ctx) {
+    // JWT validation for WebSocket upgrades
+    // NOTE: Browsers cannot send custom headers in WebSocket constructor,
+    // so we support token in query parameter as fallback
+
+    if (!config_.enabled || !validator_) {
+        return MiddlewareResult::Continue;
+    }
+
+    if (!ctx.request || !ctx.response) {
+        return MiddlewareResult::Error;
+    }
+
+    // Check if this route requires authentication
+    if (!ctx.route_match.auth_required) {
+        return MiddlewareResult::Continue;
+    }
+
+    // STEP 1: Extract token from Authorization header OR query parameter
+    std::string_view token;
+
+    // Try Authorization header first (preferred)
+    auto auth_header = ctx.request->get_header(config_.header);
+    if (!auth_header.empty()) {
+        std::string scheme_prefix = config_.scheme + " ";
+        if (auth_header.size() > scheme_prefix.size() &&
+            auth_header.substr(0, scheme_prefix.size()) == scheme_prefix) {
+            token = auth_header.substr(scheme_prefix.size());
+        }
+    }
+
+    // Fallback: Try query parameter ?token=xxx (for browser WebSocket clients)
+    if (token.empty()) {
+        // Extract token from query string
+        auto query_pos = ctx.request->path.find('?');
+        if (query_pos != std::string::npos) {
+            std::string_view query = ctx.request->path.substr(query_pos + 1);
+            std::string_view token_param = "token=";
+
+            auto token_pos = query.find(token_param);
+            if (token_pos != std::string_view::npos) {
+                auto token_start = token_pos + token_param.size();
+                auto token_end = query.find('&', token_start);
+                if (token_end == std::string_view::npos) {
+                    token = query.substr(token_start);
+                } else {
+                    token = query.substr(token_start, token_end - token_start);
+                }
+            }
+        }
+    }
+
+    if (token.empty()) {
+        return send_401(ctx, "Missing token (Authorization header or ?token= query param)");
+    }
+
+    // STEP 2: Validate token (uses cache internally)
+    auto result = validator_->validate(token);
+    if (!result) {
+        auto* logger = logging::get_current_logger();
+        assert(logger && "Logger must be initialized");
+        LOG_WARNING(
+            logger,
+            "JWT validation failed for WebSocket: error={}, client_ip={}, correlation_id={}",
+            result.error, ctx.client_ip, ctx.correlation_id);
+
+        return send_401(ctx, result.error);
+    }
+
+    // STEP 3: Check if token has been revoked
+    if (config_.revocation_enabled && revocation_queue_) {
+        revocation_list_.sync_from_queue(*revocation_queue_);
+
+        if (!result.claims.jti.empty() && revocation_list_.is_revoked(result.claims.jti)) {
+            auto* logger = logging::get_current_logger();
+            assert(logger && "Logger must be initialized");
+            LOG_WARNING(logger,
+                        "JWT revoked for WebSocket: jti={}, client_ip={}, correlation_id={}",
+                        result.claims.jti, ctx.client_ip, ctx.correlation_id);
+
+            return send_401(ctx, "Token has been revoked");
+        }
+    }
+
+    // STEP 4: Store claims in context
+    if (!result.claims.sub.empty()) {
+        ctx.set_metadata("jwt_sub", result.claims.sub);
+    }
+    if (!result.claims.scope.empty()) {
+        ctx.set_metadata("jwt_scope", result.claims.scope);
+    }
+    if (!result.claims.roles.empty()) {
+        ctx.set_metadata("jwt_roles", result.claims.roles);
+    }
+    if (!result.claims.iss.empty()) {
+        ctx.set_metadata("jwt_iss", result.claims.iss);
+    }
+    if (!result.claims.jti.empty()) {
+        ctx.set_metadata("jwt_jti", result.claims.jti);
+    }
+
+    if (!result.claims.custom.empty()) {
+        ctx.set_metadata("jwt_claims", result.claims.custom.dump());
+    }
+
+    // Log successful authentication
+    auto* logger = logging::get_current_logger();
+    assert(logger && "Logger must be initialized");
+    LOG_DEBUG(logger, "JWT validated for WebSocket: sub={}, client_ip={}, correlation_id={}",
+              result.claims.sub, ctx.client_ip, ctx.correlation_id);
+
+    return MiddlewareResult::Continue;
+}
+
 }  // namespace titan::gateway

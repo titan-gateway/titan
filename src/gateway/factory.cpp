@@ -292,6 +292,7 @@ std::unique_ptr<Pipeline> build_pipeline(const control::Config& config,
     // Named CORS middleware (for per-route CORS policies)
     for (const auto& [name, cors_config] : config.cors_configs) {
         CorsMiddleware::Config cors_cfg;
+        cors_cfg.enabled = cors_config.enabled;
         cors_cfg.allowed_origins = cors_config.allowed_origins;
         cors_cfg.allowed_methods = cors_config.allowed_methods;
         cors_cfg.allowed_headers = cors_config.allowed_headers;

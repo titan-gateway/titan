@@ -165,6 +165,19 @@ public:
     /// Examples: "rate_limit", "jwt_auth", "cors", "compression"
     /// Returns empty string for middleware that doesn't support overrides
     [[nodiscard]] virtual std::string_view type() const { return ""; }
+
+    /// Whether this middleware applies to WebSocket upgrade requests
+    /// Override to return true if middleware should process WebSocket upgrades
+    /// Default implementation: do not apply to WebSocket
+    [[nodiscard]] virtual bool applies_to_websocket() const { return false; }
+
+    /// Process WebSocket upgrade request (before 101 Switching Protocols)
+    /// Only called if applies_to_websocket() returns true
+    /// Default implementation: do nothing, continue
+    [[nodiscard]] virtual MiddlewareResult process_websocket_upgrade(RequestContext& ctx) {
+        (void)ctx;
+        return MiddlewareResult::Continue;
+    }
 };
 
 /// Logging middleware (logs in response phase with timing)
@@ -178,6 +191,7 @@ public:
 class CorsMiddleware : public Middleware {
 public:
     struct Config {
+        bool enabled;
         std::vector<std::string> allowed_origins;
         std::vector<std::string> allowed_methods;
         std::vector<std::string> allowed_headers;
@@ -185,7 +199,8 @@ public:
         int max_age;
 
         Config()
-            : allowed_origins{"*"},
+            : enabled(true),
+              allowed_origins{"*"},
               allowed_methods{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
               allowed_headers{"*"},
               allow_credentials(false),
@@ -198,6 +213,10 @@ public:
     MiddlewareResult process_request(RequestContext& ctx) override;
     std::string_view name() const override { return "CorsMiddleware"; }
     std::string_view type() const override { return "cors"; }
+
+    // WebSocket support (CRITICAL for CSWSH prevention)
+    bool applies_to_websocket() const override { return true; }
+    MiddlewareResult process_websocket_upgrade(RequestContext& ctx) override;
 
 private:
     Config config_;
@@ -219,6 +238,10 @@ public:
     MiddlewareResult process_request(RequestContext& ctx) override;
     std::string_view name() const override { return "RateLimitMiddleware"; }
     std::string_view type() const override { return "rate_limit"; }
+
+    // WebSocket support (limit WebSocket connection attempts)
+    bool applies_to_websocket() const override { return true; }
+    MiddlewareResult process_websocket_upgrade(RequestContext& ctx) override;
 
 private:
     Config config_;
@@ -265,6 +288,9 @@ public:
 
     /// Execute response phase (after backend responds)
     [[nodiscard]] MiddlewareResult execute_response(ResponseContext& ctx);
+
+    /// Execute WebSocket upgrade phase (before 101 Switching Protocols)
+    [[nodiscard]] MiddlewareResult execute_websocket_upgrade(RequestContext& ctx);
 
     /// Execute pipeline (legacy - delegates to execute_request)
     [[nodiscard]] MiddlewareResult execute(RequestContext& ctx) { return execute_request(ctx); }

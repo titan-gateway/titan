@@ -73,7 +73,7 @@ Initial benchmarks show competitive performance with industry-leading gateways. 
 - **Observability**: Prometheus metrics endpoint (`/metrics`), request/response logging
 - **Request/Response Transformation**: Header manipulation, path rewriting with PCRE2 regex
 - **Response Compression**: gzip/brotli/zstd with BREACH attack mitigation
-- **WebSocket Proxying**: HTTP to WebSocket upgrade, bidirectional streaming
+- **High-Performance WebSocket**: SIMD-accelerated proxying for real-time applications
 
 ### In Development
 - **gRPC Support**: Protocol detection, streaming support
