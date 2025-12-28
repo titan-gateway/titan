@@ -161,7 +161,8 @@ struct UpstreamConfig {
 
     // Connection pool settings
     uint32_t pool_size = 100;
-    uint32_t pool_idle_timeout = 60;  // seconds
+    uint32_t pool_idle_timeout_seconds = 60;
+    uint32_t pool_max_requests_per_conn = 0;  // 0 = unlimited (Nginx default behavior)
 
     // Circuit breaker settings
     CircuitBreakerConfigSchema circuit_breaker;
@@ -543,7 +544,8 @@ inline void from_json(const nlohmann::json& j, UpstreamConfig& u) {
     u.max_retries = j.value("max_retries", 2u);
     u.retry_timeout = j.value("retry_timeout", 1000u);
     u.pool_size = j.value("pool_size", 100u);
-    u.pool_idle_timeout = j.value("pool_idle_timeout", 60u);
+    u.pool_idle_timeout_seconds = j.value("pool_idle_timeout_seconds", 60u);
+    u.pool_max_requests_per_conn = j.value("pool_max_requests_per_conn", 0u);
     u.circuit_breaker = j.value("circuit_breaker", CircuitBreakerConfigSchema{});
     if (j.contains("websocket")) {
         u.websocket = j.at("websocket").get<WebSocketUpstreamConfig>();
@@ -910,7 +912,8 @@ inline void to_json(nlohmann::json& j, const UpstreamConfig& u) {
                        {"max_retries", u.max_retries},
                        {"retry_timeout", u.retry_timeout},
                        {"pool_size", u.pool_size},
-                       {"pool_idle_timeout", u.pool_idle_timeout},
+                       {"pool_idle_timeout_seconds", u.pool_idle_timeout_seconds},
+                       {"pool_max_requests_per_conn", u.pool_max_requests_per_conn},
                        {"circuit_breaker", u.circuit_breaker}};
 }
 

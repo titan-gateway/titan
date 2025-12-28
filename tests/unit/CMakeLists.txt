@@ -5,6 +5,7 @@ add_executable(titan_tests
   test_core.cpp
   test_http.cpp
   test_h2.cpp
+  test_grpc.cpp
   test_tls.cpp
   test_gateway.cpp
   test_keepalive.cpp

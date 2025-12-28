@@ -25,7 +25,7 @@
       "name": "mock_backend",
       "load_balancing": "round_robin",
       "pool_size": 100,
-      "pool_idle_timeout": 60,
+      "pool_idle_timeout_seconds": 60,
       "backends": [
         {
           "host": "127.0.0.1",

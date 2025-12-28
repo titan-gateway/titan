@@ -24,7 +24,7 @@
       "max_retries": 2,
       "retry_timeout": 1000,
       "pool_size": 100,
-      "pool_idle_timeout": 60,
+      "pool_idle_timeout_seconds": 60,
       "backends": [
         {
           "host": "localhost",

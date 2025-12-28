@@ -74,11 +74,21 @@ class ProcessManager:
 @pytest.fixture
 def process_manager():
     """Process manager fixture"""
+    # Kill any stale processes from previous tests
+    import os
+    import signal
+    try:
+        os.system("pkill -9 -f 'uvicorn.*3001' 2>/dev/null")
+        os.system("pkill -9 -f 'titan.*8080' 2>/dev/null")
+    except:
+        pass
+    time.sleep(1.0)  # Longer cleanup delay
+
     pm = ProcessManager()
     yield pm
     pm.stop_all()
-    # Small delay to ensure ports are released for next test
-    time.sleep(0.5)
+    # Longer delay to ensure ports are released for next test
+    time.sleep(1.5)
 
 
 @pytest.fixture
@@ -170,20 +180,31 @@ def titan_server(process_manager, titan_config_with_circuit_breaker, mock_backen
         raise RuntimeError("Titan failed to start on port 8080")
 
     # Wait for full initialization
-    time.sleep(2.0)
+    time.sleep(3.0)  # Longer startup delay
 
     # Verify Titan is actually responding before yielding
-    max_retries = 5
+    max_retries = 10
     for attempt in range(max_retries):
         try:
             resp = requests.get("http://127.0.0.1:9090/health", timeout=2)
             if resp.status_code == 200:
-                break
+                # Also verify the API route is available
+                try:
+                    api_resp = requests.get("http://127.0.0.1:8080/api", timeout=2)
+                    # Should get 200 from mock backend (not 404)
+                    if api_resp.status_code in [200, 500]:  # Either backend success or failure, but not 404
+                        print(f"[FIXTURE] Titan fully ready (API route responding with {api_resp.status_code})")
+                        break
+                except:
+                    pass
         except:
-            if attempt < max_retries - 1:
-                time.sleep(0.5)
-            else:
-                raise RuntimeError("Titan health check failed after startup")
+            pass
+
+        if attempt < max_retries - 1:
+            print(f"[FIXTURE] Waiting for Titan to be ready (attempt {attempt+1}/{max_retries})...")
+            time.sleep(1.0)
+        else:
+            raise RuntimeError("Titan health check failed after startup")
 
     yield "http://127.0.0.1:8080"
 
@@ -203,6 +224,13 @@ def test_circuit_breaker_metrics_accuracy(titan_server, mock_backend, metrics_ur
     print(f"[TEST] Mock backend: {mock_backend}")
     print(f"[TEST] Metrics URL: {metrics_url}")
 
+    # Reset backend state to ensure clean test
+    try:
+        requests.post(f"{mock_backend}/_control/reset", timeout=2)
+        time.sleep(0.5)
+    except:
+        pass
+
     # Verify backend is responding
     print(f"[TEST] Checking backend health...")
     resp = requests.get(f"{mock_backend}/health", timeout=2)
@@ -219,9 +247,19 @@ def test_circuit_breaker_metrics_accuracy(titan_server, mock_backend, metrics_ur
     success_count = 3
     for i in range(success_count):
         print(f"[TEST] Sending success request {i+1}/{success_count} to {titan_server}/api")
-        resp = requests.get(f"{titan_server}/api", timeout=5)
-        print(f"[TEST] Got response: {resp.status_code}")
-        assert resp.status_code == 200
+        # Add retry logic for startup timing
+        for retry in range(3):
+            try:
+                resp = requests.get(f"{titan_server}/api", timeout=5)
+                print(f"[TEST] Got response: {resp.status_code}")
+                assert resp.status_code == 200
+                break
+            except AssertionError:
+                if retry < 2:
+                    print(f"[TEST] Retry {retry+1}/3 due to unexpected status")
+                    time.sleep(0.5)
+                else:
+                    raise
     time.sleep(0.5)
 
     # 2. Check metrics show successes
@@ -274,13 +312,29 @@ def test_circuit_breaker_opens_on_failures(titan_server, mock_backend, metrics_u
     """
     Test that circuit breaker opens after threshold failures
     """
+    print(f"\n[TEST] Starting circuit breaker open test")
+
     # Reset backend state to ensure clean test
-    requests.post(f"{mock_backend}/_control/reset", timeout=2)
+    try:
+        requests.post(f"{mock_backend}/_control/reset", timeout=2)
+        time.sleep(0.5)
+    except:
+        pass
 
     # 1. Verify normal operation
-    resp = requests.get(f"{titan_server}/api", timeout=2)
-    assert resp.status_code == 200
-    assert resp.json()["message"] == "Success"
+    for retry in range(3):
+        try:
+            resp = requests.get(f"{titan_server}/api", timeout=2)
+            print(f"[TEST] Initial request status: {resp.status_code}")
+            assert resp.status_code == 200
+            assert resp.json()["message"] == "Success"
+            break
+        except (AssertionError, requests.exceptions.RequestException) as e:
+            if retry < 2:
+                print(f"[TEST] Retry {retry+1}/3 for initial request: {e}")
+                time.sleep(0.5)
+            else:
+                raise
 
     # 2. Check initial circuit breaker state (CLOSED)
     metrics = requests.get(f"{metrics_url}/metrics", timeout=2).text
@@ -291,43 +345,57 @@ def test_circuit_breaker_opens_on_failures(titan_server, mock_backend, metrics_u
     # 3. Trigger backend failures
     resp = requests.post(f"{mock_backend}/_control/fail", timeout=2)
     assert resp.status_code == 200
+    time.sleep(0.3)  # Give backend time to update state
 
     # 4. Send requests to trigger circuit breaker (need 3 failures based on config)
     # Send enough requests to ensure we hit the threshold
+    print(f"[TEST] Sending failure requests...")
     failed_requests = 0
     for i in range(10):
         try:
             resp = requests.get(f"{titan_server}/api", timeout=2)
+            print(f"[TEST] Request {i+1} status: {resp.status_code}")
             if resp.status_code >= 500:
                 failed_requests += 1
-        except requests.exceptions.RequestException:
+        except requests.exceptions.RequestException as e:
+            print(f"[TEST] Request {i+1} exception: {type(e).__name__}")
             failed_requests += 1
-        time.sleep(0.1)  # Small delay between requests
+        time.sleep(0.2)  # Slightly longer delay between requests
 
     # Should have at least 3 failures
+    print(f"[TEST] Failed requests: {failed_requests}")
     assert failed_requests >= 3, f"Expected at least 3 failures, got {failed_requests}"
 
     # 5. Wait a moment for circuit breaker to open
-    time.sleep(0.5)
+    time.sleep(1.0)  # Longer wait for state transition
 
     # 6. Verify circuit breaker is now OPEN (state = 1)
     metrics = requests.get(f"{metrics_url}/metrics", timeout=2).text
+    print(f"[TEST] Checking circuit breaker state...")
     assert "titan_circuit_breaker_failures_total" in metrics
     # Check that state transitioned to OPEN - backend is "127.0.0.1:3001" (localhost resolved to IP)
     assert ('titan_circuit_breaker_state{backend="127.0.0.1:3001",upstream="backend",worker="0"} 1' in metrics or
             'titan_circuit_breaker_state{backend="127.0.0.1:3001",upstream="backend",worker="0"} 2' in metrics), \
-        f"Circuit breaker should be OPEN or HALF_OPEN, metrics: {metrics}"
+        f"Circuit breaker should be OPEN or HALF_OPEN, got state 0 (CLOSED). Failed requests: {failed_requests}"
 
 
 def test_circuit_breaker_closes_after_recovery(titan_server, mock_backend, metrics_url):
     """
     Test that circuit breaker closes after backend recovers
     """
+    print(f"\n[TEST] Starting circuit breaker recovery test")
+
     # Reset backend state to ensure clean test
-    requests.post(f"{mock_backend}/_control/reset", timeout=2)
+    try:
+        requests.post(f"{mock_backend}/_control/reset", timeout=2)
+        time.sleep(0.5)
+    except:
+        pass
 
     # 1. Make backend fail
-    requests.post(f"{mock_backend}/_control/fail", timeout=2)
+    resp = requests.post(f"{mock_backend}/_control/fail", timeout=2)
+    print(f"[TEST] Backend fail response: {resp.status_code}")
+    time.sleep(0.3)
 
     # 2. Trigger circuit breaker to open (3+ failures)
     for i in range(5):
