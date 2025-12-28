@@ -82,13 +82,13 @@ def process_manager():
         os.system("pkill -9 -f 'titan.*8080' 2>/dev/null")
     except:
         pass
-    time.sleep(1.0)  # Longer cleanup delay
+    time.sleep(2.0)  # Extra long cleanup delay
 
     pm = ProcessManager()
     yield pm
     pm.stop_all()
-    # Longer delay to ensure ports are released for next test
-    time.sleep(1.5)
+    # Extra long delay to ensure ports are released for next test
+    time.sleep(2.5)
 
 
 @pytest.fixture
@@ -180,10 +180,10 @@ def titan_server(process_manager, titan_config_with_circuit_breaker, mock_backen
         raise RuntimeError("Titan failed to start on port 8080")
 
     # Wait for full initialization
-    time.sleep(3.0)  # Longer startup delay
+    time.sleep(5.0)  # Extra long startup delay for routing table
 
     # Verify Titan is actually responding before yielding
-    max_retries = 10
+    max_retries = 15
     for attempt in range(max_retries):
         try:
             resp = requests.get("http://127.0.0.1:9090/health", timeout=2)
@@ -227,7 +227,7 @@ def test_circuit_breaker_metrics_accuracy(titan_server, mock_backend, metrics_ur
     # Reset backend state to ensure clean test
     try:
         requests.post(f"{mock_backend}/_control/reset", timeout=2)
-        time.sleep(0.5)
+        time.sleep(1.0)  # Longer delay after reset
     except:
         pass
 
@@ -273,6 +273,7 @@ def test_circuit_breaker_metrics_accuracy(titan_server, mock_backend, metrics_ur
     resp = requests.post(f"{mock_backend}/_control/fail", timeout=5)
     print(f"[TEST] Backend fail response: {resp.status_code}")
     assert resp.status_code == 200
+    time.sleep(1.0)  # Wait for backend state to stabilize
 
     for i in range(5):
         print(f"[TEST] Sending failure request {i+1}/5...")
@@ -317,7 +318,7 @@ def test_circuit_breaker_opens_on_failures(titan_server, mock_backend, metrics_u
     # Reset backend state to ensure clean test
     try:
         requests.post(f"{mock_backend}/_control/reset", timeout=2)
-        time.sleep(0.5)
+        time.sleep(1.0)  # Longer delay after reset
     except:
         pass
 
@@ -345,7 +346,7 @@ def test_circuit_breaker_opens_on_failures(titan_server, mock_backend, metrics_u
     # 3. Trigger backend failures
     resp = requests.post(f"{mock_backend}/_control/fail", timeout=2)
     assert resp.status_code == 200
-    time.sleep(0.3)  # Give backend time to update state
+    time.sleep(1.0)  # Give backend time to update state
 
     # 4. Send requests to trigger circuit breaker (need 3 failures based on config)
     # Send enough requests to ensure we hit the threshold
@@ -388,14 +389,14 @@ def test_circuit_breaker_closes_after_recovery(titan_server, mock_backend, metri
     # Reset backend state to ensure clean test
     try:
         requests.post(f"{mock_backend}/_control/reset", timeout=2)
-        time.sleep(0.5)
+        time.sleep(1.0)  # Longer delay after reset
     except:
         pass
 
     # 1. Make backend fail
     resp = requests.post(f"{mock_backend}/_control/fail", timeout=2)
     print(f"[TEST] Backend fail response: {resp.status_code}")
-    time.sleep(0.3)
+    time.sleep(1.0)  # Wait for backend state to stabilize
 
     # 2. Trigger circuit breaker to open (3+ failures)
     for i in range(5):
