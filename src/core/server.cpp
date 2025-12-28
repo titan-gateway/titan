@@ -745,9 +745,11 @@ bool Server::proxy_to_backend(Connection& conn, gateway::RequestContext& ctx) {
     conn.backend_conn->owned_query = conn.request.query;
 
     // 2. Copy headers to owned storage
-    // For HTTP/2: conn.request.headers contains the headers (string_views from H2Session)
-    // For HTTP/1.1: conn.request_header_storage contains the headers
-    // We need to materialize string_views into owned strings
+    // For HTTP/2: conn.request.headers are string_views from H2Session → must copy
+    // For HTTP/1.1: conn.request.headers point to conn.request_header_storage (already owned)
+    //               → redundant copy, but needed because conn.request_header_storage will be
+    //                 reused for next pipelined request (keep-alive)
+    // TODO: Optimize HTTP/1.1 case by swapping/moving if not keep-alive
     conn.backend_conn->request_header_storage.clear();
     conn.backend_conn->request_header_storage.reserve(conn.request.headers.size());
     for (const auto& header : conn.request.headers) {
