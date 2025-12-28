@@ -1493,7 +1493,7 @@ def test_websocket_config_reload():
 
 ### Security
 - [Cross-Site WebSocket Hijacking (CSWSH)](https://www.christian-schneider.net/CrossSiteWebSocketHijacking.html)
-- [OWASP WebSocket Security](https://owasp.org/www-community/vulnerabilities/WebSocket_Protocol_Security)
+- [OWASP WebSocket Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/WebSocket_Security_Cheat_Sheet.html)
 
 ### Competitor Documentation
 - [Nginx WebSocket Proxying](http://nginx.org/en/docs/http/websocket.html)
@@ -1502,7 +1502,7 @@ def test_websocket_config_reload():
 - [Pingora Open Source](https://blog.cloudflare.com/pingora-open-source/)
 
 ### Performance
-- [SIMD for WebSocket Masking](https://stackoverflow.com/questions/49646988/fastest-implementation-of-websocket-masking-unmasking)
+- [Chromium SIMD for WebSocket Masking](https://bugs.chromium.org/p/chromium/issues/detail?id=539259)
 - [Zero-Copy Networking](https://en.wikipedia.org/wiki/Zero-copy)
 
 ---
