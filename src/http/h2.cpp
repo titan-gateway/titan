@@ -25,6 +25,11 @@
 
 namespace titan::http {
 
+// Forward declaration for request body callback
+static ssize_t request_data_read_callback(nghttp2_session* session, int32_t stream_id, uint8_t* buf,
+                                          size_t length, uint32_t* data_flags, nghttp2_data_source* source,
+                                          void* user_data);
+
 // ============================
 // HTTP/2 Detection
 // ============================
@@ -48,6 +53,7 @@ H2Session::H2Session(bool is_server) : is_server_(is_server) {
     // Register callbacks
     nghttp2_session_callbacks_set_send_callback(callbacks, send_callback);
     nghttp2_session_callbacks_set_on_frame_recv_callback(callbacks, on_frame_recv_callback);
+    nghttp2_session_callbacks_set_on_frame_send_callback(callbacks, on_frame_send_callback);
     nghttp2_session_callbacks_set_on_stream_close_callback(callbacks, on_stream_close_callback);
     nghttp2_session_callbacks_set_on_header_callback(callbacks, on_header_callback);
     nghttp2_session_callbacks_set_on_data_chunk_recv_callback(callbacks,
@@ -63,12 +69,13 @@ H2Session::H2Session(bool is_server) : is_server_(is_server) {
     nghttp2_session_callbacks_del(callbacks);
 
     // Submit settings frame
+    // Use conservative defaults for maximum compatibility
     nghttp2_settings_entry settings[] = {
-        {NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS,
-         1000},  // Increased from 100 to support heavy load
+        {NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, 100},
         {NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE, 65535},
+        {NGHTTP2_SETTINGS_ENABLE_PUSH, 0},  // Disable server push for client mode
     };
-    nghttp2_submit_settings(session_, NGHTTP2_FLAG_NONE, settings, 2);
+    nghttp2_submit_settings(session_, NGHTTP2_FLAG_NONE, settings, 3);
 }
 
 H2Session::~H2Session() {
@@ -93,10 +100,13 @@ std::span<const uint8_t> H2Session::send_data() {
     send_buffer_.clear();
 
     int iterations = 0;
-    while (nghttp2_session_want_write(session_)) {
+    const int max_iterations = 100;  // Safety limit
+    while (nghttp2_session_want_write(session_) && iterations < max_iterations) {
         int rv = nghttp2_session_send(session_);
         iterations++;
+
         if (rv != 0) {
+            // Error occurred
             break;
         }
     }
@@ -123,7 +133,7 @@ std::error_code H2Session::submit_request(const Request& request, int32_t& strea
     // Pseudo-headers (required for HTTP/2)
     std::string method_str = std::string(to_string(request.method));
     std::string path = std::string(request.path);
-    std::string scheme = "https";  // Use HTTPS for TLS connections (all HTTP/2 in production)
+    std::string scheme = "http";  // Use http for h2c (cleartext HTTP/2), https for TLS
 
     headers.push_back({const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(":method")),
                        const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(method_str.c_str())),
@@ -137,27 +147,83 @@ std::error_code H2Session::submit_request(const Request& request, int32_t& strea
                        const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(scheme.c_str())), 7,
                        scheme.size(), NGHTTP2_NV_FLAG_NONE});
 
-    // Regular headers
+    // :authority pseudo-header (REQUIRED for HTTP/2, equivalent to Host header)
+    std::string authority;
     for (const auto& header : request.headers) {
+        if (header.name == "host" || header.name == "Host") {
+            authority = std::string(header.value);
+            break;
+        }
+    }
+    if (authority.empty()) {
+        authority = "localhost";  // Fallback if no Host header
+    }
+
+    headers.push_back({const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(":authority")),
+                       const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(authority.c_str())), 10,
+                       authority.size(), NGHTTP2_NV_FLAG_NONE});
+
+    // Regular headers (skip Host since it's now :authority)
+    for (const auto& header : request.headers) {
+        // Skip Host header (already added as :authority)
+        if (header.name == "host" || header.name == "Host") {
+            continue;
+        }
         headers.push_back(
             {const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(header.name.data())),
              const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(header.value.data())),
              header.name.size(), header.value.size(), NGHTTP2_NV_FLAG_NONE});
     }
 
+    // CRITICAL: Create stream BEFORE submitting request (nghttp2 may call data callback during submit)
+    // We use a placeholder negative ID that will be replaced with the real stream ID
+    static int32_t temp_stream_id_counter = -1000;
+    int32_t temp_id = temp_stream_id_counter--;
+
+    H2Stream& temp_stream = get_or_create_stream(temp_id);
+    temp_stream.request = request;
+    temp_stream.stream_id = temp_id;
+
+    // Prepare data provider for request body (if present)
+    nghttp2_data_provider* data_prd = nullptr;
+    nghttp2_data_provider data_provider;
+
+    // CRITICAL: For gRPC, we must send the request body!
+    // The body contains the protobuf-encoded message
+    if (!request.body.empty()) {
+        // Copy request body to stream storage
+        temp_stream.request_body.assign(request.body.begin(), request.body.end());
+
+        // Setup data provider to send body
+        data_provider.source.ptr = &temp_stream;
+        data_provider.read_callback = request_data_read_callback;  // Use request callback, not response
+        data_prd = &data_provider;
+    }
+
     // Submit request
     int32_t sid =
-        nghttp2_submit_request(session_, nullptr, headers.data(), headers.size(), nullptr, nullptr);
+        nghttp2_submit_request(session_, nullptr, headers.data(), headers.size(), data_prd, nullptr);
+
     if (sid < 0) {
+        // Clean up temporary stream on error
+        streams_.erase(temp_id);
         return std::make_error_code(std::errc::protocol_error);
     }
 
     stream_id = sid;
+
+    // Move stream from temporary ID to real ID
+    // CRITICAL: Set stream_id BEFORE moving to avoid dangling reference
+    temp_stream.stream_id = sid;  // temp_stream is still valid here
+    auto moved_stream = std::move(streams_[temp_id]);  // Move to local variable
+    streams_.erase(temp_id);  // Erase old entry
+    streams_[sid] = std::move(moved_stream);  // Insert with new ID
+
     return {};
 }
 
-// Static data read callback for nghttp2 (with body data)
-static ssize_t data_read_callback(nghttp2_session* /*session*/, int32_t /*stream_id*/, uint8_t* buf,
+// Static data read callback for nghttp2 (response body - for server mode)
+static ssize_t data_read_callback(nghttp2_session* /*session*/, int32_t stream_id, uint8_t* buf,
                                   size_t length, uint32_t* data_flags, nghttp2_data_source* source,
                                   void* /*user_data*/) {
     auto* stream = static_cast<http::H2Stream*>(source->ptr);
@@ -171,7 +237,13 @@ static ssize_t data_read_callback(nghttp2_session* /*session*/, int32_t /*stream
     size_t remaining = stream->response_body.size() - stream->response_body_offset;
     if (remaining == 0) {
         // All data has been sent
-        *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+        // CRITICAL: If trailers exist, return DEFERRED instead of EOF
+        // This tells nghttp2 to stop calling the data callback and wait for submit_trailers()
+        if (!stream->trailers.empty()) {
+            return NGHTTP2_ERR_DEFERRED;  // Stop data callback, trailers will be submitted manually
+        } else {
+            *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+        }
         return 0;
     }
 
@@ -184,8 +256,36 @@ static ssize_t data_read_callback(nghttp2_session* /*session*/, int32_t /*stream
 
     // Only set EOF if ALL data has been sent
     if (stream->response_body_offset >= stream->response_body.size()) {
-        *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+        // CRITICAL: For gRPC, if trailers exist, set NO_END_STREAM instead of EOF
+        // This tells nghttp2 to send DATA frame but keep stream open for trailers
+        if (!stream->trailers.empty()) {
+            *data_flags |= NGHTTP2_DATA_FLAG_NO_END_STREAM;
+        } else {
+            *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+        }
     }
+
+    return static_cast<ssize_t>(to_copy);
+}
+
+// Static data read callback for sending request body to backend (client mode)
+static ssize_t request_data_read_callback(nghttp2_session* /*session*/, int32_t stream_id, uint8_t* buf,
+                                          size_t length, uint32_t* data_flags, nghttp2_data_source* source,
+                                          void* /*user_data*/) {
+    auto* stream = static_cast<http::H2Stream*>(source->ptr);
+
+    if (!stream || stream->request_body.empty()) {
+        *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+        return 0;
+    }
+
+    // For request bodies, we send all data at once (no chunking)
+    // The offset tracking is handled internally
+    size_t to_copy = std::min(length, stream->request_body.size());
+    std::memcpy(buf, stream->request_body.data(), to_copy);
+
+    // Always set EOF for request body (complete in one call)
+    *data_flags |= NGHTTP2_DATA_FLAG_EOF;
 
     return static_cast<ssize_t>(to_copy);
 }
@@ -278,6 +378,38 @@ std::error_code H2Session::submit_response(int32_t stream_id, const Response& re
     return {};
 }
 
+std::error_code H2Session::submit_trailers(int32_t stream_id) {
+    if (!is_server_) {
+        return std::make_error_code(std::errc::operation_not_supported);
+    }
+
+    auto* stream = get_stream(stream_id);
+    if (!stream || stream->trailers.empty()) {
+        return {};  // No trailers to submit
+    }
+
+    // Build nghttp2_nv array from trailers
+    std::vector<nghttp2_nv> trailer_nvs;
+    trailer_nvs.reserve(stream->trailers.size());
+
+    for (const auto& [name, value] : stream->trailers) {
+        trailer_nvs.push_back({
+            const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(name.data())),
+            const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(value.data())),
+            name.size(), value.size(), NGHTTP2_NV_FLAG_NONE
+        });
+    }
+
+    // Submit trailers (nghttp2 will send them as HEADERS frame with END_STREAM)
+    int rv = nghttp2_submit_trailer(session_, stream_id, trailer_nvs.data(), trailer_nvs.size());
+
+    if (rv != 0) {
+        return std::make_error_code(std::errc::protocol_error);
+    }
+
+    return {};
+}
+
 H2Stream* H2Session::get_stream(int32_t stream_id) {
     auto it = streams_.find(stream_id);
     if (it == streams_.end()) {
@@ -356,6 +488,16 @@ int H2Session::on_frame_recv_callback(nghttp2_session* /*session*/, const nghttp
                 // Headers complete
                 auto* stream = self->get_stream(frame->hd.stream_id);
                 if (stream) {
+                    // Check if this is a trailer (HEADERS frame with END_STREAM flag)
+                    if (frame->hd.flags & NGHTTP2_FLAG_END_STREAM) {
+                        // This is a trailer frame (used by gRPC for status codes)
+                        if (stream->is_grpc && !stream->trailers.empty()) {
+                            // Extract gRPC status and message from trailers
+                            stream->grpc_status = extract_grpc_status(stream->trailers);
+                            stream->grpc_message = extract_grpc_message(stream->trailers);
+                        }
+                    }
+
                     if (self->is_server_) {
                         // Request headers received
                         stream->request_complete = (frame->hd.flags & NGHTTP2_FLAG_END_STREAM);
@@ -391,6 +533,11 @@ int H2Session::on_frame_recv_callback(nghttp2_session* /*session*/, const nghttp
     return 0;
 }
 
+int H2Session::on_frame_send_callback(nghttp2_session* /*session*/, const nghttp2_frame* /*frame*/,
+                                      void* /*user_data*/) {
+    return 0;
+}
+
 int H2Session::on_stream_close_callback(nghttp2_session* /*session*/, int32_t stream_id,
                                         uint32_t /*error_code*/, void* user_data) {
     auto* self = static_cast<H2Session*>(user_data);
@@ -404,8 +551,12 @@ int H2Session::on_stream_close_callback(nghttp2_session* /*session*/, int32_t st
             self->stream_close_callback_(stream_id);
         }
 
-        // Then remove closed stream to free memory and allow new streams
-        self->remove_stream(stream_id);
+        // CRITICAL: For client sessions (is_server=false), DO NOT remove the stream yet!
+        // The server code needs to extract the response first, then it will explicitly remove it.
+        // Only server sessions should auto-remove streams to free memory for new requests.
+        if (self->is_server_) {
+            self->remove_stream(stream_id);
+        }
     }
 
     return 0;
@@ -425,6 +576,10 @@ int H2Session::on_header_callback(nghttp2_session* /*session*/, const nghttp2_fr
     std::string_view name_sv(reinterpret_cast<const char*>(name), namelen);
     std::string_view value_sv(reinterpret_cast<const char*>(value), valuelen);
 
+    // Check if this is a trailer (HEADERS frame with END_STREAM flag)
+    // Trailers don't have pseudo-headers (headers starting with ':')
+    bool is_trailer = (frame->hd.flags & NGHTTP2_FLAG_END_STREAM) && (name_sv[0] != ':');
+
     if (self->is_server_) {
         // Parsing request headers
         if (name_sv == ":method") {
@@ -434,25 +589,80 @@ int H2Session::on_header_callback(nghttp2_session* /*session*/, const nghttp2_fr
             stream.path_storage = std::string(value_sv);
             stream.request.path = stream.path_storage;
             stream.request.uri = stream.path_storage;  // For HTTP/2, uri = path
+
+            // Parse gRPC method name if this is a gRPC request
+            // Note: We may not know if it's gRPC yet (content-type header not seen)
+            // So we parse opportunistically and validate with content-type later
+            auto grpc_meta = parse_grpc_path(value_sv);
+            if (grpc_meta) {
+                stream.grpc_metadata = std::move(grpc_meta);
+            }
         } else if (name_sv == ":scheme") {
             // Store scheme if needed
+        } else if (name_sv == "content-type") {
+            // Detect gRPC requests
+            if (is_grpc_request(value_sv)) {
+                stream.is_grpc = true;
+                if (stream.grpc_metadata) {
+                    stream.grpc_metadata->is_grpc_web = is_grpc_web_request(value_sv);
+                }
+            }
+            // Store content-type header (or trailer if END_STREAM)
+            if (is_trailer) {
+                stream.trailers.emplace_back(std::string(name_sv), std::string(value_sv));
+            } else {
+                stream.request_header_storage.emplace_back(std::string(name_sv),
+                                                           std::string(value_sv));
+                const auto& [owned_name, owned_value] = stream.request_header_storage.back();
+                stream.request.headers.push_back(Header{owned_name, owned_value});
+            }
         } else if (name_sv[0] != ':') {
-            // Regular header - store in owned storage first, then create views
-            stream.request_header_storage.emplace_back(std::string(name_sv), std::string(value_sv));
-            const auto& [owned_name, owned_value] = stream.request_header_storage.back();
-            stream.request.headers.push_back(Header{owned_name, owned_value});
+            // Regular header or trailer
+            if (is_trailer) {
+                // Store trailer
+                stream.trailers.emplace_back(std::string(name_sv), std::string(value_sv));
+            } else {
+                // Regular header - store in owned storage first, then create views
+                stream.request_header_storage.emplace_back(std::string(name_sv),
+                                                           std::string(value_sv));
+                const auto& [owned_name, owned_value] = stream.request_header_storage.back();
+                stream.request.headers.push_back(Header{owned_name, owned_value});
+            }
         }
     } else {
         // Parsing response headers
         if (name_sv == ":status") {
             int status_code = std::stoi(std::string(value_sv));
             stream.response.status = static_cast<StatusCode>(status_code);
+        } else if (name_sv == "content-type") {
+            // Detect gRPC responses
+            if (is_grpc_request(value_sv)) {
+                stream.is_grpc = true;
+                if (stream.grpc_metadata) {
+                    stream.grpc_metadata->is_grpc_web = is_grpc_web_request(value_sv);
+                }
+            }
+            // Store content-type header (or trailer if END_STREAM)
+            if (is_trailer) {
+                stream.trailers.emplace_back(std::string(name_sv), std::string(value_sv));
+            } else {
+                stream.response_header_storage.emplace_back(std::string(name_sv),
+                                                            std::string(value_sv));
+                const auto& [owned_name, owned_value] = stream.response_header_storage.back();
+                stream.response.headers.push_back(Header{owned_name, owned_value});
+            }
         } else if (name_sv[0] != ':') {
-            // Regular header - store in owned storage first, then create views
-            stream.response_header_storage.emplace_back(std::string(name_sv),
-                                                        std::string(value_sv));
-            const auto& [owned_name, owned_value] = stream.response_header_storage.back();
-            stream.response.headers.push_back(Header{owned_name, owned_value});
+            // Regular header or trailer
+            if (is_trailer) {
+                // Store trailer (gRPC uses trailers for status codes)
+                stream.trailers.emplace_back(std::string(name_sv), std::string(value_sv));
+            } else {
+                // Regular header - store in owned storage first, then create views
+                stream.response_header_storage.emplace_back(std::string(name_sv),
+                                                            std::string(value_sv));
+                const auto& [owned_name, owned_value] = stream.response_header_storage.back();
+                stream.response.headers.push_back(Header{owned_name, owned_value});
+            }
         }
     }
 

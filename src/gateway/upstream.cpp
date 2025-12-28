@@ -133,10 +133,11 @@ Backend* WeightedRoundRobinBalancer::select(const std::vector<Backend>& backends
 
 // Upstream implementation
 
-Upstream::Upstream(std::string name, size_t backend_pool_size)
+Upstream::Upstream(std::string name, size_t backend_pool_size,
+                   std::chrono::seconds pool_idle_timeout, size_t pool_max_requests_per_conn)
     : name_(std::move(name)),
       balancer_(std::make_unique<RoundRobinBalancer>()),
-      backend_pool_(backend_pool_size) {}
+      backend_pool_(backend_pool_size, pool_idle_timeout, pool_max_requests_per_conn) {}
 
 Upstream::~Upstream() = default;
 
@@ -180,6 +181,49 @@ Upstream::Stats Upstream::get_stats() const {
     }
 
     return stats;
+}
+
+// Persistent HTTP/2 connection management (for multiplexing)
+
+PersistentH2Connection* Upstream::get_h2_connection(const std::string& host, uint16_t port) {
+    std::string key = host + ":" + std::to_string(port);
+    auto it = h2_connections_.find(key);
+    if (it != h2_connections_.end() && !it->second->is_broken) {
+        return it->second.get();  // Return existing healthy persistent connection
+    }
+    return nullptr;  // No healthy persistent connection exists
+}
+
+PersistentH2Connection* Upstream::create_h2_connection(const std::string& host, uint16_t port,
+                                                        int fd) {
+    std::string key = host + ":" + std::to_string(port);
+
+    // Create new persistent connection with H2Session
+    auto conn = std::make_unique<PersistentH2Connection>();
+    conn->fd = fd;
+    conn->host = host;
+    conn->port = port;
+    conn->h2_session = std::make_unique<http::H2Session>(false);  // Client mode
+    conn->preface_sent = false;
+    conn->settings_ack_sent = false;
+    conn->is_broken = false;
+
+    // Store and return pointer
+    auto* ptr = conn.get();
+    h2_connections_[key] = std::move(conn);
+    return ptr;
+}
+
+void Upstream::remove_h2_connection(const std::string& host, uint16_t port) {
+    std::string key = host + ":" + std::to_string(port);
+
+    // Close FD before erasing
+    auto it = h2_connections_.find(key);
+    if (it != h2_connections_.end() && it->second->fd >= 0) {
+        close(it->second->fd);
+    }
+
+    h2_connections_.erase(key);  // Remove broken connection
 }
 
 // UpstreamManager implementation

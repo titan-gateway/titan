@@ -35,6 +35,8 @@
 #include "../gateway/upstream.hpp"
 #include "../http/h2.hpp"
 #include "../http/parser.hpp"
+#include "backend_proxy_service.hpp"
+#include "connection_manager.hpp"
 #include "containers.hpp"
 #include "core.hpp"
 #include "socket.hpp"
@@ -88,6 +90,20 @@ struct BackendConnection {
     std::string owned_path;      // Owned path string (request.path points here)
     std::string owned_uri;       // Owned URI string (request.uri points here)
     std::string owned_query;     // Owned query string (request.query points here)
+
+    // HTTP/2 backend support (for gRPC proxying)
+    bool is_http2 = false;                      // Backend uses HTTP/2
+    std::unique_ptr<http::H2Session> h2_session;  // Backend HTTP/2 session (client role)
+    int32_t backend_stream_id = -1;             // Stream ID on backend connection
+    bool preface_sent = false;                  // HTTP/2 preface sent to backend
+    bool settings_ack_sent = false;             // HTTP/2 SETTINGS ACK sent (handshake complete)
+
+    // HTTP/2 multiplexing: Reference to persistent connection (non-owning)
+    // If set, use this persistent connection's H2Session instead of creating a new one
+    gateway::PersistentH2Connection* persistent_h2_conn = nullptr;
+
+    // gRPC trailer storage (copied from backend stream for forwarding to client)
+    std::vector<std::pair<std::string, std::string>> trailers;
 };
 
 /// Active client connection
@@ -160,7 +176,15 @@ public:
     }
 
     /// Set logger for this worker
-    void set_logger(quill::Logger* logger) noexcept { logger_ = logger; }
+    void set_logger(quill::Logger* logger) noexcept {
+        logger_ = logger;
+        if (connection_manager_) {
+            connection_manager_->set_logger(logger);
+        }
+        if (backend_proxy_) {
+            backend_proxy_->set_logger(logger);
+        }
+    }
 
     /// Process incoming connection
     void handle_accept(int client_fd, std::string_view remote_ip, uint16_t remote_port);
@@ -173,19 +197,13 @@ public:
 
     /// Backend event handling (dual epoll pattern)
     /// Returns backend epoll fd for worker to monitor
-    [[nodiscard]] int backend_epoll_fd() const noexcept { return backend_epoll_fd_; }
+    [[nodiscard]] int backend_epoll_fd() const noexcept { return backend_proxy_->backend_epoll_fd(); }
 
     /// Process backend connection event (called by worker when backend epoll fires)
     void handle_backend_event(int backend_fd, bool readable, bool writable, bool error);
 
     /// Process pending backend operations (connect, send, recv)
     void process_backend_operations();
-
-    /// Add backend socket to backend epoll for monitoring
-    [[nodiscard]] bool add_backend_to_epoll(int backend_fd, uint32_t events);
-
-    /// Remove backend socket from backend epoll
-    [[nodiscard]] bool remove_backend_from_epoll(int backend_fd);
 
 private:
     const control::Config& config_;
@@ -198,22 +216,11 @@ private:
 
     quill::Logger* logger_ = nullptr;
 
-    // TLS support
-    std::optional<TlsContext> tls_context_;
-    titan::core::fast_map<int, SslPtr> ssl_connections_;  // fd -> SSL object mapping
+    // Connection management (TLS + lifecycle)
+    std::unique_ptr<ConnectionManager> connection_manager_;
 
-    titan::core::fast_map<int, std::unique_ptr<Connection>> connections_;
-
-    // DNS resolution cache (hostname -> resolved address)
-    // Cache is never invalidated for simplicity (MVP)
-    // TODO: Add TTL-based expiration for production
-    titan::core::fast_map<std::string, sockaddr_in> dns_cache_;
-
-    // Dual epoll for non-blocking backend I/O
-    int backend_epoll_fd_ = -1;  // Separate epoll instance for backend sockets
-    // Map backend_fd -> (client_fd, stream_id) to avoid storing dangling raw pointers
-    // stream_id = -1 for HTTP/1.1, >= 0 for HTTP/2 streams
-    titan::core::fast_map<int, std::pair<int, int32_t>> backend_connections_;
+    // Backend proxy service (DNS, epoll, connection tracking)
+    std::unique_ptr<BackendProxyService> backend_proxy_;
 
     /// Process request and send response
     /// returns false if connection was/should be closed
@@ -232,12 +239,15 @@ private:
     /// Proxy request to backend using context (for middleware integration)
     bool proxy_to_backend(Connection& conn, gateway::RequestContext& ctx);
 
-    /// Connect to backend server (blocking - legacy)
-    [[nodiscard]] int connect_to_backend(const std::string& host, uint16_t port);
+    /// Connect to backend server (blocking - delegated to BackendProxyService)
+    [[nodiscard]] int connect_to_backend(const std::string& host, uint16_t port) {
+        return backend_proxy_->connect_to_backend(host, port);
+    }
 
-    /// Connect to backend server (non-blocking for async proxy)
-    /// Returns socket fd in connecting state, or -1 on immediate failure
-    [[nodiscard]] int connect_to_backend_async(const std::string& host, uint16_t port);
+    /// Connect to backend server (non-blocking - delegated to BackendProxyService)
+    [[nodiscard]] int connect_to_backend_async(const std::string& host, uint16_t port) {
+        return backend_proxy_->connect_to_backend_async(host, port);
+    }
 
     /// Build HTTP request string to send to backend
     std::string build_backend_request(

@@ -8,6 +8,10 @@ add_library(titan_lib
   core/socket.cpp
   core/tls.hpp
   core/tls.cpp
+  core/connection_manager.hpp
+  core/connection_manager.cpp
+  core/backend_proxy_service.hpp
+  core/backend_proxy_service.cpp
   core/server.hpp
   core/server.cpp
   core/admin_server.hpp
@@ -28,6 +32,8 @@ add_library(titan_lib
   http/parser.cpp
   http/h2.hpp
   http/h2.cpp
+  http/grpc.hpp
+  http/grpc.cpp
   http/regex.hpp
   http/regex.cpp
   http/websocket.hpp
