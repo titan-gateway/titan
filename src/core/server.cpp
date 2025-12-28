@@ -725,16 +725,6 @@ bool Server::proxy_to_backend(Connection& conn, gateway::RequestContext& ctx) {
         needs_http2 = true;
     }
 
-    {
-        FILE* log_file = fopen("/tmp/titan_grpc_debug.log", "a");
-        if (log_file) {
-            fprintf(log_file, "[GRPC_DEBUG] Request for %s:%d - needs_http2=%d\n",
-                    backend.host.c_str(), backend.port, needs_http2);
-            fflush(log_file);
-            fclose(log_file);
-        }
-    }
-
     // Store timing and metadata for response middleware
     conn.backend_conn->start_time = ctx.start_time;
     conn.backend_conn->metadata = std::move(ctx.metadata);  // This empties ctx.metadata!
@@ -823,15 +813,6 @@ bool Server::proxy_to_backend(Connection& conn, gateway::RequestContext& ctx) {
     }
 
     // Build request based on backend protocol
-    {
-        FILE* log_file = fopen("/tmp/titan_grpc_debug.log", "a");
-        if (log_file) {
-            fprintf(log_file, "[GRPC_DEBUG] Using backend connection fd=%d with is_http2=%d\n",
-                    conn.backend_conn->backend_fd, conn.backend_conn->is_http2);
-            fflush(log_file);
-            fclose(log_file);
-        }
-    }
     if (conn.backend_conn->is_http2) {
         // HTTP/2 backend: Will send preface + HEADERS frame
         // Don't build HTTP/1.1 request string
