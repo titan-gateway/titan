@@ -32,6 +32,13 @@
 
 namespace titan::control {
 
+// Platform-specific defaults
+#ifdef __linux__
+constexpr uint32_t DEFAULT_LISTEN_BACKLOG = 4096;  // Linux 5.4+ kernel default (net.core.somaxconn)
+#else
+constexpr uint32_t DEFAULT_LISTEN_BACKLOG = 128;   // macOS/BSD default (kern.ipc.somaxconn)
+#endif
+
 // Security limits for configuration validation (DoS prevention)
 constexpr size_t MAX_MIDDLEWARE_NAME_LENGTH = 64;   // Max middleware name length
 constexpr size_t MAX_MIDDLEWARE_CHAIN_LENGTH = 20;  // Max middleware per route
@@ -100,7 +107,7 @@ struct ServerConfig {
     // Network settings
     std::string listen_address = "0.0.0.0";
     uint16_t listen_port = 8080;
-    uint32_t backlog = 128;
+    uint32_t backlog = DEFAULT_LISTEN_BACKLOG;
 
     // Timeouts (milliseconds)
     uint32_t read_timeout = 60000;  // 60 seconds
@@ -498,7 +505,7 @@ inline void from_json(const nlohmann::json& j, ServerConfig& s) {
     s.worker_threads = j.value("worker_threads", 0u);
     s.listen_address = j.value("listen_address", std::string("0.0.0.0"));
     s.listen_port = j.value("listen_port", uint16_t(8080));
-    s.backlog = j.value("backlog", 128u);
+    s.backlog = j.value("backlog", DEFAULT_LISTEN_BACKLOG);
     s.read_timeout = j.value("read_timeout", 60000u);
     s.write_timeout = j.value("write_timeout", 60000u);
     s.idle_timeout = j.value("idle_timeout", 300000u);
