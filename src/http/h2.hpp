@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "../core/containers.hpp"
+#include "grpc.hpp"
 #include "http.hpp"
 
 namespace titan::http {
@@ -82,6 +83,13 @@ struct H2Stream {
     bool request_complete = false;
     bool response_complete = false;
     bool response_submitted = false;  // Prevent duplicate nghttp2_submit_response calls
+
+    // gRPC-specific fields
+    bool is_grpc = false;  // true if this is a gRPC request (application/grpc*)
+    std::optional<GrpcMetadata> grpc_metadata;  // Service and method name
+    std::optional<uint32_t> grpc_status;        // grpc-status from trailers
+    std::string grpc_message;                   // grpc-message from trailers
+    std::vector<std::pair<std::string, std::string>> trailers;  // HTTP/2 trailers storage
 };
 
 /// HTTP/2 session managing multiple streams over a single connection
@@ -115,6 +123,10 @@ public:
     /// Submit response (server mode)
     [[nodiscard]] std::error_code submit_response(int32_t stream_id, const Response& response);
 
+    /// Submit trailers for a stream (server mode, must be called AFTER send_data())
+    /// This must be called after the DATA frame has been sent via send_data()
+    [[nodiscard]] std::error_code submit_trailers(int32_t stream_id);
+
     /// Get stream by ID
     [[nodiscard]] H2Stream* get_stream(int32_t stream_id);
 
@@ -147,6 +159,9 @@ private:
                                  int flags, void* user_data);
 
     static int on_frame_recv_callback(nghttp2_session* session, const nghttp2_frame* frame,
+                                      void* user_data);
+
+    static int on_frame_send_callback(nghttp2_session* session, const nghttp2_frame* frame,
                                       void* user_data);
 
     static int on_stream_close_callback(nghttp2_session* session, int32_t stream_id,

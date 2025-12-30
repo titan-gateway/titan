@@ -60,8 +60,9 @@ bool PooledConnection::is_healthy() const noexcept {
     }
 }
 
-BackendConnectionPool::BackendConnectionPool(size_t max_size, std::chrono::seconds max_idle)
-    : max_size_(max_size), max_idle_(max_idle) {
+BackendConnectionPool::BackendConnectionPool(size_t max_size, std::chrono::seconds max_idle,
+                                             size_t max_requests_per_conn)
+    : max_size_(max_size), max_idle_(max_idle), max_requests_per_conn_(max_requests_per_conn) {
     pool_.reserve(max_size);
 }
 
@@ -69,14 +70,28 @@ BackendConnectionPool::~BackendConnectionPool() {
     clear();
 }
 
-int BackendConnectionPool::acquire(const std::string& host, uint16_t port) {
+int BackendConnectionPool::acquire(const std::string& host, uint16_t port, bool require_http2) {
     // Search pool from back to front (LIFO - most recently used first)
     for (auto it = pool_.rbegin(); it != pool_.rend(); ++it) {
-        if (it->host == host && it->port == port) {
+        // CRITICAL: Match host, port, AND protocol (HTTP/2 vs HTTP/1.1)
+        // This prevents returning HTTP/1.1 connections for gRPC requests
+        if (it->host == host && it->port == port && it->is_http2 == require_http2) {
+            int fd = it->fd;
+
+            // Check if connection needs recycling (served too many requests)
+            size_t request_count = fd_request_counts_[fd];
+            if (max_requests_per_conn_ > 0 && request_count >= max_requests_per_conn_) {
+                // Recycle - close and remove from pool
+                close_fd(fd);
+                fd_request_counts_.erase(fd);
+                pool_.erase(std::next(it).base());
+                ++evictions_;
+                // Continue searching for another connection
+                continue;
+            }
+
             // Found matching connection - check if healthy
             if (it->is_healthy()) {
-                int fd = it->fd;
-
                 // Remove from pool (convert reverse iterator to forward iterator)
                 pool_.erase(std::next(it).base());
 
@@ -84,7 +99,8 @@ int BackendConnectionPool::acquire(const std::string& host, uint16_t port) {
                 return fd;
             } else {
                 // Unhealthy - close and remove
-                close_fd(it->fd);
+                close_fd(fd);
+                fd_request_counts_.erase(fd);
                 pool_.erase(std::next(it).base());
                 ++health_fails_;
                 // Continue searching
@@ -97,14 +113,27 @@ int BackendConnectionPool::acquire(const std::string& host, uint16_t port) {
     return -1;
 }
 
-void BackendConnectionPool::release(int fd, const std::string& host, uint16_t port) {
+void BackendConnectionPool::release(int fd, const std::string& host, uint16_t port, bool is_http2) {
     if (fd < 0)
         return;
+
+    // Increment request count for this FD
+    fd_request_counts_[fd]++;
+
+    // Check if connection needs recycling after this request
+    if (max_requests_per_conn_ > 0 && fd_request_counts_[fd] >= max_requests_per_conn_) {
+        // Recycle - close connection instead of pooling
+        close_fd(fd);
+        fd_request_counts_.erase(fd);
+        ++evictions_;
+        return;
+    }
 
     // Check if pool is full
     if (pool_.size() >= max_size_) {
         // Pool full - close connection
         close_fd(fd);
+        fd_request_counts_.erase(fd);
         ++pool_full_closes_;
         return;
     }
@@ -114,11 +143,14 @@ void BackendConnectionPool::release(int fd, const std::string& host, uint16_t po
     conn.fd = fd;
     conn.host = host;
     conn.port = port;
+    conn.is_http2 = is_http2;  // CRITICAL: Store protocol for correct matching
     conn.last_used = std::chrono::steady_clock::now();
+    conn.request_count = fd_request_counts_[fd];  // Store current count for debugging
 
     if (!conn.is_healthy()) {
         // Unhealthy - close instead of pooling
         close_fd(fd);
+        fd_request_counts_.erase(fd);
         ++health_fails_;
         return;
     }
@@ -135,6 +167,7 @@ void BackendConnectionPool::cleanup_stale() {
                                [this, now](const PooledConnection& conn) {
                                    if (conn.is_stale(max_idle_)) {
                                        close_fd(conn.fd);
+                                       fd_request_counts_.erase(conn.fd);  // Clean up request count
                                        return true;  // Remove from pool
                                    }
                                    return false;
@@ -150,6 +183,7 @@ void BackendConnectionPool::clear() {
         }
     }
     pool_.clear();
+    fd_request_counts_.clear();  // Clear request count tracking
 }
 
 void BackendConnectionPool::log_stats() const {
@@ -166,9 +200,9 @@ void BackendConnectionPool::log_stats() const {
 
     LOG_INFO(logger,
              "[POOL] Stats: size={}/{}, hits={}, misses={}, hit_rate={:.2f}%, "
-             "health_fails={}, pool_full_closes={}",
+             "health_fails={}, pool_full_closes={}, evictions={}, max_requests_per_conn={}",
              pool_.size(), max_size_, hits_, misses_, hit_rate() * 100.0, health_fails_,
-             pool_full_closes_);
+             pool_full_closes_, evictions_, max_requests_per_conn_);
 }
 
 }  // namespace titan::gateway

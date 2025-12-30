@@ -92,13 +92,13 @@ std::unique_ptr<UpstreamManager> build_upstream_manager(const control::Config& c
 
     // Build upstreams from config
     for (const auto& upstream_config : config.upstreams) {
-        // Calculate pool size as max of all backend max_connections
-        size_t pool_size = 64;  // Default
-        for (const auto& backend_config : upstream_config.backends) {
-            pool_size = std::max(pool_size, static_cast<size_t>(backend_config.max_connections));
-        }
+        // Use pool configuration from config (defaults: pool_size=100, idle_timeout=60s, max_requests=0)
+        size_t pool_size = upstream_config.pool_size;
+        auto pool_idle_timeout = std::chrono::seconds(upstream_config.pool_idle_timeout_seconds);
+        size_t pool_max_requests_per_conn = upstream_config.pool_max_requests_per_conn;
 
-        auto upstream = std::make_unique<Upstream>(upstream_config.name, pool_size);
+        auto upstream = std::make_unique<Upstream>(upstream_config.name, pool_size,
+                                                     pool_idle_timeout, pool_max_requests_per_conn);
 
         for (const auto& backend_config : upstream_config.backends) {
             Backend backend;

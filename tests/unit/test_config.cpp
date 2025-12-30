@@ -307,7 +307,7 @@ TEST_CASE("Config with all fields", "[control][config]") {
                 "max_retries": 3,
                 "retry_timeout": 2000,
                 "pool_size": 200,
-                "pool_idle_timeout": 90,
+                "pool_idle_timeout_seconds": 90,
                 "backends": [
                     {
                         "host": "api.example.com",

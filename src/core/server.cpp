@@ -31,6 +31,7 @@
 #include <unordered_set>
 
 #include "../http/websocket.hpp"
+#include "../http/grpc.hpp"
 #include "logging.hpp"
 #include "socket.hpp"
 
@@ -67,7 +68,8 @@ Server::Server(const control::Config& config, std::unique_ptr<gateway::Router> r
       router_(std::move(router)),
       upstream_manager_(std::move(upstream_manager)),
       pipeline_(std::move(pipeline)) {
-    // Initialize TLS if enabled
+    // Initialize TLS context if enabled
+    std::optional<TlsContext> tls_context;
     if (config_.server.tls_enabled) {
         std::error_code error;
         auto result = TlsContext::create(config_.server.tls_certificate_path,
@@ -75,34 +77,22 @@ Server::Server(const control::Config& config, std::unique_ptr<gateway::Router> r
                                          config_.server.tls_alpn_protocols, error);
 
         if (result) {
-            tls_context_ = std::move(*result);
+            tls_context = std::move(*result);
         } else {
             throw std::runtime_error("Failed to initialize TLS context: " + error.message());
         }
     }
 
-    // Create backend epoll/kqueue instance for non-blocking backend I/O
-#ifdef __linux__
-    backend_epoll_fd_ = epoll_create1(0);
-    if (backend_epoll_fd_ < 0) {
-        throw std::runtime_error("Failed to create backend epoll instance");
-    }
-#elif defined(__APPLE__) || defined(__FreeBSD__)
-    backend_epoll_fd_ = kqueue();
-    if (backend_epoll_fd_ < 0) {
-        throw std::runtime_error("Failed to create backend kqueue instance");
-    }
-#endif
+    // Create connection manager with TLS support
+    connection_manager_ = std::make_unique<ConnectionManager>(std::move(tls_context), nullptr);
+
+    // Create backend proxy service
+    backend_proxy_ = std::make_unique<BackendProxyService>();
 }
 
 Server::~Server() {
     stop();
-
-    // Close backend epoll/kqueue instance
-    if (backend_epoll_fd_ >= 0) {
-        close_fd(backend_epoll_fd_);
-        backend_epoll_fd_ = -1;
-    }
+    // BackendProxyService and ConnectionManager handle their own cleanup
 }
 
 std::error_code Server::start() {
@@ -138,11 +128,8 @@ void Server::stop() {
 
     running_ = false;
 
-    // Close all client connections
-    for (auto& [fd, conn] : connections_) {
-        close_fd(conn->fd);
-    }
-    connections_.clear();
+    // ConnectionManager will clean up all client connections in its destructor
+    // (closes SSL, backend connections, and client sockets)
 
     // Close listening socket
     if (listen_fd_ >= 0) {
@@ -152,53 +139,41 @@ void Server::stop() {
 }
 
 void Server::handle_accept(int client_fd, std::string_view remote_ip, uint16_t remote_port) {
-    auto conn = std::make_unique<Connection>();
-    conn->fd = client_fd;
-    conn->remote_ip = remote_ip;
-    conn->remote_port = remote_port;
-    conn->recv_buffer.reserve(8192);
-
-    // Create SSL object if TLS is enabled
-    if (tls_context_) {
-        auto ssl = tls_context_->create_ssl(client_fd);
-        if (ssl) {
-            conn->ssl = ssl.get();
-            conn->tls_enabled = true;
-            ssl_connections_[client_fd] = std::move(ssl);
-        } else {
-            // Failed to create SSL object - close connection
-            close_fd(client_fd);
-            return;
-        }
-    }
-
-    connections_[client_fd] = std::move(conn);
-}
-
-void Server::handle_read(int client_fd) {
-    auto it = connections_.find(client_fd);
-    if (it == connections_.end()) {
+    // Delegate to ConnectionManager (owns the Connection object)
+    Connection* conn = connection_manager_->accept(client_fd, remote_ip, remote_port);
+    if (!conn) {
+        // Failed to accept connection (e.g., TLS initialization failed)
+        LOG_ERROR(logger_, "Failed to accept connection on fd={}", client_fd);
         return;
     }
 
-    Connection& conn = *it->second;
+    LOG_DEBUG(logger_, "Accepted connection fd={} from {}:{}", client_fd, remote_ip, remote_port);
+}
+
+void Server::handle_read(int client_fd) {
+    Connection* conn = connection_manager_->get(client_fd);
+    if (!conn) {
+        return;
+    }
+
+    Connection& conn_ref = *conn;
 
     // TLS handshake if enabled and not yet complete
-    if (conn.tls_enabled && !conn.tls_handshake_complete) {
-        auto result = ssl_accept_nonblocking(conn.ssl);
+    if (conn_ref.tls_enabled && !conn_ref.tls_handshake_complete) {
+        auto result = ssl_accept_nonblocking(conn_ref.ssl);
 
         if (result == TlsHandshakeResult::Complete) {
-            conn.tls_handshake_complete = true;
+            conn_ref.tls_handshake_complete = true;
 
             // Get negotiated protocol from ALPN
-            auto alpn_protocol = get_alpn_protocol(conn.ssl);
+            auto alpn_protocol = get_alpn_protocol(conn_ref.ssl);
 
             if (alpn_protocol == "h2") {
-                conn.protocol = Protocol::HTTP_2;
-                conn.h2_session = std::make_unique<http::H2Session>(true);  // server mode
+                conn_ref.protocol = Protocol::HTTP_2;
+                conn_ref.h2_session = std::make_unique<http::H2Session>(true);  // server mode
             } else {
                 // Default to HTTP/1.1 (even if ALPN selected "http/1.1" or no ALPN)
-                conn.protocol = Protocol::HTTP_1_1;
+                conn_ref.protocol = Protocol::HTTP_1_1;
             }
         } else if (result == TlsHandshakeResult::WantRead ||
                    result == TlsHandshakeResult::WantWrite) {
@@ -212,8 +187,8 @@ void Server::handle_read(int client_fd) {
     }
 
     // WebSocket connections handle their own reading (avoid double-read bug)
-    if (conn.protocol == Protocol::WEBSOCKET) {
-        handle_websocket_frame(conn);
+    if (conn_ref.protocol == Protocol::WEBSOCKET) {
+        handle_websocket_frame(conn_ref);
         return;
     }
 
@@ -221,24 +196,24 @@ void Server::handle_read(int client_fd) {
     uint8_t buffer[8192];
     ssize_t n;
 
-    if (conn.tls_enabled) {
+    if (conn_ref.tls_enabled) {
         // TLS read - drain ALL data until WANT_READ (critical for HTTP/2 multiplexing +
         // edge-triggered epoll) With edge-triggered epoll, we MUST read until WANT_READ or we won't
         // get notified again
         while (true) {
-            n = ssl_read_nonblocking(conn.ssl, buffer);
+            n = ssl_read_nonblocking(conn_ref.ssl, buffer);
 
             if (n > 0) {
                 // Append to buffer
-                conn.recv_buffer.insert(conn.recv_buffer.end(), buffer, buffer + n);
+                conn_ref.recv_buffer.insert(conn_ref.recv_buffer.end(), buffer, buffer + n);
                 // Continue reading - there might be more data
             } else {
-                int err = SSL_get_error(conn.ssl, n);
+                int err = SSL_get_error(conn_ref.ssl, n);
                 if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
                     // Would block - but if HTTP/2, send SETTINGS first (edge-triggered epoll fix)
-                    if (conn.recv_buffer.empty() && conn.protocol == Protocol::HTTP_2 &&
-                        conn.h2_session) {
-                        handle_http2(conn);  // Send SETTINGS with empty buffer
+                    if (conn_ref.recv_buffer.empty() && conn_ref.protocol == Protocol::HTTP_2 &&
+                        conn_ref.h2_session) {
+                        handle_http2(conn_ref);  // Send SETTINGS with empty buffer
                     }
                     break;  // No more data available, exit loop
                 }
@@ -249,7 +224,7 @@ void Server::handle_read(int client_fd) {
         }
 
         // If we read nothing, return
-        if (conn.recv_buffer.empty()) {
+        if (conn_ref.recv_buffer.empty()) {
             return;
         }
     } else {
@@ -263,28 +238,28 @@ void Server::handle_read(int client_fd) {
         }
 
         // Append to buffer
-        conn.recv_buffer.insert(conn.recv_buffer.end(), buffer, buffer + n);
+        conn_ref.recv_buffer.insert(conn_ref.recv_buffer.end(), buffer, buffer + n);
     }
 
     // Detect protocol on first data (for cleartext connections)
-    if (!conn.tls_enabled && conn.protocol == Protocol::Unknown) {
-        if (http::is_http2_connection(conn.recv_buffer)) {
+    if (!conn_ref.tls_enabled && conn_ref.protocol == Protocol::Unknown) {
+        if (http::is_http2_connection(conn_ref.recv_buffer)) {
             // HTTP/2 connection (h2c with prior knowledge)
-            conn.protocol = Protocol::HTTP_2;
-            conn.h2_session = std::make_unique<http::H2Session>(true);  // server mode
+            conn_ref.protocol = Protocol::HTTP_2;
+            conn_ref.h2_session = std::make_unique<http::H2Session>(true);  // server mode
         } else {
             // Assume HTTP/1.1
-            conn.protocol = Protocol::HTTP_1_1;
+            conn_ref.protocol = Protocol::HTTP_1_1;
         }
     }
 
     // Route to appropriate handler
-    if (conn.protocol == Protocol::HTTP_2) {
-        handle_http2(conn);
-    } else if (conn.protocol == Protocol::WEBSOCKET) {
-        handle_websocket_frame(conn);
+    if (conn_ref.protocol == Protocol::HTTP_2) {
+        handle_http2(conn_ref);
+    } else if (conn_ref.protocol == Protocol::WEBSOCKET) {
+        handle_websocket_frame(conn_ref);
     } else {
-        handle_http1(conn);
+        handle_http1(conn_ref);
     }
 }
 
@@ -479,6 +454,9 @@ void Server::process_http2_stream(Connection& conn, http::H2Stream& stream) {
         // Copy stream.request to conn.request for proxy_to_backend (HTTP/1.1 compatibility)
         conn.request = stream.request;
 
+        // Pass gRPC flag to proxy layer (for HTTP/2 backend selection)
+        ctx.metadata["is_grpc"] = stream.is_grpc ? "true" : "false";
+
         bool proxy_initiated = proxy_to_backend(conn, ctx);
 
         if (proxy_initiated && conn.backend_conn) {
@@ -490,7 +468,7 @@ void Server::process_http2_stream(Connection& conn, http::H2Stream& stream) {
             conn.h2_stream_backends[stream.stream_id] = std::move(stream_backend);
 
             // CRITICAL: Update backend_connections_ map with (client_fd, stream_id)
-            backend_connections_[backend_fd] = {conn.fd, stream.stream_id};
+            backend_proxy_->register_backend_connection(backend_fd, conn.fd, stream.stream_id);
 
             // Don't submit response yet - will be done in handle_backend_event()
             return;
@@ -511,88 +489,38 @@ void Server::process_http2_stream(Connection& conn, http::H2Stream& stream) {
 }
 
 void Server::handle_close(int client_fd) {
-    auto it = connections_.find(client_fd);
-    if (it == connections_.end()) {
+    // First check if connection exists in ConnectionManager
+    Connection* conn = connection_manager_->get(client_fd);
+    if (!conn) {
         return;
     }
 
-    Connection& conn = *it->second;
+    // Clean up backend connections (WebSocket, HTTP/1.1, HTTP/2 streams)
+    // Note: ConnectionManager->close() will handle SSL and client connection cleanup
 
     // Clean up WebSocket backend connection if exists
-    if (conn.ws_conn && conn.ws_conn->backend_fd >= 0) {
-        int backend_fd = conn.ws_conn->backend_fd;
-
-        // Remove from backend_connections map
-        backend_connections_.erase(backend_fd);
-
-        // Remove from backend epoll
-        if (!remove_backend_from_epoll(backend_fd)) {
-            LOG_WARNING(logger_, "Failed to remove backend_fd={} from epoll", backend_fd);
-        }
-
-        // Close backend socket
-        close_fd(backend_fd);
-
-        conn.ws_conn->backend_fd = -1;
-        conn.ws_conn->state = http::WebSocketState::CLOSED;
-
-        LOG_DEBUG(logger_, "Cleaned up WebSocket backend: backend_fd={}", backend_fd);
+    if (conn->ws_conn && conn->ws_conn->backend_fd >= 0) {
+        int backend_fd = conn->ws_conn->backend_fd;
+        backend_proxy_->unregister_backend_connection(backend_fd);
+        // ConnectionManager will handle backend epoll cleanup
     }
 
     // Clean up backend connection if exists (HTTP/1.1)
-    if (conn.backend_conn) {
-        int backend_fd = conn.backend_conn->backend_fd;
-
-        // Remove from backend_connections map
-        backend_connections_.erase(backend_fd);
-
-        // Remove from backend epoll (if added)
-#ifdef __linux__
-        epoll_ctl(backend_epoll_fd_, EPOLL_CTL_DEL, backend_fd, nullptr);
-#elif defined(__APPLE__) || defined(__FreeBSD__)
-        struct kevent kev;
-        EV_SET(&kev, backend_fd, EVFILT_READ, EV_DELETE, 0, 0, nullptr);
-        kevent(backend_epoll_fd_, &kev, 1, nullptr, 0, nullptr);
-        EV_SET(&kev, backend_fd, EVFILT_WRITE, EV_DELETE, 0, 0, nullptr);
-        kevent(backend_epoll_fd_, &kev, 1, nullptr, 0, nullptr);
-#endif
-
-        // Close backend socket
-        close_fd(backend_fd);
-
-        // Reset will be automatic when Connection is destroyed
+    if (conn->backend_conn) {
+        int backend_fd = conn->backend_conn->backend_fd;
+        backend_proxy_->unregister_backend_connection(backend_fd);
     }
 
-    // HTTP/2 FIX: Clean up all HTTP/2 stream backend connections
-    for (auto& [stream_id, stream_backend] : conn.h2_stream_backends) {
+    // HTTP/2: Clean up all HTTP/2 stream backend connections
+    for (auto& [stream_id, stream_backend] : conn->h2_stream_backends) {
         if (stream_backend) {
             int backend_fd = stream_backend->backend_fd;
-
-            // Remove from backend_connections map
-            backend_connections_.erase(backend_fd);
-
-            // Remove from backend epoll (if added)
-#ifdef __linux__
-            epoll_ctl(backend_epoll_fd_, EPOLL_CTL_DEL, backend_fd, nullptr);
-#elif defined(__APPLE__) || defined(__FreeBSD__)
-            struct kevent kev;
-            EV_SET(&kev, backend_fd, EVFILT_READ, EV_DELETE, 0, 0, nullptr);
-            kevent(backend_epoll_fd_, &kev, 1, nullptr, 0, nullptr);
-            EV_SET(&kev, backend_fd, EVFILT_WRITE, EV_DELETE, 0, 0, nullptr);
-            kevent(backend_epoll_fd_, &kev, 1, nullptr, 0, nullptr);
-#endif
-
-            // Close backend socket
-            close_fd(backend_fd);
+            backend_proxy_->unregister_backend_connection(backend_fd);
         }
     }
-    // Map will be cleared when Connection is destroyed
 
-    // Clean up SSL connection if exists
-    ssl_connections_.erase(client_fd);
-
-    close_fd(it->second->fd);
-    connections_.erase(it);
+    // Delegate connection cleanup to ConnectionManager (handles SSL, socket close, etc.)
+    connection_manager_->close(client_fd, backend_proxy_->backend_epoll_fd());
 }
 
 bool Server::process_request(Connection& conn) {
@@ -790,12 +718,23 @@ bool Server::proxy_to_backend(Connection& conn, gateway::RequestContext& ctx) {
     conn.backend_conn->backend_host = backend.host;
     conn.backend_conn->backend_port = backend.port;
 
+    // CRITICAL: Detect if backend needs HTTP/2 (gRPC) BEFORE moving metadata
+    bool needs_http2 = false;
+    auto it = ctx.metadata.find("is_grpc");
+    if (it != ctx.metadata.end() && it->second == "true") {
+        needs_http2 = true;
+    }
+
     // Store timing and metadata for response middleware
     conn.backend_conn->start_time = ctx.start_time;
-    conn.backend_conn->metadata = std::move(ctx.metadata);
+    conn.backend_conn->metadata = std::move(ctx.metadata);  // This empties ctx.metadata!
     conn.backend_conn->metadata["correlation_id"] = ctx.correlation_id;
     conn.backend_conn->route_match = ctx.route_match;
     conn.backend_conn->header_transforms = std::move(ctx.header_transforms);
+
+    // Set HTTP/2 flag based on current request's needs (gRPC requires HTTP/2)
+    // This tells the request handler what protocol to use for communication
+    conn.backend_conn->is_http2 = needs_http2;
 
     // Preserve request for response middleware (HTTP/1.1 keep-alive safety)
     // conn.request will be overwritten by next pipelined request, so copy it now
@@ -806,7 +745,17 @@ bool Server::proxy_to_backend(Connection& conn, gateway::RequestContext& ctx) {
     conn.backend_conn->owned_query = conn.request.query;
 
     // 2. Copy headers to owned storage
-    conn.backend_conn->request_header_storage = conn.request_header_storage;
+    // For HTTP/2: conn.request.headers are string_views from H2Session → must copy
+    // For HTTP/1.1: conn.request.headers point to conn.request_header_storage (already owned)
+    //               → redundant copy, but needed because conn.request_header_storage will be
+    //                 reused for next pipelined request (keep-alive)
+    // TODO: Optimize HTTP/1.1 case by swapping/moving if not keep-alive
+    conn.backend_conn->request_header_storage.clear();
+    conn.backend_conn->request_header_storage.reserve(conn.request.headers.size());
+    for (const auto& header : conn.request.headers) {
+        conn.backend_conn->request_header_storage.emplace_back(
+            std::string(header.name), std::string(header.value));
+    }
 
     // 3. Copy request struct (copies all fields including string_views)
     conn.backend_conn->preserved_request = conn.request;
@@ -824,36 +773,60 @@ bool Server::proxy_to_backend(Connection& conn, gateway::RequestContext& ctx) {
         conn.backend_conn->preserved_request.headers.push_back({name, value});
     }
 
-    // Try to acquire from pool first
-    conn.backend_conn->backend_fd = upstream->backend_pool().acquire(backend.host, backend.port);
-
-    if (conn.backend_conn->backend_fd < 0) {
-        // Pool empty - initiate non-blocking connect
-        conn.backend_conn->backend_fd = connect_to_backend_async(backend.host, backend.port);
+    // HTTP/2 backends: Each request gets its own connection (simple, reliable)
+    // HTTP/1.1 backends: Use connection pooling (LIFO stack)
+    if (needs_http2) {
+        // Simple approach: Create new HTTP/2 connection for each request
+        // No multiplexing complexity - matches how HTTP/1.1 works
+        conn.backend_conn->backend_fd = backend_proxy_->connect_to_backend_async(backend.host, backend.port);
         if (conn.backend_conn->backend_fd < 0) {
             conn.backend_conn.reset();
             return false;
         }
-        // Mark as needing to connect
-        conn.backend_conn->connect_pending = true;
-    } else {
-        // Acquired from pool - connection is established but removed from epoll
-        conn.backend_conn->connect_pending = false;
 
-        // Reset state from previous request
-        conn.backend_conn->send_cursor = 0;
-        conn.backend_conn->send_buffer.clear();
-        conn.backend_conn->recv_buffer.clear();
-        conn.backend_conn->send_pending = false;
-        conn.backend_conn->recv_pending = false;
+        // Create fresh H2Session for this request
+        conn.backend_conn->h2_session = std::make_unique<http::H2Session>(false);  // Client mode
+        conn.backend_conn->is_http2 = true;
+        conn.backend_conn->connect_pending = true;
+
+    } else {
+        // HTTP/1.1 backend: Use connection pool (existing logic)
+        conn.backend_conn->backend_fd = upstream->backend_pool().acquire(backend.host, backend.port, false);
+
+        if (conn.backend_conn->backend_fd < 0) {
+            // Pool empty - create new connection
+            conn.backend_conn->backend_fd = backend_proxy_->connect_to_backend_async(backend.host, backend.port);
+            if (conn.backend_conn->backend_fd < 0) {
+                conn.backend_conn.reset();
+                return false;
+            }
+            conn.backend_conn->connect_pending = true;
+        } else {
+            // Acquired from pool
+            conn.backend_conn->connect_pending = false;
+
+            // Reset state from previous request
+            conn.backend_conn->send_cursor = 0;
+            conn.backend_conn->send_buffer.clear();
+            conn.backend_conn->recv_buffer.clear();
+            conn.backend_conn->send_pending = false;
+            conn.backend_conn->recv_pending = false;
+        }
     }
 
-    // Build request and store in send buffer (use transformed path/query from metadata if present)
-    std::string request_str = build_backend_request(conn.request, conn.backend_conn->metadata,
-                                                    conn.backend_conn->header_transforms);
-    conn.backend_conn->send_buffer.assign(
-        reinterpret_cast<const uint8_t*>(request_str.data()),
-        reinterpret_cast<const uint8_t*>(request_str.data() + request_str.size()));
+    // Build request based on backend protocol
+    if (conn.backend_conn->is_http2) {
+        // HTTP/2 backend: Will send preface + HEADERS frame
+        // Don't build HTTP/1.1 request string
+        // send_buffer will be populated with HTTP/2 frames in handle_backend_event
+    } else {
+        // HTTP/1.1 backend: Build request string
+        std::string request_str = build_backend_request(conn.request, conn.backend_conn->metadata,
+                                                        conn.backend_conn->header_transforms);
+        conn.backend_conn->send_buffer.assign(
+            reinterpret_cast<const uint8_t*>(request_str.data()),
+            reinterpret_cast<const uint8_t*>(request_str.data() + request_str.size()));
+    }
 
     // Mark as pending send (connect_pending was set above based on pool acquisition)
     conn.backend_conn->send_pending = true;
@@ -861,134 +834,18 @@ bool Server::proxy_to_backend(Connection& conn, gateway::RequestContext& ctx) {
     // Add to backend epoll (both new and pooled connections need this)
     // - New connections: Never been in epoll, need EPOLL_CTL_ADD
     // - Pooled connections: Were removed from epoll when pooled, need EPOLL_CTL_ADD again
-    if (!add_backend_to_epoll(conn.backend_conn->backend_fd, EPOLLOUT | EPOLLIN)) {
+    if (!backend_proxy_->add_backend_to_epoll(conn.backend_conn->backend_fd, EPOLLOUT | EPOLLIN)) {
         close_fd(conn.backend_conn->backend_fd);
         conn.backend_conn.reset();
         return false;
     }
 
     // Register in backend_connections map (client_fd, stream_id=-1 for HTTP/1.1)
-    backend_connections_[conn.backend_conn->backend_fd] = {conn.fd, -1};
+    backend_proxy_->register_backend_connection(conn.backend_conn->backend_fd, conn.fd, -1);
 
     // Return true - request will be handled asynchronously
     // handle_backend_event() will be called when backend socket is ready
     return true;
-}
-
-int Server::connect_to_backend(const std::string& host, uint16_t port) {
-    // Create socket
-    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0) {
-        return -1;
-    }
-
-    // Resolve hostname
-    struct sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-
-    // Try direct IP first (fastest path)
-    if (inet_pton(AF_INET, host.c_str(), &addr.sin_addr) != 1) {
-        // Check DNS cache before doing expensive resolution
-        auto cache_it = dns_cache_.find(host);
-        if (cache_it != dns_cache_.end()) {
-            // Cache hit - reuse resolved address
-            addr = cache_it->second;
-            addr.sin_port = htons(port);  // Port might differ
-        } else {
-            // Cache miss - perform DNS resolution
-            struct addrinfo hints{}, *result = nullptr;
-            hints.ai_family = AF_INET;
-            hints.ai_socktype = SOCK_STREAM;
-
-            if (getaddrinfo(host.c_str(), nullptr, &hints, &result) != 0 || !result) {
-                close_fd(sockfd);
-                return -1;
-            }
-
-            addr = *reinterpret_cast<struct sockaddr_in*>(result->ai_addr);
-            addr.sin_port = htons(port);
-            freeaddrinfo(result);
-
-            // Store in cache for future connections
-            dns_cache_[host] = addr;
-        }
-    }
-
-    // Connect (blocking for MVP - TODO: non-blocking + io_uring)
-    if (connect(sockfd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
-        close_fd(sockfd);
-        return -1;
-    }
-
-    // Enable TCP_NODELAY to reduce latency (disable Nagle's algorithm)
-    // This is critical for API gateway workloads with small messages
-    int flag = 1;
-    setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(int));
-
-    return sockfd;
-}
-
-int Server::connect_to_backend_async(const std::string& host, uint16_t port) {
-    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0) {
-        return -1;
-    }
-
-    // Make socket non-blocking BEFORE connect
-    if (auto ec = set_nonblocking(sockfd); ec) {
-        close_fd(sockfd);
-        return -1;
-    }
-
-    // Enable TCP_NODELAY immediately
-    int flag = 1;
-    setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(int));
-
-    // Resolve address (same as blocking version)
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-
-    // Try direct IP first
-    if (inet_pton(AF_INET, host.c_str(), &addr.sin_addr) != 1) {
-        // Check DNS cache
-        auto cache_it = dns_cache_.find(host);
-        if (cache_it != dns_cache_.end()) {
-            addr = cache_it->second;
-            addr.sin_port = htons(port);
-        } else {
-            // DNS resolution (still blocking for now - TODO: async DNS)
-            struct addrinfo hints{}, *result = nullptr;
-            hints.ai_family = AF_INET;
-            hints.ai_socktype = SOCK_STREAM;
-
-            if (getaddrinfo(host.c_str(), nullptr, &hints, &result) != 0 || !result) {
-                close_fd(sockfd);
-                return -1;
-            }
-
-            addr = *reinterpret_cast<struct sockaddr_in*>(result->ai_addr);
-            addr.sin_port = htons(port);
-            freeaddrinfo(result);
-
-            dns_cache_[host] = addr;
-        }
-    }
-
-    // Non-blocking connect - will return EINPROGRESS
-    int result = connect(sockfd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr));
-
-    if (result < 0) {
-        // EINPROGRESS is expected for non-blocking connect
-        if (errno != EINPROGRESS) {
-            close_fd(sockfd);
-            return -1;
-        }
-        // Connection in progress - epoll will notify when ready
-    }
-
-    return sockfd;
 }
 
 std::string Server::build_backend_request(
@@ -1219,27 +1076,23 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
     LOG_DEBUG(logger_, "Backend event: fd={} readable={} writable={} error={}", backend_fd,
               readable, writable, error);
 
-    auto it = backend_connections_.find(backend_fd);
-    if (it == backend_connections_.end()) {
+    auto [client_fd, stream_id] = backend_proxy_->get_client_for_backend(backend_fd);
+    if (client_fd == -1) {
         LOG_DEBUG(logger_, "Backend fd={} not found in connections map", backend_fd);
         return;
     }
 
-    // Get client_fd and stream_id from map (no longer storing raw pointers)
-    int client_fd = it->second.first;
-    int32_t stream_id = it->second.second;
-
-    auto conn_it = connections_.find(client_fd);
-    if (conn_it == connections_.end()) {
+    Connection* client_conn_ptr = connection_manager_->get(client_fd);
+    if (!client_conn_ptr) {
         // Client connection closed, cleanup backend
         LOG_DEBUG(logger_, "Client fd={} not found, cleaning up backend fd={}", client_fd,
                   backend_fd);
-        backend_connections_.erase(it);
+        backend_proxy_->unregister_backend_connection(backend_fd);
         close_fd(backend_fd);
         return;
     }
 
-    Connection& client_conn = *conn_it->second;
+    Connection& client_conn = *client_conn_ptr;
 
     // Handle WebSocket backend events
     if (client_conn.protocol == Protocol::WEBSOCKET && client_conn.ws_conn) {
@@ -1267,7 +1120,7 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
 
     if (!backend_conn) {
         // Backend connection was already cleaned up, remove from map
-        backend_connections_.erase(it);
+        backend_proxy_->unregister_backend_connection(backend_fd);
         close_fd(backend_fd);
         return;
     }
@@ -1275,7 +1128,7 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
     // Handle error
     if (error) {
         // Backend connection failed or closed
-        backend_connections_.erase(it);
+        backend_proxy_->unregister_backend_connection(backend_fd);
         close_fd(backend_fd);
 
         // HTTP/2 FIX: Remove from correct location based on protocol
@@ -1288,14 +1141,27 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
             client_conn.backend_conn.reset();
         }
 
-        // Send error response to client
+        // Send error response to client (check protocol for HTTP/1.1 vs HTTP/2)
         client_conn.response.status = http::StatusCode::BadGateway;
         client_conn.response.reason_phrase = "Bad Gateway";
         client_conn.response.headers.clear();
         client_conn.response.backend_headers.clear();
         client_conn.response.middleware_headers.clear();
         client_conn.response_body.clear();
-        send_response(client_conn, false);
+
+        if (client_conn.protocol == Protocol::HTTP_2 && stream_id >= 0) {
+            // HTTP/2 client - submit error response to H2 session
+            auto* stream = client_conn.h2_session->get_stream(stream_id);
+            if (stream) {
+                stream->response.status = http::StatusCode::BadGateway;
+                stream->response_complete = true;
+                auto ec = client_conn.h2_session->submit_response(stream_id, stream->response);
+                (void)ec;
+            }
+        } else {
+            // HTTP/1.1 client
+            send_response(client_conn, false);
+        }
         return;
     }
 
@@ -1321,7 +1187,7 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
                 }
             }
 
-            backend_connections_.erase(it);
+            backend_proxy_->unregister_backend_connection(backend_fd);
             close_fd(backend_fd);
 
             // HTTP/2 FIX: Remove from correct location
@@ -1338,7 +1204,20 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
             client_conn.response.backend_headers.clear();
             client_conn.response.middleware_headers.clear();
             // client_conn.response_body.clear();
-            send_response(client_conn, false);
+
+            if (client_conn.protocol == Protocol::HTTP_2 && stream_id >= 0) {
+                // HTTP/2 client - submit error response to H2 session
+                auto* stream = client_conn.h2_session->get_stream(stream_id);
+                if (stream) {
+                    stream->response.status = http::StatusCode::BadGateway;
+                    stream->response_complete = true;
+                    auto ec = client_conn.h2_session->submit_response(stream_id, stream->response);
+                    (void)ec;
+                }
+            } else {
+                // HTTP/1.1 client
+                send_response(client_conn, false);
+            }
             return;
         }
 
@@ -1359,7 +1238,7 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
                 }
             }
 
-            backend_connections_.erase(it);
+            backend_proxy_->unregister_backend_connection(backend_fd);
             close_fd(backend_fd);
 
             // HTTP/2 FIX: Remove from correct location
@@ -1376,13 +1255,90 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
             client_conn.response.backend_headers.clear();
             client_conn.response.middleware_headers.clear();
             // client_conn.response_body.clear();
-            send_response(client_conn, false);
+
+            if (client_conn.protocol == Protocol::HTTP_2 && stream_id >= 0) {
+                // HTTP/2 client - submit error response to H2 session
+                auto* stream = client_conn.h2_session->get_stream(stream_id);
+                if (stream) {
+                    stream->response.status = http::StatusCode::BadGateway;
+                    stream->response_complete = true;
+                    auto ec = client_conn.h2_session->submit_response(stream_id, stream->response);
+                    (void)ec;
+                }
+            } else {
+                // HTTP/1.1 client
+                send_response(client_conn, false);
+            }
             return;
         }
 
         // Connect succeeded!
         backend_conn->connect_pending = false;
-        // send_pending is still true, will be handled below
+
+        // HTTP/2 backend: Initialize HTTP/2 session and send preface
+        if (backend_conn->is_http2 && !backend_conn->preface_sent) {
+            // Get H2Session (either from persistent connection or create new one)
+            http::H2Session* h2_session = nullptr;
+
+            if (backend_conn->persistent_h2_conn) {
+                // Using persistent HTTP/2 connection - H2Session already exists
+                h2_session = backend_conn->persistent_h2_conn->h2_session.get();
+            } else {
+                // Legacy path (non-persistent): Create new H2Session
+                backend_conn->h2_session = std::make_unique<http::H2Session>(false);
+                h2_session = backend_conn->h2_session.get();
+            }
+
+            // CRITICAL: For nghttp2 client sessions, send_data() already includes the preface!
+            // We do NOT need to manually prepend it (that causes a double-preface bug)
+            auto preface_and_settings = h2_session->send_data();
+
+            ssize_t sent = send(backend_fd, preface_and_settings.data(),
+                               preface_and_settings.size(), MSG_NOSIGNAL);
+
+            if (sent != static_cast<ssize_t>(preface_and_settings.size())) {
+                // Failed to send preface + SETTINGS
+                backend_proxy_->unregister_backend_connection(backend_fd);
+                close_fd(backend_fd);
+
+                int32_t stream_id = backend_conn->stream_id;
+                if (stream_id >= 0) {
+                    client_conn.h2_stream_backends.erase(stream_id);
+                } else {
+                    client_conn.backend_conn.reset();
+                }
+
+                client_conn.response.status = http::StatusCode::BadGateway;
+                client_conn.response.reason_phrase = "Bad Gateway";
+
+                if (client_conn.protocol == Protocol::HTTP_2 && stream_id >= 0) {
+                    // HTTP/2 client - submit error response to H2 session
+                    auto* stream = client_conn.h2_session->get_stream(stream_id);
+                    if (stream) {
+                        stream->response.status = http::StatusCode::BadGateway;
+                        stream->response_complete = true;
+                        auto ec = client_conn.h2_session->submit_response(stream_id, stream->response);
+                        (void)ec;
+                    }
+                } else {
+                    // HTTP/1.1 client
+                    send_response(client_conn, false);
+                }
+                return;
+            }
+
+            backend_conn->preface_sent = true;
+            h2_session->consume_send_buffer(preface_and_settings.size());
+
+            // CRITICAL: Do NOT submit request yet!
+            // We must wait for the backend's SETTINGS frame and send ACK first.
+            // The request will be submitted in the readable handler when we receive SETTINGS.
+            // For now, just mark that we're waiting to receive backend's SETTINGS.
+            backend_conn->send_pending = false;
+            backend_conn->recv_pending = true;  // Wait for backend's SETTINGS
+        }
+
+        // send_pending is still true for HTTP/1.1, will be handled below
     }
 
     // Handle writable (can send request to backend)
@@ -1415,7 +1371,7 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
                 }
             }
 
-            backend_connections_.erase(it);
+            backend_proxy_->unregister_backend_connection(backend_fd);
             close_fd(backend_fd);
 
             // HTTP/2 FIX: Remove from correct location
@@ -1431,8 +1387,21 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
             client_conn.response.headers.clear();  // Clear any residual headers from middleware
             client_conn.response.backend_headers.clear();
             client_conn.response.middleware_headers.clear();
-            // client_conn.response_body.clear();
-            send_response(client_conn, false);
+
+            // Check protocol and send appropriate response type
+            if (client_conn.protocol == Protocol::HTTP_2 && stream_id >= 0) {
+                // HTTP/2 client - submit error response to H2 session
+                auto* stream = client_conn.h2_session->get_stream(stream_id);
+                if (stream) {
+                    stream->response.status = http::StatusCode::BadGateway;
+                    stream->response_complete = true;
+                    auto ec = client_conn.h2_session->submit_response(stream_id, stream->response);
+                    (void)ec;
+                }
+            } else {
+                // HTTP/1.1 client
+                send_response(client_conn, false);
+            }
         }
     }
 
@@ -1444,7 +1413,9 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
         bool should_send_error = false;
 
         // Read loop: accumulate data in recv_buffer without parsing
+        int read_iterations = 0;
         while (!done_reading) {
+            read_iterations++;
             uint8_t chunk[8192];
             ssize_t n = recv(backend_fd, chunk, sizeof(chunk), MSG_DONTWAIT);
 
@@ -1455,6 +1426,7 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
             } else if (n == 0) {
                 // Backend closed connection
                 done_reading = true;
+                should_send_error = true;  // Connection closed unexpectedly
             } else {
                 // n < 0 - check if EAGAIN (no more data available) or real error
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -1473,35 +1445,139 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
         http::Response response;
 
         if (!should_send_error && !backend_conn->recv_buffer.empty()) {
-            http::Parser parser;
-            auto [result, consumed] = parser.parse_response(
-                std::span<const uint8_t>(backend_conn->recv_buffer), response);
+            if (backend_conn->is_http2 && backend_conn->h2_session) {
+                // HTTP/2 backend: Each request has its own H2Session (no multiplexing)
+                http::H2Session* h2_session = backend_conn->h2_session.get();
+                // HTTP/2 backend: Feed data to nghttp2
+                size_t consumed = 0;
+                auto recv_error = h2_session->recv(
+                    std::span<const uint8_t>(backend_conn->recv_buffer), consumed);
 
-            if (result == http::ParseResult::Complete) {
-                response_complete = true;
-            } else if (result == http::ParseResult::Error) {
-                should_send_error = true;
+                if (recv_error) {
+                    should_send_error = true;
+                } else {
+                    // Remove consumed bytes from buffer
+                    backend_conn->recv_buffer.erase(
+                        backend_conn->recv_buffer.begin(),
+                        backend_conn->recv_buffer.begin() + consumed);
+
+                    // CRITICAL: Send any pending frames (like SETTINGS ACK) back to backend
+                    // nghttp2 automatically queues ACK frames when receiving SETTINGS/PING
+                    auto ack_data = h2_session->send_data();
+                    if (!ack_data.empty()) {
+                        ssize_t sent = send(backend_fd, ack_data.data(), ack_data.size(), MSG_NOSIGNAL);
+                        if (sent > 0) {
+                            h2_session->consume_send_buffer(sent);
+                        }
+                    }
+
+                    // CRITICAL: After SETTINGS handshake completes, submit the request
+                    // This ensures correct HTTP/2 flow: SETTINGS → SETTINGS ACK → Request
+                    if (!backend_conn->settings_ack_sent) {
+                        LOG_DEBUG(logger_, "[gRPC-HTTP/2] SETTINGS handshake complete, submitting request");
+                        backend_conn->settings_ack_sent = true;
+
+                        // Now submit the actual request as HTTP/2 stream
+                        http::Request& req = backend_conn->preserved_request;
+                        int32_t new_stream_id = -1;
+                        auto req_error = h2_session->submit_request(req, new_stream_id);
+
+                        if (req_error) {
+                            LOG_ERROR(logger_, "[gRPC-HTTP/2] Failed to submit request: {}", req_error.message());
+                            should_send_error = true;
+                        } else {
+                            backend_conn->backend_stream_id = new_stream_id;
+                            LOG_DEBUG(logger_, "[gRPC-HTTP/2] Request submitted with stream_id={}", new_stream_id);
+
+                            // Get the serialized HTTP/2 frames (HEADERS + DATA)
+                            auto request_data = h2_session->send_data();
+
+                            // Send request frames to backend
+                            if (!request_data.empty()) {
+                                ssize_t sent = send(backend_fd, request_data.data(), request_data.size(), MSG_NOSIGNAL);
+
+                                if (sent > 0) {
+                                    h2_session->consume_send_buffer(sent);
+                                } else {
+                                    // Send failed - connection likely closed
+                                    should_send_error = true;
+                                }
+                            }
+
+                            // Continue reading for response
+                            backend_conn->recv_pending = true;
+                            return;  // Wait for backend response in next readable event
+                        }
+                    }
+
+                    // Check if our stream has a complete response
+                    auto* stream = h2_session->get_stream(backend_conn->backend_stream_id);
+                    LOG_DEBUG(logger_, "[gRPC-HTTP/2] backend_stream_id={}, stream={}, stream->response_complete={}",
+                             backend_conn->backend_stream_id,
+                             (void*)stream,
+                             stream ? stream->response_complete : false);
+                    if (stream && stream->response_complete) {
+                        response_complete = true;
+                        response = stream->response;
+
+                        // CRITICAL: Copy trailers for gRPC support
+                        // gRPC requires trailers (grpc-status, grpc-message) to complete the RPC
+                        backend_conn->trailers = stream->trailers;
+                        LOG_DEBUG(logger_, "[gRPC-HTTP/2] Response complete! status={}", static_cast<int>(response.status));
+                    } else {
+                        // Response not complete yet, wait for more data
+                        LOG_DEBUG(logger_, "[gRPC-HTTP/2] Response not complete, waiting for more data");
+                        return;
+                    }
+                }
             } else {
-                // Incomplete - wait for next epoll event to read more data
-                return;  // Don't process response yet, wait for more data
+                // HTTP/1.1 backend: Parse response
+                http::Parser parser;
+                auto [result, consumed] = parser.parse_response(
+                    std::span<const uint8_t>(backend_conn->recv_buffer), response);
+
+                if (result == http::ParseResult::Complete) {
+                    response_complete = true;
+                } else if (result == http::ParseResult::Error) {
+                    should_send_error = true;
+                } else {
+                    // Incomplete - wait for next epoll event to read more data
+                    return;  // Don't process response yet, wait for more data
+                }
             }
         }
 
         // Handle error cases - send 502 Bad Gateway to client
         if (should_send_error) {
-            // Send error response using existing client_conn reference
+            // Get stream_id before cleanup (needed for HTTP/2 response)
+            int32_t error_stream_id = backend_conn->stream_id;
+
+            // Send error response using existing client_conn reference (check protocol)
             client_conn.response.status = http::StatusCode::BadGateway;
             client_conn.response.reason_phrase = "Bad Gateway";
             client_conn.response.headers.clear();
             client_conn.response.backend_headers.clear();
             client_conn.response.middleware_headers.clear();
             client_conn.response.body = std::span<const uint8_t>();
-            send_response(client_conn, false);  // Close connection after error
+
+            if (client_conn.protocol == Protocol::HTTP_2 && error_stream_id >= 0) {
+                // HTTP/2 client - submit error response to H2 session
+                auto* stream = client_conn.h2_session->get_stream(error_stream_id);
+                if (stream) {
+                    stream->response.status = http::StatusCode::BadGateway;
+                    stream->response_complete = true;
+                    auto ec = client_conn.h2_session->submit_response(error_stream_id, stream->response);
+                    (void)ec;
+                }
+            } else {
+                // HTTP/1.1 client
+                send_response(client_conn, false);
+            }
 
             // Cleanup backend connection
             close_fd(backend_fd);
-            (void)remove_backend_from_epoll(backend_fd);
-            backend_connections_.erase(it);
+            (void)backend_proxy_->remove_backend_from_epoll(backend_fd);
+            backend_proxy_->unregister_backend_connection(backend_fd);
             return;
         }
 
@@ -1533,6 +1609,14 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
             // Copy body to owned buffer
             client_conn.response_body.assign(response.body.begin(), response.body.end());
             client_conn.response.body = client_conn.response_body;
+
+            // CRITICAL: Save trailers for HTTP/2 gRPC support
+            // We need to save them here because backend_conn will be destroyed later (line 2046)
+            // and we need the trailers at line 2080 to copy to the client stream
+            std::vector<std::pair<std::string, std::string>> grpc_trailers;
+            if (backend_conn->is_http2) {
+                grpc_trailers = backend_conn->trailers;
+            }
 
             // CRITICAL: Clear middleware_headers before response middleware runs
             // (HTTP/2 reuses client_conn.response across streams, so middleware_headers
@@ -1573,7 +1657,7 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
             // Reuse upstream from above (already looked up for circuit breaker)
             if (upstream) {
                 // Remove from epoll so pooled connections don't generate spurious events
-                (void)remove_backend_from_epoll(backend_fd);
+                (void)backend_proxy_->remove_backend_from_epoll(backend_fd);
 
                 // Check if backend wants to close the connection
                 bool should_close = false;
@@ -1586,13 +1670,15 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
                     }
                 }
 
-                if (should_close) {
-                    // Backend sent Connection: close - don't pool, just close
+                if (should_close || backend_conn->is_http2) {
+                    // Close instead of pooling if:
+                    // 1. Backend sent Connection: close
+                    // 2. HTTP/2 connection (always close after use - no pooling for h2)
                     close_fd(backend_fd);
                 } else {
-                    // Safe to return to pool for reuse
+                    // Safe to return to pool for reuse (HTTP/1.1 only)
                     upstream->backend_pool().release(backend_fd, backend_conn->backend_host,
-                                                     backend_conn->backend_port);
+                                                     backend_conn->backend_port, false);
                 }
             } else {
                 // Upstream not found - just close
@@ -1600,7 +1686,7 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
             }
 
             // Cleanup backend connection
-            backend_connections_.erase(it);
+            backend_proxy_->unregister_backend_connection(backend_fd);
             int32_t stream_id = backend_conn->stream_id;  // Save before reset
 
             // HTTP/2 FIX: Remove from correct location based on protocol
@@ -1642,6 +1728,13 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
                         // Copy body
                         stream->response_body = std::move(client_conn.response_body);
                         stream->response.body = stream->response_body;
+
+                        // CRITICAL: Copy trailers for gRPC support
+                        // gRPC requires trailers (grpc-status, grpc-message) to complete the RPC
+                        if (!grpc_trailers.empty()) {
+                            stream->trailers = std::move(grpc_trailers);
+                        }
+
                         stream->response_complete = true;
 
                         // Filter out HTTP/1.1-specific headers forbidden in HTTP/2
@@ -1683,6 +1776,29 @@ void Server::handle_backend_event(int backend_fd, bool readable, bool writable, 
 
                             if (sent > 0) {
                                 client_conn.h2_session->consume_send_buffer(sent);
+                            }
+                        }
+
+                        // CRITICAL: For gRPC, submit trailers AFTER DATA frame has been sent
+                        // Check if this stream has trailers that need to be sent
+                        if (!stream->trailers.empty()) {
+                            auto trailer_ec = client_conn.h2_session->submit_trailers(stream_id);
+                            if (!trailer_ec) {
+                                // Get trailer frame data (HEADERS with END_STREAM)
+                                auto trailer_data = client_conn.h2_session->send_data();
+                                if (!trailer_data.empty()) {
+                                    ssize_t trailer_sent;
+                                    if (client_conn.tls_enabled) {
+                                        trailer_sent =
+                                            ssl_write_nonblocking(client_conn.ssl, trailer_data);
+                                    } else {
+                                        trailer_sent = send(client_conn.fd, trailer_data.data(),
+                                                            trailer_data.size(), 0);
+                                    }
+                                    if (trailer_sent > 0) {
+                                        client_conn.h2_session->consume_send_buffer(trailer_sent);
+                                    }
+                                }
                             }
                         }
 
@@ -1738,53 +1854,6 @@ void Server::process_backend_operations() {
     // This method is called periodically to process any pending backend operations
     // For now, it's a placeholder - most processing happens in handle_backend_event()
     // In the future, this could handle timeouts, retries, etc.
-}
-
-bool Server::add_backend_to_epoll(int backend_fd, uint32_t events) {
-#ifdef __linux__
-    epoll_event ev{};
-    ev.events = events | EPOLLET;  // Edge-triggered
-    ev.data.fd = backend_fd;
-    return epoll_ctl(backend_epoll_fd_, EPOLL_CTL_ADD, backend_fd, &ev) == 0;
-#elif defined(__APPLE__) || defined(__FreeBSD__)
-    // For kqueue, we need to add separate kevents for read and write
-    struct kevent kevs[2];
-    int nchanges = 0;
-
-    if (events & EPOLLIN) {
-        EV_SET(&kevs[nchanges++], backend_fd, EVFILT_READ, EV_ADD | EV_ENABLE | EV_CLEAR, 0, 0,
-               nullptr);
-    }
-    if (events & EPOLLOUT) {
-        EV_SET(&kevs[nchanges++], backend_fd, EVFILT_WRITE, EV_ADD | EV_ENABLE | EV_CLEAR, 0, 0,
-               nullptr);
-    }
-
-    if (nchanges > 0) {
-        return kevent(backend_epoll_fd_, kevs, nchanges, nullptr, 0, nullptr) == 0;
-    }
-    return false;
-#else
-    return false;
-#endif
-}
-
-bool Server::remove_backend_from_epoll(int backend_fd) {
-#ifdef __linux__
-    // On Linux, EPOLL_CTL_DEL doesn't need an event structure (can be nullptr)
-    return epoll_ctl(backend_epoll_fd_, EPOLL_CTL_DEL, backend_fd, nullptr) == 0;
-#elif defined(__APPLE__) || defined(__FreeBSD__)
-    // For kqueue, we need to delete both READ and WRITE filters
-    struct kevent kevs[2];
-    EV_SET(&kevs[0], backend_fd, EVFILT_READ, EV_DELETE, 0, 0, nullptr);
-    EV_SET(&kevs[1], backend_fd, EVFILT_WRITE, EV_DELETE, 0, 0, nullptr);
-
-    // It's OK if some filters don't exist (returns error but we ignore it)
-    kevent(backend_epoll_fd_, kevs, 2, nullptr, 0, nullptr);
-    return true;  // Always return true since partial success is OK
-#else
-    return false;
-#endif
 }
 
 // ============================================================================
@@ -1905,7 +1974,7 @@ void Server::handle_websocket_upgrade(Connection& conn) {
     const auto& backend = *selected_backend;
 
     // Connect to backend (blocking for Phase 3 - will be async in Phase 5)
-    int backend_fd = connect_to_backend(backend.host, backend.port);
+    int backend_fd = backend_proxy_->connect_to_backend(backend.host, backend.port);
     if (backend_fd < 0) {
         LOG_ERROR(logger_, "WebSocket upgrade failed: Cannot connect to backend {}:{}",
                   backend.host, backend.port);
@@ -2022,8 +2091,8 @@ void Server::handle_websocket_upgrade(Connection& conn) {
     }
 
     // Register backend FD in epoll for frame forwarding
-    backend_connections_[backend_fd] = {conn.fd, -1};  // -1 = not HTTP/2
-    if (!add_backend_to_epoll(backend_fd, EPOLLIN)) {
+    backend_proxy_->register_backend_connection(backend_fd, conn.fd, -1);  // -1 = not HTTP/2
+    if (!backend_proxy_->add_backend_to_epoll(backend_fd, EPOLLIN)) {
         LOG_ERROR(logger_, "WebSocket upgrade failed: Cannot add backend_fd to epoll");
         ::close(backend_fd);
         handle_close(conn.fd);

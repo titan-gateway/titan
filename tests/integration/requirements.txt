@@ -11,3 +11,5 @@ zstandard>=0.22.0
 brotli>=1.1.0
 websockets>=15.0  # WebSocket support for uvicorn backend
 websocket-client>=1.9.0  # WebSocket client for integration tests
+grpcio>=1.60.0  # gRPC Python library
+grpcio-tools>=1.60.0  # Protocol buffer compiler for gRPC

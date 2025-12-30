@@ -21,7 +21,7 @@
       "name": "backend_pool_1",
       "load_balancing": "round_robin",
       "pool_size": 50,
-      "pool_idle_timeout": 30,
+      "pool_idle_timeout_seconds": 30,
       "backends": [
         {
           "host": "127.0.0.1",
@@ -47,7 +47,7 @@
       "name": "backend_pool_2",
       "load_balancing": "least_connections",
       "pool_size": 50,
-      "pool_idle_timeout": 30,
+      "pool_idle_timeout_seconds": 30,
       "backends": [
         {
           "host": "127.0.0.1",

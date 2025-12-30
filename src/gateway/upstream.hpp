@@ -27,10 +27,26 @@
 #include <string_view>
 #include <vector>
 
+#include "../core/containers.hpp"
+#include "../http/h2.hpp"
 #include "circuit_breaker.hpp"
 #include "connection_pool.hpp"
 
 namespace titan::gateway {
+
+/// Persistent HTTP/2 connection for stream multiplexing
+/// Stores the session state and file descriptor that persists across requests
+struct PersistentH2Connection {
+    int fd = -1;
+    std::unique_ptr<http::H2Session> h2_session;
+    std::string host;
+    uint16_t port = 0;
+    bool preface_sent = false;
+    bool settings_ack_sent = false;
+
+    // Track if connection is healthy
+    bool is_broken = false;
+};
 
 /// Backend server status
 enum class BackendStatus : uint8_t {
@@ -193,7 +209,9 @@ private:
 /// Upstream group (multiple backends with load balancing)
 class Upstream {
 public:
-    explicit Upstream(std::string name, size_t backend_pool_size = 64);
+    explicit Upstream(std::string name, size_t backend_pool_size = 64,
+                      std::chrono::seconds pool_idle_timeout = std::chrono::seconds(30),
+                      size_t pool_max_requests_per_conn = 0);
     ~Upstream();
 
     // Non-copyable, movable
@@ -233,17 +251,36 @@ public:
     };
     [[nodiscard]] Stats get_stats() const;
 
-    /// Get backend connection pool
+    /// Get backend connection pool (HTTP/1.1 only)
     [[nodiscard]] BackendConnectionPool& backend_pool() noexcept { return backend_pool_; }
     [[nodiscard]] const BackendConnectionPool& backend_pool() const noexcept {
         return backend_pool_;
     }
 
+    /// Get persistent HTTP/2 connection for backend (multiplexing)
+    /// Returns nullptr if no persistent connection exists or if connection is broken
+    [[nodiscard]] PersistentH2Connection* get_h2_connection(const std::string& host,
+                                                              uint16_t port);
+
+    /// Create and store new persistent HTTP/2 connection for backend (multiplexing)
+    /// This connection will be reused for all HTTP/2 requests to this backend
+    /// Returns pointer to the created connection
+    [[nodiscard]] PersistentH2Connection* create_h2_connection(const std::string& host,
+                                                                 uint16_t port, int fd);
+
+    /// Remove persistent HTTP/2 connection (on error/close)
+    void remove_h2_connection(const std::string& host, uint16_t port);
+
 private:
     std::string name_;
     std::vector<Backend> backends_;
     std::unique_ptr<LoadBalancer> balancer_;
-    BackendConnectionPool backend_pool_;  // Simple FD-based pool for async backend
+    BackendConnectionPool backend_pool_;  // Simple FD-based pool for HTTP/1.1
+
+    // Persistent HTTP/2 connections (one per backend for multiplexing)
+    // Key: "host:port", Value: PersistentH2Connection with H2Session + FD
+    // These connections are NEVER closed/pooled, they persist until broken
+    titan::core::fast_map<std::string, std::unique_ptr<PersistentH2Connection>> h2_connections_;
 };
 
 /// Upstream manager (registry of all upstreams)
